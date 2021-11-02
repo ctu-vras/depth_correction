@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 import torch
+import open3d as o3d  # used for normals estimation and visualization
 
 __all__ = [
     'DepthCloud'
@@ -28,7 +29,7 @@ def depth_cloud_from_points(pts, vps=None):
 
 class DepthCloud(object):
 
-    def __init__(self, vps=None, dirs=None, depth=None):
+    def __init__(self, vps=None, dirs=None, depth=None, normals=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         :param vps: Viewpoints as ...-by-3 tensor, or None for zero vector.
@@ -51,18 +52,25 @@ class DepthCloud(object):
         self.vps = vps
         self.dirs = dirs
         self.depth = depth
+        self.normals = normals
 
     def to_points(self):
         pts = self.vps + self.depth * self.dirs
         return pts
 
-    def visualize(self):
-        try:
-            import open3d as o3d
-        except:
-            print('Install Open3d for visualization')
-            return
+    def estimate_normals(self, knn=15):
+        pcd = o3d.geometry.PointCloud()
+        pts = self.to_points()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd.estimate_normals()
+        pcd.normalize_normals()
+        pcd.orient_normals_consistent_tangent_plane(k=knn)
+        self.normals = torch.as_tensor(pcd.normals)
+
+    def visualize(self, normals=False):
         cloud = self.to_points()
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(cloud)
-        o3d.visualization.draw_geometries([pcd])
+        if self.normals is not None:
+            pcd.normals = o3d.utility.Vector3dVector(self.normals)
+        o3d.visualization.draw_geometries([pcd], point_show_normal=normals)

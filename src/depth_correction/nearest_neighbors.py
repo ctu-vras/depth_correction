@@ -21,14 +21,14 @@ def nearest_neighbors(points, query, k=None, r=None):
     assert k or r
 
     # Convert to numpy and squeeze leading dimensions.
-    points = points.detach().numpy().reshape([None, points.shape[-1]])
-    query = query.detach().numpy().reshape([None, query.shape[-1]])
+    points = points.detach().numpy().reshape([-1, points.shape[-1]])
+    query = query.detach().numpy().reshape([-1, query.shape[-1]])
 
     # Create index and query points.
     index = cKDTree(points)
     if k is not None:
         dist, ind = index.query(query, k)
     elif r is not None:
-        dist, ind = index.query_ball_point(query, r)
+        dist, ind = None, index.query_ball_point(query, r)
 
     return dist, ind

@@ -1,4 +1,5 @@
 from __future__ import absolute_import, division, print_function
+import numpy as np
 import torch
 import open3d as o3d  # used for normals estimation and visualization
 
@@ -74,3 +75,31 @@ class DepthCloud(object):
         if self.normals is not None:
             pcd.normals = o3d.utility.Vector3dVector(self.normals)
         o3d.visualization.draw_geometries([pcd], point_show_normal=normals)
+
+    @staticmethod
+    def from_points(pts, vps=None):
+        """Create depth cloud from points and viewpoints.
+
+        :param pts: Points as ...-by-3 tensor.
+        :param vps: Viewpoints as ...-by-3 tensor, or None for zero vector.
+        :return:
+        """
+        if isinstance(pts, np.ndarray):
+            pts = torch.tensor(pts)
+        assert isinstance(pts, torch.Tensor)
+        if vps is None:
+            vps = torch.zeros((3,))
+        if isinstance(vps, np.ndarray):
+            vps = torch.tensor(vps)
+        assert isinstance(vps, torch.Tensor)
+        print(pts.shape)
+        print(vps.shape)
+        assert vps.shape == pts.shape or tuple(vps.shape) == (3,)
+        dirs = pts - vps
+        depth = dirs.norm(dim=-1, keepdim=True)
+        # TODO: Handle invalid points (zero depth).
+        print(dirs.shape)
+        print(depth.shape)
+        dirs = dirs / depth
+        depth_cloud = DepthCloud(vps, dirs, depth)
+        return depth_cloud

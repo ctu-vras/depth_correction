@@ -54,6 +54,7 @@ class DepthCloud(object):
         self.dirs = dirs
         self.depth = depth
         self.normals = normals
+        self.inc_angles = None
 
     def to_points(self):
         pts = self.vps + self.depth * self.dirs
@@ -67,6 +68,11 @@ class DepthCloud(object):
         pcd.normalize_normals()
         pcd.orient_normals_consistent_tangent_plane(k=knn)
         self.normals = torch.as_tensor(pcd.normals)
+
+    def estimate_incidence_angles(self):
+        assert self.normals is not None
+        coss = torch.matmul(self.normals.view(-1, 3), -self.dirs.view(-1, 3).T)[:, 0]
+        self.inc_angles = torch.arccos(coss).unsqueeze(-1)  # shape = (N, 1)
 
     def visualize(self, normals=False):
         cloud = self.to_points()

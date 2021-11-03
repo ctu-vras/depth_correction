@@ -75,6 +75,12 @@ class DepthCloud(object):
         self.eigvals = None
         self.trace = None
 
+        self.loss = None
+
+    def copy(self):
+        dc = DepthCloud(self.vps, self.dirs, self.depth)
+        return dc
+
     def size(self):
         return self.dirs.shape[0]
 
@@ -159,18 +165,31 @@ class DepthCloud(object):
     def update_eigvals(self, invalid=0.0):
         self.eigvals = self.compute_eigvals()
 
+    @timing
+    def update_all(self, k=None, r=None):
+        self.update_points()
+        self.update_neighbors(k=k, r=r)
+        self.update_cov()
+        self.update_eigvals()
+
     def to_point_cloud(self, colors=None):
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.to_points())
         if self.normals is not None:
             pcd.normals = o3d.utility.Vector3dVector(self.normals)
 
-        if colors == 'min_eigval':
-            assert self.eigvals is not None
-            colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
-            vals = self.eigvals[:, :1]
+        if colors is not None:
+
+            if colors == 'loss':
+                assert self.loss is not None
+                vals = self.loss
+            elif colors == 'min_eigval':
+                assert self.eigvals is not None
+                vals = self.eigvals[:, :1]
+
             min_val, max_val = torch.quantile(vals, torch.tensor([0., 0.99], dtype=vals.dtype))
             print('min, max: %.6g, %.6g' % (min_val, max_val))
+            colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
             colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
             # print(colors.shape)
             pcd.colors = o3d.utility.Vector3dVector(colors.detach().numpy())

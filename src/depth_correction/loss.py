@@ -54,11 +54,22 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def min_eigval_loss(points, query=None, query_eigval=None, k=None, r=None, reduction='mean', invalid=0.):
+def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False, reduction='mean', invalid=0.):
+    if isinstance(cloud, DepthCloud):
+        dc = cloud.copy()
+        dc.update_all(k=k, r=r)
+        dc.loss = dc.eigvals[:, 0]
+        if offset:
+            assert cloud.eigvals is not None
+            dc.loss = dc.loss - cloud.eigvals[:, 0]
+        dc.loss = torch.relu(dc.loss)
+        loss = reduce(dc.loss, reduction=reduction)
+        return loss, dc
+
     invalid = torch.tensor(invalid)
-    # Serial  eigvals.
+    # Serial eigvals.
     fun = lambda p, q: torch.linalg.eigvalsh(torch.cov(p.transpose(-1, -2)))[0] if p.shape[0] >= 3 else invalid
-    loss = neighbor_fun(points, fun, query=query, k=k, r=r)
+    loss = neighbor_fun(cloud, fun, query=query, k=k, r=r)
     loss = torch.stack(loss)
     loss = reduce(loss, reduction=reduction)
 
@@ -69,7 +80,7 @@ def min_eigval_loss(points, query=None, query_eigval=None, k=None, r=None, reduc
     return loss
 
 
-def trace_loss(points, query=None, query_trace=None,  k=None, r=None, reduction='mean', invalid=0.):
+def trace_loss(points, query=None, k=None, r=None, reduction='mean', invalid=0.):
     invalid = torch.tensor(invalid)
     fun = lambda p, q: torch.cov(p.transpose(-1, -2)).trace() if p.shape[0] >= 3 else invalid
     loss = neighbor_fun(points, fun, query=query, k=k, r=r)
@@ -87,13 +98,10 @@ def show_cloud(cloud, colormap=None):
 
 def demo():
     from data.asl_laser import Dataset, dataset_names
-    import open3d as o3d
 
     clouds = []
     poses = []
-    # ds = Dataset('wood_summer')
-    # ds = Dataset('eth')
-    ds = Dataset('apartment')
+    ds = Dataset(dataset_names[0])
     for id in ds.ids[::10]:
         t = timer()
         cloud = ds.local_cloud(id)
@@ -102,7 +110,6 @@ def demo():
         dc = DepthCloud.from_points(cloud)
         print('%i points read from dataset %s, cloud %i (%.3f s).'
               % (dc.size(), ds.name, id, timer() - t))
-        # dc.visualize()
 
         t = timer()
         grid_res = 0.1
@@ -118,16 +125,13 @@ def demo():
 
         dc.visualize(colors='min_eigval')
 
+        loss, loss_dc = min_eigval_loss(dc, r=0.25)
+        print(loss)
+        loss_dc.visualize(colors='loss')
 
-        # cloud = torch.tensor(cloud, dtype=torch.float64)
-        # pose = torch.tensor(pose, dtype=torch.float64)
-
-        # clouds.append(cloud)
-        # poses.append(pose)
-
-        # query = torch.index_select(cloud[::100], dim=0)
-        # query = cloud[::100]
-        # query = cloud
+        loss, loss_dc = min_eigval_loss(dc, r=0.25, offset=True)
+        print(loss)
+        loss_dc.visualize(colors='loss')
 
         # t = timer()
         # loss = min_eig_loss(cloud, query, k=9, reduction='none')

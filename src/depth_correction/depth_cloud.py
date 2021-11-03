@@ -159,15 +159,6 @@ class DepthCloud(object):
     def update_eigvals(self, invalid=0.0):
         self.eigvals = self.compute_eigvals()
 
-    def estimate_normals(self, knn=15):
-        pcd = o3d.geometry.PointCloud()
-        pts = self.to_points()
-        pcd.points = o3d.utility.Vector3dVector(pts)
-        pcd.estimate_normals()
-        pcd.normalize_normals()
-        pcd.orient_normals_consistent_tangent_plane(k=knn)
-        self.normals = torch.as_tensor(pcd.normals)
-
     def to_point_cloud(self, colors=None):
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.to_points())

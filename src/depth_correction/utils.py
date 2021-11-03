@@ -13,7 +13,8 @@ def map_colors(values, colormap, min_value=None, max_value=None):
         min_value = values.min()
     if max_value is None:
         max_value = values.max()
-    a = (values - min_value) / (max_value - min_value)
+    scale = max_value - min_value
+    a = (values - min_value) / scale if scale > 0.0 else values - min_value
     # TODO: Allow full colormap with multiple colors.
     # num_colors = colormap.shape[0]
     # i0 = torch.floor(a * (num_colors - 1))

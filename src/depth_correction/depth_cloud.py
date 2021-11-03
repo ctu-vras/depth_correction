@@ -78,7 +78,6 @@ class DepthCloud(object):
     def size(self):
         return self.dirs.shape[0]
 
-    @timing
     def to_points(self):
         pts = self.vps + self.depth * self.dirs
         return pts
@@ -131,7 +130,7 @@ class DepthCloud(object):
     @timing
     def update_cov(self, correction=1, invalid=0.0):
         invalid = torch.full((3, 3), invalid)
-        fun = lambda p, q: torch.cov(p.transpose(-1, -2), correction=correction) if p.shape[0] >= 1 else invalid
+        fun = lambda p, q: torch.cov(p.transpose(-1, -2), correction=correction) if p.shape[0] >= 2 else invalid
         cov = self.neighbor_fun(fun)
         cov = torch.stack(cov)
         self.cov = cov
@@ -169,11 +168,6 @@ class DepthCloud(object):
         pcd.orient_normals_consistent_tangent_plane(k=knn)
         self.normals = torch.as_tensor(pcd.normals)
 
-    def estimate_incidence_angles(self):
-        assert self.normals is not None
-        coss = torch.matmul(self.normals.view(-1, 3), -self.dirs.view(-1, 3).T)[:, 0]
-        self.inc_angles = torch.arccos(coss).unsqueeze(-1)  # shape = (N, 1)
-
     def to_point_cloud(self, colors=None):
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.to_points())
@@ -184,7 +178,7 @@ class DepthCloud(object):
             assert self.eigvals is not None
             colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
             vals = self.eigvals[:, :1]
-            min_val, max_val = torch.quantile(vals, torch.tensor([0., 0.99], dtype=torch.float64))
+            min_val, max_val = torch.quantile(vals, torch.tensor([0., 0.99], dtype=vals.dtype))
             print('min, max: %.6g, %.6g' % (min_val, max_val))
             colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
             # print(colors.shape)
@@ -273,14 +267,6 @@ class DepthCloud(object):
             self.estimate_normals()
         coss = torch.matmul(self.normals.view(-1, 3), -self.dirs.view(-1, 3).T)[:, 0].unsqueeze(-1)
         self.inc_angles = torch.as_tensor(torch.arccos(coss), dtype=torch.float32)  # shape = (N, 1)
-
-    def visualize(self, normals=False):
-        cloud = self.to_points().detach().cpu()
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(cloud)
-        if self.normals is not None:
-            pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
-        o3d.visualization.draw_geometries([pcd], point_show_normal=normals)
 
     def to(self, device=torch.device('cuda:0')):
         if self.depth is not None:

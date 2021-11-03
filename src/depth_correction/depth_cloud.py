@@ -30,7 +30,7 @@ def depth_cloud_from_points(pts, vps=None):
 
 class DepthCloud(object):
 
-    def __init__(self, vps=None, dirs=None, depth=None, normals=None):
+    def __init__(self, vps=None, dirs=None, depth=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         :param vps: Viewpoints as ...-by-3 tensor, or None for zero vector.
@@ -50,37 +50,16 @@ class DepthCloud(object):
         assert depth.shape[-1] == 1
         assert depth.shape[:-1] == dirs.shape[:-1]
 
-        self.vps = vps
-        self.dirs = dirs
-        self.depth = depth
-        self.normals = normals
+        self.vps = torch.as_tensor(vps, dtype=torch.float32)
+        self.dirs = torch.as_tensor(dirs, dtype=torch.float32)
+        self.depth = torch.as_tensor(depth, dtype=torch.float32)
+
+        self.normals = None
         self.inc_angles = None
 
     def to_points(self):
         pts = self.vps + self.depth * self.dirs
-        return pts
-
-    def estimate_normals(self, knn=15):
-        pcd = o3d.geometry.PointCloud()
-        pts = self.to_points()
-        pcd.points = o3d.utility.Vector3dVector(pts)
-        pcd.estimate_normals()
-        pcd.normalize_normals()
-        pcd.orient_normals_consistent_tangent_plane(k=knn)
-        self.normals = torch.as_tensor(pcd.normals)
-
-    def estimate_incidence_angles(self):
-        assert self.normals is not None
-        coss = torch.matmul(self.normals.view(-1, 3), -self.dirs.view(-1, 3).T)[:, 0]
-        self.inc_angles = torch.arccos(coss).unsqueeze(-1)  # shape = (N, 1)
-
-    def visualize(self, normals=False):
-        cloud = self.to_points()
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(cloud)
-        if self.normals is not None:
-            pcd.normals = o3d.utility.Vector3dVector(self.normals)
-        o3d.visualization.draw_geometries([pcd], point_show_normal=normals)
+        return torch.as_tensor(pts, dtype=torch.float32)
 
     @staticmethod
     def from_points(pts, vps=None):
@@ -109,3 +88,39 @@ class DepthCloud(object):
         dirs = dirs / depth
         depth_cloud = DepthCloud(vps, dirs, depth)
         return depth_cloud
+
+    def estimate_normals(self, knn=15):
+        pcd = o3d.geometry.PointCloud()
+        pts = self.to_points()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd.estimate_normals()
+        pcd.normalize_normals()
+        pcd.orient_normals_consistent_tangent_plane(k=knn)
+        self.normals = torch.as_tensor(pcd.normals, dtype=torch.float32)
+
+    def estimate_incidence_angles(self):
+        if self.normals is None:
+            self.estimate_normals()
+        coss = torch.matmul(self.normals.view(-1, 3), -self.dirs.view(-1, 3).T)[:, 0].unsqueeze(-1)
+        self.inc_angles = torch.as_tensor(torch.arccos(coss), dtype=torch.float32)  # shape = (N, 1)
+
+    def visualize(self, normals=False):
+        cloud = self.to_points().detach().cpu()
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(cloud)
+        if self.normals is not None:
+            pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
+        o3d.visualization.draw_geometries([pcd], point_show_normal=normals)
+
+    def to(self, device=torch.device('cuda:0')):
+        if self.depth is not None:
+            self.depth = self.depth.to(device)
+        if self.dirs is not None:
+            self.dirs = self.dirs.to(device)
+        if self.vps is not None:
+            self.vps = self.vps.to(device)
+        if self.normals is not None:
+            self.normals = self.normals.to(device)
+        if self.inc_angles is not None:
+            self.inc_angles = self.inc_angles.to(device)
+        return self

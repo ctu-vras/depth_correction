@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .depth_cloud import DepthCloud
 from .filters import filter_grid
 from .nearest_neighbors import nearest_neighbors
+import numpy as np
 import torch
 from timeit import default_timer as timer
 
@@ -15,13 +16,29 @@ __all__ = [
 ]
 
 
-def reduce(x, reduction='mean'):
+def reduce(x, reduction='mean', weights=None, only_finite=False, skip_nans=False):
     assert reduction in ('none', 'mean', 'sum')
 
+    keep = None
+    if only_finite:
+        keep = ~x.isfinite()
+    elif skip_nans:
+        keep = ~x.isnan()
+    if keep is not None:
+        if weights:
+            weights = weights[keep]
+        x = x[keep]
+
     if reduction == 'mean':
-        x = x.mean()
+        if weights is None:
+            x = x.mean()
+        else:
+            x = (weights * x).sum() / weights.sum()
     elif reduction == 'sum':
-        x = x.sum()
+        if weights is None:
+            x = x.sum()
+        else:
+            x = (weights * x).sum()
 
     return x
 
@@ -54,21 +71,44 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False, bounds=None, reduction='mean', invalid=0.):
+def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False,
+                    bounds_in=None, bounds=None, max_angle=None,
+                    reduction='mean', invalid=0.):
     if isinstance(cloud, DepthCloud):
         dc = cloud.copy()
-        dc.update_all(k=k, r=r)
+        # dc.update_all(k=k, r=r)
+        dc.update_points()
+        dc.update_neighbors(k=k, r=r)
+        if max_angle is not None:
+            dc.filter_neighbors_normal_angle(max_angle)
+        dc.update_features()
         dc.loss = dc.eigvals[:, 0]
 
         if offset:
             assert cloud.eigvals is not None
             dc.loss = dc.loss - cloud.eigvals[:, 0]
 
+        if bounds_in is not None:
+            assert len(bounds_in) == 2
+            assert bounds_in[0] <= bounds_in[1]
+            out_of_bounds = (cloud.eigvals[:, 0] < bounds_in[0]) | (cloud.eigvals[:, 0] > bounds_in[1])
+            dc.loss[out_of_bounds] = 0.0
+
+            n_out = out_of_bounds.sum().item()
+            n_total = out_of_bounds.numel()
+            print('%i / %i = %.1f %% out of bounds (input).'
+                  % (n_out, n_total, 100 * n_out / n_total))
+
         if bounds is not None:
             assert len(bounds) == 2
             assert bounds[0] <= bounds[1]
             out_of_bounds = (dc.eigvals[:, 0] < bounds[0]) | (dc.eigvals[:, 0] > bounds[1])
             dc.loss[out_of_bounds] = 0.0
+
+            n_out = out_of_bounds.sum().item()
+            n_total = out_of_bounds.numel()
+            print('%i / %i = %.1f %% out of bounds (new).'
+                  % (n_out, n_total, 100 * n_out / n_total))
 
         dc.loss = torch.relu(dc.loss)
         loss = reduce(dc.loss, reduction=reduction)
@@ -110,7 +150,10 @@ def demo():
     clouds = []
     poses = []
     # ds = Dataset(dataset_names[0])
-    ds = Dataset('eth')
+    ds = Dataset('apartment')
+    # ds = Dataset('eth')
+    # ds = Dataset('gazebo_summer')
+    r = 0.15
     for id in ds.ids[::10]:
         t = timer()
         cloud = ds.local_cloud(id)
@@ -126,7 +169,7 @@ def demo():
               % (dc.size(), grid_res, timer() - t))
 
         dc = dc.transform(pose)
-        dc.update_all(r=0.15)
+        dc.update_all(r=r)
         # dc.visualize(colors='inc_angles')
         # dc.visualize(colors='min_eigval')
 
@@ -134,11 +177,21 @@ def demo():
         poses.append(pose)
 
     combined = DepthCloud.concatenate(clouds, True)
-    combined.visualize(colors='inc_angles')
-    combined.visualize(colors='min_eigval')
+    # combined.update_neighbors(r=r)
+    # combined.filter_neighbors_normal_angle(0.5)
+    # combined.visualize(colors='inc_angles')
+    # combined.visualize(colors='min_eigval')
 
-    loss, loss_dc = min_eigval_loss(combined, r=0.15, offset=True, bounds=(0.0, 0.05**2))
-    print(loss)
+    # copy = combined.copy()
+    # copy.update_neighbors(r=r)
+    # copy.filter_neighbors_normal_angle(1.0)
+    # copy.visualize()
+    bounds = (0.0, 0.05**2)
+    max_angle = np.radians(15.)
+    loss, loss_dc = min_eigval_loss(combined, r=r, offset=True,
+                                    bounds_in=bounds, bounds=bounds,
+                                    max_angle=max_angle)
+    print('Loss: %.6g', loss.item())
     loss_dc.visualize(colors='loss')
 
 

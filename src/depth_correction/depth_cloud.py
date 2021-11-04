@@ -62,6 +62,9 @@ class DepthCloud(object):
         dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth,
                         points=self.points, cov=self.cov, eigvals=self.eigvals, eigvecs=self.eigvecs,
                         normals=self.normals, inc_angles=self.inc_angles, trace=self.trace)
+        # TODO: Do we need deep copy?
+        dc.neighbors = self.neighbors
+        dc.dist = self.dist
         return dc
 
     def size(self):
@@ -80,7 +83,7 @@ class DepthCloud(object):
         assert isinstance(T, torch.Tensor)
         assert T.shape == (4, 4)
         R = T[:3, :3]
-        print('det(R) = ', torch.linalg.det(R))
+        # print('det(R) = ', torch.linalg.det(R))
         t = T[:3, 3:]
         vps = torch.matmul(self.vps, R.transpose(-1, -2)) + t.transpose(-1, -2)
         dirs = torch.matmul(self.dirs, R.transpose(-1, -2))
@@ -98,18 +101,55 @@ class DepthCloud(object):
         return DepthCloud.concatenate([self, other], dependent=True)
 
     @timing
-    def update_neighbors(self, k=None, r=None):
+    def update_neighbors(self, k=None, r=None, max_angle=None):
         assert self.points is not None
         self.dist, self.neighbors = nearest_neighbors(self.points, self.points, k=k, r=r)
+
+    @timing
+    def filter_neighbors_normal_angle(self, max_angle):
+        assert isinstance(self.neighbors, (list, np.ndarray))
+        assert isinstance(self.dist, (type(None), list, np.ndarray))
+        if isinstance(self.neighbors, np.ndarray):
+            self.neighbors = list(self.neighbors)
+            # print('Neighbors converted to list to allow variable number of items.')
+        if isinstance(self.dist, np.ndarray):
+            self.dist = list(self.dist)
+        assert isinstance(self.neighbors, list)
+        assert isinstance(self.normals, torch.Tensor)
+        assert isinstance(max_angle, float) and max_angle >= 0.0
+
+        min_cos = np.cos(max_angle)
+        n_kept = 0
+        n_total = 0
+
+        for i in range(self.size()):
+            p = torch.index_select(self.normals, 0, torch.tensor(self.neighbors[i]))
+            q = self.normals[i:i + 1]
+            cos = (p * q).sum(dim=-1)
+            keep = cos >= min_cos
+            n_kept += keep.sum().item()
+            n_total += keep.numel()
+            # self.neighbors[i] = self.neighbors[i][keep]
+            # print(type(self.neighbors[i]))
+            self.neighbors[i] = [n for n, k in zip(self.neighbors[i], keep) if k]
+            assert isinstance(self.neighbors[i], list)
+            if self.dist is not None:
+                self.dist[i] = self.dist[i][keep]
+        print('%i / %i = %.1f %% neighbors kept in average (normals angle <= %.3f).'
+              % (n_kept, n_total, 100 * n_kept / n_total, max_angle))
 
     def neighbor_fun(self, fun):
         assert self.points is not None
         assert self.neighbors is not None
         assert callable(fun)
 
+        empty = torch.zeros((0, 3))
         result = []
         for i in range(self.size()):
-            p = torch.index_select(self.points, 0, torch.tensor(self.neighbors[i]))
+            if len(self.neighbors[i]) > 0:
+                p = torch.index_select(self.points, 0, torch.tensor(self.neighbors[i]))
+            else:
+                p = empty
             q = self.points[i:i + 1]
             out = fun(p, q)
             result.append(out)
@@ -184,21 +224,24 @@ class DepthCloud(object):
     def update_incidence_angles(self):
         assert self.dirs is not None
         assert self.normals is not None
-        print('mean dir norm: ', self.dirs.norm(dim=-1).mean())
+        # print('mean dir norm: ', self.dirs.norm(dim=-1).mean())
         # inc_angles = torch.arccos(-self.normals.inner(self.dirs))
         inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
         self.inc_angles = inc_angles
+
+    def update_features(self):
+        self.update_cov()
+        # self.update_eigvals()
+        self.update_eig()
+        self.update_normals()
+        # Keep incidence angles from the original observations?
+        self.update_incidence_angles()
 
     @timing
     def update_all(self, k=None, r=None):
         self.update_points()
         self.update_neighbors(k=k, r=r)
-        self.update_cov()
-        # self.update_eigvals()
-        self.update_eig()
-        self.update_normals()
-        # Keep incidence angles from the original observations.
-        self.update_incidence_angles()
+        self.update_features()
 
     def to_point_cloud(self, colors=None):
         assert colors in ('inc_angles', 'loss', 'min_eigval', None)
@@ -240,16 +283,21 @@ class DepthCloud(object):
         depth = torch.concat([dc.depth for dc in depth_clouds])
 
         # Dependent fields
+        points = None
         cov = None
         normals = None
         inc_angles = None
         eigvals = None
+        eigvecs = None
         trace = None
 
         def all_valid(xs):
             return all([x is not None for x in xs])
 
         if dependent:
+            points = [dc.points for dc in depth_clouds]
+            points = torch.concat(points) if all_valid(points) else None
+            # TODO: Concatenate neighbors and dist, shift indices as necessary.
             cov = [dc.cov for dc in depth_clouds]
             cov = torch.concat(cov) if all_valid(cov) else None
             normals = [dc.normals for dc in depth_clouds]
@@ -258,14 +306,15 @@ class DepthCloud(object):
             inc_angles = torch.concat(inc_angles) if all_valid(inc_angles) else None
             eigvals = [dc.eigvals for dc in depth_clouds]
             eigvals = torch.concat(eigvals) if all_valid(eigvals) else None
+            eigvecs = [dc.eigvecs for dc in depth_clouds]
+            eigvecs = torch.concat(eigvecs) if all_valid(eigvecs) else None
             trace = [dc.trace for dc in depth_clouds]
             trace = torch.concat(trace) if all_valid(trace) else None
 
         dc = DepthCloud(vps, dirs, depth,
-                        cov=cov, normals=normals,
-                        inc_angles=inc_angles,
-                        eigvals=eigvals,
-                        trace=trace)
+                        points=points, cov=cov, eigvals=eigvals,
+                        eigvecs=eigvecs, trace=trace, normals=normals,
+                        inc_angles=inc_angles)
 
         return dc
 

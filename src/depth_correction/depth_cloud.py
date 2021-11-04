@@ -14,8 +14,8 @@ __all__ = [
 class DepthCloud(object):
 
     def __init__(self, vps=None, dirs=None, depth=None,
-                 points=None, cov=None, normals=None, inc_angles=None,
-                 eigvals=None, trace=None):
+                 points=None, cov=None, eigvals=None, eigvecs=None,
+                 normals=None, inc_angles=None, trace=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         Dependent fields are not updated automatically, they can be passed in
@@ -49,11 +49,12 @@ class DepthCloud(object):
         # Neighborhood features
         self.neighbors = None
         self.dist = None
-        self.cov = None
+        self.cov = cov
+        self.eigvals = eigvals
+        self.eigvecs = eigvecs
         self.normals = normals
-        self.inc_angles = None
-        self.eigvals = None
-        self.trace = None
+        self.inc_angles = inc_angles
+        self.trace = trace
 
         self.loss = None
 
@@ -72,9 +73,12 @@ class DepthCloud(object):
         self.points = self.to_points()
 
     def transform(self, T):
+        assert isinstance(self.vps, torch.Tensor)
+        assert isinstance(self.dirs, torch.Tensor)
         assert isinstance(T, torch.Tensor)
         assert T.shape == (4, 4)
         R = T[:3, :3]
+        print('det(R) = ', torch.linalg.det(R))
         t = T[:3, 3:]
         vps = torch.matmul(self.vps, R.transpose(-1, -2)) + t.transpose(-1, -2)
         dirs = torch.matmul(self.dirs, R.transpose(-1, -2))
@@ -110,8 +114,8 @@ class DepthCloud(object):
 
         return result
 
-    def cov_fun(self):
-        assert self.cov is not None
+    # def cov_fun(self):
+    #     assert self.cov is not None
 
     @timing
     def update_cov(self, correction=1, invalid=0.0):
@@ -142,17 +146,60 @@ class DepthCloud(object):
         return eigvals
 
     @timing
-    def update_eigvals(self, invalid=0.0):
+    def update_eigvals(self):
         self.eigvals = self.compute_eigvals()
+
+    def compute_eig(self, invalid=0.0):
+        assert self.cov is not None
+
+        eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype)
+        eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype)
+        # Degenerate cov matrices must be skipped to avoid exception.
+        # eigvals = torch.linalg.eigvalsh(self.cov)
+        valid = [i for i, n in enumerate(self.neighbors) if len(n) >= 3]
+        # eigvals[valid] = torch.linalg.eigvalsh(self.cov[valid])
+        eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov[valid])
+
+        return eigvals, eigvecs
+
+    @timing
+    def update_eig(self):
+        self.eigvals, self.eigvecs = self.compute_eig()
+
+    def orient_normals(self):
+        assert isinstance(self.dirs, torch.Tensor)
+        assert isinstance(self.normals, torch.Tensor)
+        # cos = self.dirs.dot(self.normals)
+        cos = (self.dirs * self.normals).sum(dim=-1)
+        flip = cos > 0.0
+        self.normals[flip] = -self.normals[flip]
+
+    def update_normals(self):
+        assert self.eigvecs is not None
+        self.normals = self.eigvecs[..., 0]
+        self.orient_normals()
+
+    def update_incidence_angles(self):
+        assert self.dirs is not None
+        assert self.normals is not None
+        print('mean dir norm: ', self.dirs.norm(dim=-1).mean())
+        # inc_angles = torch.arccos(-self.normals.inner(self.dirs))
+        inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1))
+        self.inc_angles = inc_angles
 
     @timing
     def update_all(self, k=None, r=None):
         self.update_points()
         self.update_neighbors(k=k, r=r)
         self.update_cov()
-        self.update_eigvals()
+        # self.update_eigvals()
+        self.update_eig()
+        self.update_normals()
+        # Keep incidence angles from the original observations.
+        self.update_incidence_angles()
 
     def to_point_cloud(self, colors=None):
+        assert colors in ('inc_angles', 'loss', 'min_eigval')
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.to_points().detach().cpu())
         if self.normals is not None:
@@ -160,7 +207,10 @@ class DepthCloud(object):
 
         if colors is not None:
 
-            if colors == 'loss':
+            if colors == 'inc_angles':
+                assert self.inc_angles is not None
+                vals = self.inc_angles
+            elif colors == 'loss':
                 assert self.loss is not None
                 vals = self.loss
             elif colors == 'min_eigval':
@@ -193,12 +243,21 @@ class DepthCloud(object):
         inc_angles = None
         eigvals = None
         trace = None
+
+        def all_valid(xs):
+            return all([x is not None for x in xs])
+
         if dependent:
-            cov = torch.concat([dc.cov for dc in depth_clouds])
-            normals = torch.concat([dc.normals for dc in depth_clouds])
-            inc_angles = torch.concat([dc.inc_angles for dc in depth_clouds])
-            eigvals = torch.concat([dc.eigvals for dc in depth_clouds])
-            trace = torch.concat([dc.trace for dc in depth_clouds])
+            cov = [dc.cov for dc in depth_clouds]
+            cov = torch.concat(cov) if all_valid(cov) else None
+            normals = [dc.normals for dc in depth_clouds]
+            normals = torch.concat(normals) if all_valid(normals) else None
+            inc_angles = [dc.inc_angles for dc in depth_clouds]
+            inc_angles = torch.concat(inc_angles) if all_valid(inc_angles) else None
+            eigvals = [dc.eigvals for dc in depth_clouds]
+            eigvals = torch.concat(eigvals) if all_valid(eigvals) else None
+            trace = [dc.trace for dc in depth_clouds]
+            trace = torch.concat(trace) if all_valid(trace) else None
 
         dc = DepthCloud(vps, dirs, depth,
                         cov=cov, normals=normals,

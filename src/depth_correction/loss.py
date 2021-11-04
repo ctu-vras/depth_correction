@@ -54,14 +54,22 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False, reduction='mean', invalid=0.):
+def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False, bounds=None, reduction='mean', invalid=0.):
     if isinstance(cloud, DepthCloud):
         dc = cloud.copy()
         dc.update_all(k=k, r=r)
         dc.loss = dc.eigvals[:, 0]
+
         if offset:
             assert cloud.eigvals is not None
             dc.loss = dc.loss - cloud.eigvals[:, 0]
+
+        if bounds is not None:
+            assert len(bounds) == 2
+            assert bounds[0] <= bounds[1]
+            out_of_bounds = (dc.eigvals[:, 0] < bounds[0]) | (dc.eigvals[:, 0] > bounds[1])
+            dc.loss[out_of_bounds] = 0.0
+
         dc.loss = torch.relu(dc.loss)
         loss = reduce(dc.loss, reduction=reduction)
         return loss, dc
@@ -101,59 +109,37 @@ def demo():
 
     clouds = []
     poses = []
-    ds = Dataset(dataset_names[0])
+    # ds = Dataset(dataset_names[0])
+    ds = Dataset('eth')
     for id in ds.ids[::10]:
         t = timer()
         cloud = ds.local_cloud(id)
-        pose = ds.cloud_pose(id)
-
+        pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
         print('%i points read from dataset %s, cloud %i (%.3f s).'
               % (dc.size(), ds.name, id, timer() - t))
 
         t = timer()
-        grid_res = 0.1
+        grid_res = 0.05
         dc = filter_grid(dc, grid_res, keep='last')
         print('%i points kept by grid filter with res. %.2f m (%.3f s).'
               % (dc.size(), grid_res, timer() - t))
-        dc.visualize()
 
-        dc.update_points()
-        dc.update_neighbors(r=0.25)
-        dc.update_cov()
-        dc.update_eigvals()
+        dc = dc.transform(pose)
+        dc.update_all(r=0.15)
+        # dc.visualize(colors='inc_angles')
+        # dc.visualize(colors='min_eigval')
 
-        dc.visualize(colors='min_eigval')
+        clouds.append(dc)
+        poses.append(pose)
 
-        loss, loss_dc = min_eigval_loss(dc, r=0.25)
-        print(loss)
-        loss_dc.visualize(colors='loss')
+    combined = DepthCloud.concatenate(clouds, True)
+    combined.visualize(colors='inc_angles')
+    combined.visualize(colors='min_eigval')
 
-        loss, loss_dc = min_eigval_loss(dc, r=0.25, offset=True)
-        print(loss)
-        loss_dc.visualize(colors='loss')
-
-        # t = timer()
-        # loss = min_eig_loss(cloud, query, k=9, reduction='none')
-        # loss = min_eig_loss(cloud, query, r=.25, reduction='none')
-        # loss = trace_loss(cloud, query, r=.25, reduction='none')
-        # print(loss.shape)
-        # print('Dataset %s, cloud %i: min eig loss (10 neighbors): %.6g (%.3f s).'
-        #       % (ds.name, id, loss**.5, timer() - t))
-        # print('Dataset %s, cloud %i: min eig loss (10 neighbors): %.6g (%.3f s).'
-        #       % (ds.name, id, loss.mean()**.5, timer() - t))
-
-        # pcd = o3d.geometry.PointCloud()
-        # pcd.points = o3d.utility.Vector3dVector(cloud)
-        # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
-        # min_value, max_value = torch.quantile(loss, torch.tensor([0., 0.99], dtype=torch.float64))
-        # print('min, max: %.6g, %.6g' % (min_value, max_value))
-        # colors = map_colors(loss, colormap, min_value=min_value, max_value=max_value)
-        # print(colors.shape)
-        # pcd.colors = o3d.utility.Vector3dVector(colors.detach().numpy())
-        # o3d.visualization.draw_geometries([pcd])
-
-        # depth_cloud = DepthCloud.from_points(cloud)
+    loss, loss_dc = min_eigval_loss(combined, r=0.15, offset=True, bounds=(0.0, 0.05**2))
+    print(loss)
+    loss_dc.visualize(colors='loss')
 
 
 def main():

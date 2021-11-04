@@ -11,26 +11,6 @@ __all__ = [
 ]
 
 
-def depth_cloud_from_points(pts, vps=None):
-    """Create depth cloud from points and viewpoints.
-
-    :param pts: Points as ...-by-3 tensor.
-    :param vps: Viewpoints as ...-by-3 tensor, or None for zero vector.
-    :return:
-    """
-    assert isinstance(pts, torch.Tensor)
-    if vps is None:
-        vps = torch.zeros((1, 3))
-    assert isinstance(vps, torch.Tensor)
-    assert vps.shape == pts.shape or vps.shape == (1, 3)
-    dirs = pts - vps
-    depth = dirs.norm(dim=-1).unsqueeze(-1)
-    # TODO: Handle invalid points (zero depth).
-    dirs = dirs / depth
-    depth_cloud = DepthCloud(vps, dirs, depth)
-    return depth_cloud
-
-
 class DepthCloud(object):
 
     def __init__(self, vps=None, dirs=None, depth=None,
@@ -58,9 +38,9 @@ class DepthCloud(object):
         assert depth.shape[-1] == 1
         assert depth.shape[:-1] == dirs.shape[:-1]
 
-        self.vps = torch.as_tensor(vps, dtype=torch.float32)
-        self.dirs = torch.as_tensor(dirs, dtype=torch.float32)
-        self.depth = torch.as_tensor(depth, dtype=torch.float32)
+        self.vps = torch.as_tensor(vps, dtype=torch.float64)
+        self.dirs = torch.as_tensor(dirs, dtype=torch.float64)
+        self.depth = torch.as_tensor(depth, dtype=torch.float64)
 
         # Dependent features
         self.points = points
@@ -174,7 +154,7 @@ class DepthCloud(object):
 
     def to_point_cloud(self, colors=None):
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(self.to_points())
+        pcd.points = o3d.utility.Vector3dVector(self.to_points().detach().cpu())
         if self.normals is not None:
             pcd.normals = o3d.utility.Vector3dVector(self.normals)
 
@@ -270,13 +250,42 @@ class DepthCloud(object):
         pcd.estimate_normals()
         pcd.normalize_normals()
         pcd.orient_normals_consistent_tangent_plane(k=knn)
-        self.normals = torch.as_tensor(pcd.normals, dtype=torch.float32)
+        self.normals = torch.as_tensor(pcd.normals, dtype=torch.float64)
 
     def estimate_incidence_angles(self):
         if self.normals is None:
             self.estimate_normals()
         coss = torch.matmul(self.normals.view(-1, 3), -self.dirs.view(-1, 3).T)[:, 0].unsqueeze(-1)
-        self.inc_angles = torch.as_tensor(torch.arccos(coss), dtype=torch.float32)  # shape = (N, 1)
+        self.inc_angles = torch.as_tensor(torch.arccos(coss), dtype=torch.float64)  # shape = (N, 1)
+
+    def to_mesh(self, colors=None):
+        if self.normals is None:
+            self.estimate_normals()
+        if colors is None:
+            colors = torch.rand(size=self.normals.shape)
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.to_points().detach().cpu())
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+        pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
+        mesh_o3d, _ = \
+            o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=8, width=0, scale=1.1,
+                                                                      linear_fit=False)
+        # add a cropping step to clean unwanted artifacts
+        bbox = pcd.get_axis_aligned_bounding_box()
+        mesh_o3d = mesh_o3d.crop(bbox)
+        return mesh_o3d
+
+    def to_pytorch3d_mesh(self):  # -> pytorch3d.structures.meshes.Meshes
+        mesh_o3d = self.to_mesh()
+        # convert to pytorch3d Mesh
+        from pytorch3d.structures import Meshes
+        from pytorch3d.io import load_obj
+        o3d.io.write_triangle_mesh("/tmp/poisson_mesh.obj", mesh_o3d)
+        # We read the target 3D model using load_obj
+        verts, faces, _ = load_obj("/tmp/poisson_mesh.obj")
+        # We construct a Meshes structure for the target mesh
+        mesh = Meshes(verts=[verts], faces=[faces.verts_idx])
+        return mesh
 
     def to(self, device=torch.device('cuda:0')):
         if self.depth is not None:

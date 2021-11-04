@@ -1,45 +1,59 @@
 from __future__ import absolute_import, division, print_function
 import torch
 from torch import nn
+from .utils import timing
 from .depth_cloud import DepthCloud
 
 
-class Linear(nn.Module):
-    def __init__(self, ):
-        super(Linear, self).__init__()
-        self.w0 = nn.Parameter(torch.rand(1, ))
-        self.w1 = nn.Parameter(torch.rand(1, ))
-        self.b = nn.Parameter(torch.rand(1, ))
+class BaseModel(nn.Module):
+    def __init__(self,):
+        super(BaseModel, self).__init__()
+        pass
 
+    # @timing
     def forward(self, dc: DepthCloud) -> DepthCloud:
-        assert dc.depth.dim() == 2
-        assert dc.depth.shape[1] == 1  # depth.shape == (N, 1)
-        assert dc.dirs.dim() == 2
-        assert dc.dirs.shape[1] == 3  # depth.shape == (N, 3)
+        dc = self.correct_depth(dc)
+        return dc
+
+    def correct_depth(self, dc: DepthCloud) -> DepthCloud:
+        return dc
+
+
+class Linear(BaseModel):
+
+    def __init__(self, w0=1.0, w1=0.0, b=0.0):
+        super(Linear, self).__init__()
+
+        assert isinstance(w0, (float, torch.Tensor))
+        assert isinstance(w1, (float, torch.Tensor))
+        assert isinstance(b, (float, torch.Tensor))
+
+        self.w0 = nn.Parameter(torch.tensor(w0))
+        self.w1 = nn.Parameter(torch.tensor(w1))
+        self.b = nn.Parameter(torch.tensor(b))
+
+    def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None
-        depth_corr = self.w0 * dc.depth + self.w1 * dc.inc_angles + self.b
-        dirs = dc.dirs
-        vps = dc.vps
-        dc_corr = DepthCloud(vps=vps, depth=depth_corr, dirs=dirs)
+        dc_corr = dc.copy()
+        dc_corr.depth = self.w0 * dc.depth + self.w1 * dc.inc_angles + self.b
         return dc_corr
 
 
-class Polynomial(nn.Module):
-    def __init__(self, ):
-        super(Polynomial, self).__init__()
-        self.p0 = nn.Parameter(torch.rand(1, ))
-        self.p1 = nn.Parameter(torch.rand(1, ))
+class Polynomial(BaseModel):
 
-    def forward(self, dc: DepthCloud) -> DepthCloud:
-        assert dc.depth.dim() == 2
-        assert dc.depth.shape[1] == 1  # depth.shape == (N, 1)
-        assert dc.dirs.dim() == 2
-        assert dc.dirs.shape[1] == 3  # depth.shape == (N, 3)
+    def __init__(self, p0=0.0, p1=0.0):
+        super(Polynomial, self).__init__()
+
+        assert isinstance(p0, (float, torch.Tensor))
+        assert isinstance(p1, (float, torch.Tensor))
+
+        self.p0 = nn.Parameter(torch.tensor(p0))
+        self.p1 = nn.Parameter(torch.tensor(p1))
+
+    def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None
+        dc_corr = dc.copy()
         gamma = dc.inc_angles
         bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
-        depth_corr = dc.depth - bias
-        dirs = dc.dirs
-        vps = dc.vps
-        dc_corr = DepthCloud(vps=vps, depth=depth_corr, dirs=dirs)
+        dc_corr.depth = dc.depth - bias
         return dc_corr

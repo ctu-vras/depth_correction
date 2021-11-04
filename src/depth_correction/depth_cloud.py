@@ -59,7 +59,9 @@ class DepthCloud(object):
         self.loss = None
 
     def copy(self):
-        dc = DepthCloud(self.vps, self.dirs, self.depth)
+        dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth,
+                        points=self.points, cov=self.cov, eigvals=self.eigvals, eigvecs=self.eigvecs,
+                        normals=self.normals, inc_angles=self.inc_angles, trace=self.trace)
         return dc
 
     def size(self):
@@ -184,7 +186,7 @@ class DepthCloud(object):
         assert self.normals is not None
         print('mean dir norm: ', self.dirs.norm(dim=-1).mean())
         # inc_angles = torch.arccos(-self.normals.inner(self.dirs))
-        inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1))
+        inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
         self.inc_angles = inc_angles
 
     @timing
@@ -199,11 +201,11 @@ class DepthCloud(object):
         self.update_incidence_angles()
 
     def to_point_cloud(self, colors=None):
-        assert colors in ('inc_angles', 'loss', 'min_eigval')
+        assert colors in ('inc_angles', 'loss', 'min_eigval', None)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.to_points().detach().cpu())
         if self.normals is not None:
-            pcd.normals = o3d.utility.Vector3dVector(self.normals)
+            pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
 
         if colors is not None:
 
@@ -304,7 +306,7 @@ class DepthCloud(object):
 
     def estimate_normals(self, knn=15):
         pcd = o3d.geometry.PointCloud()
-        pts = self.to_points()
+        pts = self.to_points().detach().cpu()
         pcd.points = o3d.utility.Vector3dVector(pts)
         pcd.estimate_normals()
         pcd.normalize_normals()

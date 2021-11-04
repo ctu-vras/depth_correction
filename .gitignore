@@ -130,3 +130,6 @@ dmypy.json
 
 # Pycharm Project Files
 .idea/
+
+# Dataset
+data

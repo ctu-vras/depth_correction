@@ -1,26 +1,37 @@
 from __future__ import absolute_import, division, print_function
+from matplotlib import cm
 from timeit import default_timer as timer
 import torch
 
-
-def map_colors(values, colormap, min_value=None, max_value=None):
+# def map_colors(values, colormap=cm.nipy_spectral, min_value=None, max_value=None):
+def map_colors(values, colormap=cm.gist_rainbow, min_value=None, max_value=None):
     if not isinstance(values, torch.Tensor):
         values = torch.tensor(values)
-    if not isinstance(colormap, torch.Tensor):
-        colormap = torch.tensor(colormap, dtype=torch.float64)
-    assert tuple(colormap.shape) == (2, 3)
+    # if not isinstance(colormap, torch.Tensor):
+    #     colormap = torch.tensor(colormap, dtype=torch.float64)
+    # assert colormap.shape[1] == (2, 3)
+    # assert callable(colormap)
+    assert callable(colormap) or isinstance(colormap, torch.Tensor)
     if min_value is None:
         min_value = values.min()
     if max_value is None:
         max_value = values.max()
     scale = max_value - min_value
     a = (values - min_value) / scale if scale > 0.0 else values - min_value
+    if callable(colormap):
+        colors = colormap(a.squeeze())[:, :3]
+        return colors
     # TODO: Allow full colormap with multiple colors.
-    # num_colors = colormap.shape[0]
-    # i0 = torch.floor(a * (num_colors - 1))
-    # i0 = i1 + 1
+    assert isinstance(colormap, torch.Tensor)
+    num_colors = colormap.shape[0]
     a = a.reshape([-1, 1])
-    colors = (1 - a) * colormap[0:1] + a * colormap[1:]
+    if num_colors == 2:
+        # Interpolate the two colors.
+        colors = (1 - a) * colormap[0:1] + a * colormap[1:]
+    else:
+        # Select closest based on scaled value.
+        i = torch.round(a * (num_colors - 1))
+        colors = colormap[i]
     return colors
 
 

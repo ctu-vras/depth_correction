@@ -248,39 +248,66 @@ class DepthCloud(object):
         self.update_neighbors(k=k, r=r)
         self.update_features()
 
+    def get_colors(self, colors=None):
+        assert colors in ('inc_angles', 'loss', 'min_eigval')
+
+        if colors == 'inc_angles':
+            assert self.inc_angles is not None
+            vals = self.inc_angles
+        elif colors == 'loss':
+            assert self.loss is not None
+            vals = self.loss
+        elif colors == 'min_eigval':
+            assert self.eigvals is not None
+            vals = self.eigvals[:, :1]
+
+        # min_val, max_val = torch.quantile(vals, torch.tensor([0.01, 0.99], dtype=vals.dtype))
+        min_val, max_val = vals.min(), vals.max()
+        print('min, max: %.6g, %.6g' % (min_val, max_val))
+        colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
+        # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
+        colors = map_colors(vals, min_value=min_val, max_value=max_val)
+        return colors
+
     def to_point_cloud(self, colors=None):
-        assert colors in ('inc_angles', 'loss', 'min_eigval', None)
+        # assert colors in ('inc_angles', 'loss', 'min_eigval', None)
+        if self.points is not None:
+            self.update_points()
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(self.to_points().detach().cpu())
+        pcd.points = o3d.utility.Vector3dVector(self.points.detach().cpu())
         if self.normals is not None:
             pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
 
         if colors is not None:
-
-            if colors == 'inc_angles':
-                assert self.inc_angles is not None
-                vals = self.inc_angles
-            elif colors == 'loss':
-                assert self.loss is not None
-                vals = self.loss
-            elif colors == 'min_eigval':
-                assert self.eigvals is not None
-                vals = self.eigvals[:, :1]
-            vals = vals.detach().cpu()
-
-            min_val, max_val = torch.quantile(vals, torch.tensor([0., 0.99], dtype=vals.dtype))
-            print('min, max: %.6g, %.6g' % (min_val, max_val))
-            colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
-            colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
-            # print(colors.shape)
-            pcd.colors = o3d.utility.Vector3dVector(colors.detach().numpy())
-            # o3d.visualization.draw_geometries([pcd])
+            # if colors == 'inc_angles':
+            #     assert self.inc_angles is not None
+            #     vals = self.inc_angles
+            # elif colors == 'loss':
+            #     assert self.loss is not None
+            #     vals = self.loss
+            # elif colors == 'min_eigval':
+            #     assert self.eigvals is not None
+            #     vals = self.eigvals[:, :1]
+            #
+            # min_val, max_val = torch.quantile(vals, torch.tensor([0., 0.99], dtype=vals.dtype))
+            # print('min, max: %.6g, %.6g' % (min_val, max_val))
+            # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
+            # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
+            # pcd.colors = o3d.utility.Vector3dVector(colors.detach().numpy())
+            # pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors).detach().numpy())
+            pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors))
 
         return pcd
 
-    def visualize(self, normals=False, colors=None):
+    def visualize(self, window_name='Depth Correction', normals=False, colors=None):
         pcd = self.to_point_cloud(colors=colors)
-        o3d.visualization.draw_geometries([pcd], point_show_normal=normals)
+        o3d.visualization.draw_geometries([pcd], window_name=window_name, point_show_normal=normals)
+        # def cb():
+        #     pcd =
+        #     vis.update_geometry(geometry)
+        #     vis.poll_events()
+        #     vis.update_renderer()
+        # o3d.visualization.draw_geometries_with_key_callbacks([pcd], window_name=window_name, {ord('c'): cb})
 
     @staticmethod
     def concatenate(depth_clouds, dependent=False):

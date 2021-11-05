@@ -260,6 +260,7 @@ class DepthCloud(object):
         elif colors == 'min_eigval':
             assert self.eigvals is not None
             vals = self.eigvals[:, :1]
+        vals = vals.detach()
 
         # min_val, max_val = torch.quantile(vals, torch.tensor([0.01, 0.99], dtype=vals.dtype))
         min_val, max_val = vals.min(), vals.max()
@@ -294,7 +295,7 @@ class DepthCloud(object):
             # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
             # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
             # pcd.colors = o3d.utility.Vector3dVector(colors.detach().numpy())
-            # pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors).detach().numpy())
+            # pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors))
             pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors))
 
         return pcd

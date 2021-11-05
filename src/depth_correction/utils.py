@@ -3,6 +3,7 @@ from matplotlib import cm
 from timeit import default_timer as timer
 import torch
 
+
 # def map_colors(values, colormap=cm.nipy_spectral, min_value=None, max_value=None):
 def map_colors(values, colormap=cm.gist_rainbow, min_value=None, max_value=None):
     if not isinstance(values, torch.Tensor):

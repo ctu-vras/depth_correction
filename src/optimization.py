@@ -53,7 +53,7 @@ def main():
     print('Loading the dataset...')
     ds = Dataset(dataset_names[1], preload_csv_files=False)
     # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    device = torch.device('cuda')
+    device = torch.device('cpu')
 
     model = Polynomial(p0=0.0, p1=0.0, device=device)
     # model = Linear(w0=1.0, w1=0.0, b=0.0, device=device)

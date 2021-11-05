@@ -72,8 +72,9 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
 
 
 def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False,
-                    bounds_in=None, bounds=None, max_angle=None,
-                    reduction='mean', invalid=0.):
+                    input_eigval_bounds=None, updated_eigval_bounds=None,
+                    max_angle=None, depth_bounds=None, reduction='mean',
+                    invalid=0.):
     if isinstance(cloud, DepthCloud):
         dc = cloud.copy()
         # dc.update_all(k=k, r=r)
@@ -88,10 +89,11 @@ def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False,
             assert cloud.eigvals is not None
             dc.loss = dc.loss - cloud.eigvals[:, 0]
 
-        if bounds_in is not None:
-            assert len(bounds_in) == 2
-            assert bounds_in[0] <= bounds_in[1]
-            out_of_bounds = (cloud.eigvals[:, 0] < bounds_in[0]) | (cloud.eigvals[:, 0] > bounds_in[1])
+        if input_eigval_bounds is not None:
+            assert len(input_eigval_bounds) == 2
+            assert input_eigval_bounds[0] <= input_eigval_bounds[1]
+            out_of_bounds = ((cloud.eigvals[:, 0] < input_eigval_bounds[0])
+                             | (cloud.eigvals[:, 0] > input_eigval_bounds[1]))
             dc.loss[out_of_bounds] = 0.0
 
             n_out = out_of_bounds.sum().item()
@@ -99,15 +101,28 @@ def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False,
             print('%i / %i = %.1f %% out of bounds (input).'
                   % (n_out, n_total, 100 * n_out / n_total))
 
-        if bounds is not None:
-            assert len(bounds) == 2
-            assert bounds[0] <= bounds[1]
-            out_of_bounds = (dc.eigvals[:, 0] < bounds[0]) | (dc.eigvals[:, 0] > bounds[1])
+        if updated_eigval_bounds is not None:
+            assert len(updated_eigval_bounds) == 2
+            assert updated_eigval_bounds[0] <= updated_eigval_bounds[1]
+            out_of_bounds = ((dc.eigvals[:, 0] < updated_eigval_bounds[0])
+                             | (dc.eigvals[:, 0] > updated_eigval_bounds[1]))
             dc.loss[out_of_bounds] = 0.0
 
             n_out = out_of_bounds.sum().item()
             n_total = out_of_bounds.numel()
             print('%i / %i = %.1f %% out of bounds (new).'
+                  % (n_out, n_total, 100 * n_out / n_total))
+
+        if depth_bounds is not None:
+            assert len(depth_bounds) == 2
+            assert depth_bounds[0] <= depth_bounds[1]
+            out_of_bounds = ((dc.depth[:, 0] < depth_bounds[0])
+                             | (dc.depth[:, 0] > depth_bounds[1]))
+            dc.loss[out_of_bounds] = 0.0
+
+            n_out = out_of_bounds.sum().item()
+            n_total = out_of_bounds.numel()
+            print('%i / %i = %.1f %% depth out of bounds.'
                   % (n_out, n_total, 100 * n_out / n_total))
 
         dc.loss = torch.relu(dc.loss)
@@ -157,6 +172,8 @@ def demo():
     for id in ds.ids[::10]:
         t = timer()
         cloud = ds.local_cloud(id)
+        print('min:', cloud.min(axis=0))
+        print('max:', cloud.max(axis=0))
         pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
         print('%i points read from dataset %s, cloud %i (%.3f s).'
@@ -170,7 +187,7 @@ def demo():
 
         dc = dc.transform(pose)
         dc.update_all(r=r)
-        # dc.visualize(colors='inc_angles')
+        dc.visualize(colors='inc_angles')
         # dc.visualize(colors='min_eigval')
 
         clouds.append(dc)
@@ -186,12 +203,15 @@ def demo():
     # copy.update_neighbors(r=r)
     # copy.filter_neighbors_normal_angle(1.0)
     # copy.visualize()
-    bounds = (0.0, 0.05**2)
-    max_angle = np.radians(15.)
+    eigval_bounds = (0.0, 0.05**2)
+    depth_bounds = (1.0, 20.0)
+    max_angle = np.radians(30.)
     loss, loss_dc = min_eigval_loss(combined, r=r, offset=True,
-                                    bounds_in=bounds, bounds=bounds,
-                                    max_angle=max_angle)
-    print('Loss: %.6g', loss.item())
+                                    input_eigval_bounds=eigval_bounds,
+                                    updated_eigval_bounds=eigval_bounds,
+                                    max_angle=max_angle,
+                                    depth_bounds=depth_bounds)
+    print('Loss: %.6g' % loss.item())
     loss_dc.visualize(colors='loss')
 
 

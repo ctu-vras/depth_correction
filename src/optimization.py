@@ -58,7 +58,7 @@ def main():
         # combined = model(combined)
         # combined.update_all(r=0.15)
 
-        loss, loss_dc = min_eigval_loss(combined, r=0.15, offset=True, bounds=(0.0, 0.05 ** 2))
+        loss, loss_dc = min_eigval_loss(combined, r=0.15, offset=True, updated_eigval_bounds=(0.0, 0.05 ** 2))
         print('Loss:', loss.item())
 
         if i % plot_period == 0:

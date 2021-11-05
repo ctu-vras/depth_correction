@@ -59,10 +59,15 @@ class DepthCloud(object):
         self.loss = None
 
     def copy(self):
+        dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth)
+        dc.neighbors = self.neighbors
+        dc.dist = self.dist
+        return dc
+
+    def deepcopy(self):
         dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth,
                         points=self.points, cov=self.cov, eigvals=self.eigvals, eigvecs=self.eigvecs,
                         normals=self.normals, inc_angles=self.inc_angles, trace=self.trace)
-        # TODO: Do we need deep copy?
         dc.neighbors = self.neighbors
         dc.dist = self.dist
         return dc
@@ -147,7 +152,7 @@ class DepthCloud(object):
         result = []
         for i in range(self.size()):
             if len(self.neighbors[i]) > 0:
-                p = torch.index_select(self.points, 0, torch.tensor(self.neighbors[i]))
+                p = torch.index_select(self.points, 0, torch.as_tensor(self.neighbors[i]))
             else:
                 p = empty
             q = self.points[i:i + 1]
@@ -194,8 +199,8 @@ class DepthCloud(object):
     def compute_eig(self, invalid=0.0):
         assert self.cov is not None
 
-        eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype)
-        eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype)
+        eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype, device=self.cov.device)
+        eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype, device=self.cov.device)
         # Degenerate cov matrices must be skipped to avoid exception.
         # eigvals = torch.linalg.eigvalsh(self.cov)
         valid = [i for i, n in enumerate(self.neighbors) if len(n) >= 3]
@@ -261,6 +266,7 @@ class DepthCloud(object):
             elif colors == 'min_eigval':
                 assert self.eigvals is not None
                 vals = self.eigvals[:, :1]
+            vals = vals.detach().cpu()
 
             min_val, max_val = torch.quantile(vals, torch.tensor([0., 0.99], dtype=vals.dtype))
             print('min, max: %.6g, %.6g' % (min_val, max_val))

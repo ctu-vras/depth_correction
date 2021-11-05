@@ -6,9 +6,9 @@ from .depth_cloud import DepthCloud
 
 
 class BaseModel(nn.Module):
-    def __init__(self,):
+    def __init__(self, device=torch.device('cpu')):
         super(BaseModel, self).__init__()
-        pass
+        self.device = device
 
     # @timing
     def forward(self, dc: DepthCloud) -> DepthCloud:
@@ -28,31 +28,31 @@ class Linear(BaseModel):
         assert isinstance(w1, (float, torch.Tensor))
         assert isinstance(b, (float, torch.Tensor))
 
-        self.w0 = nn.Parameter(torch.tensor(w0))
-        self.w1 = nn.Parameter(torch.tensor(w1))
-        self.b = nn.Parameter(torch.tensor(b))
+        self.w0 = nn.Parameter(torch.tensor(w0, device=self.device))
+        self.w1 = nn.Parameter(torch.tensor(w1, device=self.device))
+        self.b = nn.Parameter(torch.tensor(b, device=self.device))
 
     def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None
-        dc_corr = dc.copy()
+        dc_corr = dc.deepcopy()  # we do deep copy in order not to do costly update_all
         dc_corr.depth = self.w0 * dc.depth + self.w1 * dc.inc_angles + self.b
         return dc_corr
 
 
 class Polynomial(BaseModel):
 
-    def __init__(self, p0=0.0, p1=0.0):
-        super(Polynomial, self).__init__()
+    def __init__(self, p0=0.0, p1=0.0, device=torch.device('cpu')):
+        super(Polynomial, self).__init__(device=device)
 
         assert isinstance(p0, (float, torch.Tensor))
         assert isinstance(p1, (float, torch.Tensor))
 
-        self.p0 = nn.Parameter(torch.tensor(p0))
-        self.p1 = nn.Parameter(torch.tensor(p1))
+        self.p0 = nn.Parameter(torch.tensor(p0, device=self.device))
+        self.p1 = nn.Parameter(torch.tensor(p1, device=self.device))
 
     def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None
-        dc_corr = dc.copy()
+        dc_corr = dc.deepcopy()  # we do deep copy in order not to do costly update_all
         gamma = dc.inc_angles
         bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
         dc_corr.depth = dc.depth - bias

@@ -8,10 +8,15 @@ from depth_correction.loss import min_eigval_loss
 from depth_correction.model import Linear, Polynomial
 
 
-def construct_corrected_global_map(ds: Dataset, model: (Linear, Polynomial)) -> DepthCloud:
+def construct_corrected_global_map(ds: Dataset,
+                                   model: (Linear, Polynomial),
+                                   k_nn=None, r_nn=None) -> DepthCloud:
+    assert k_nn or r_nn
     clouds = []
     poses = []
-    for id in ds.ids[::20]:
+    sample_k = 10
+    device = model.device
+    for id in ds.ids[::sample_k]:
         t = timer()
         cloud = ds.local_cloud(id)
         pose = torch.tensor(ds.cloud_pose(id))
@@ -25,8 +30,14 @@ def construct_corrected_global_map(ds: Dataset, model: (Linear, Polynomial)) -> 
         print('%i points kept by grid filter with res. %.2f m (%.3f s).'
               % (dc.size(), grid_res, timer() - t))
 
+        t = timer()
+        pose = pose.to(device)
+        dc = dc.to(device)
+        print('Moving DepthCloud to device (%.3f s).'
+              % (timer() - t))
+
         dc = dc.transform(pose)
-        dc.update_all(r=0.15)
+        dc.update_all(k=k_nn, r=r_nn)
         dc = model(dc)
         # dc.visualize(colors='inc_angles')
         # dc.visualize(colors='min_eigval')
@@ -39,26 +50,31 @@ def construct_corrected_global_map(ds: Dataset, model: (Linear, Polynomial)) -> 
 
 
 def main():
-    # ds = Dataset(dataset_names[0])
-    ds = Dataset('eth')
+    print('Loading the dataset...')
+    ds = Dataset(dataset_names[1], preload_csv_files=False)
+    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda')
 
-    model = Polynomial(p0=0.0, p1=0.0)
-    # model = Linear(w0=1.0, w1=0.0, b=0.0)
+    model = Polynomial(p0=0.0, p1=0.0, device=device)
+    # model = Linear(w0=1.0, w1=0.0, b=0.0, device=device)
 
     # Initialize optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
     Niter = 100
     plot_period = 20
+    r_nn = 0.15
+    k_nn = 10
 
     for i in range(Niter):
         optimizer.zero_grad()
 
-        combined = construct_corrected_global_map(ds, model)  # model is passed to correct local maps
+        # TODO: run everything on GPU
+        combined = construct_corrected_global_map(ds, model, k_nn, r_nn)  # model is passed to correct local maps
         # combined = model(combined)
-        # combined.update_all(r=0.15)
+        # combined.update_all(r=r_nn, k=k_nn)
 
-        loss, loss_dc = min_eigval_loss(combined, r=0.15, offset=True, bounds=(0.0, 0.05 ** 2))
+        loss, loss_dc = min_eigval_loss(combined, r=r_nn, k=k_nn, offset=True, bounds=(0.0, 0.05 ** 2))
         print('Loss:', loss.item())
 
         if i % plot_period == 0:

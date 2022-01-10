@@ -1,4 +1,8 @@
+#! /usr/bin/env python
+
 from __future__ import absolute_import, division, print_function
+import sys
+sys.path.append('../src/')
 import torch
 from timeit import default_timer as timer
 from data.asl_laser import Dataset, dataset_names
@@ -51,7 +55,7 @@ def construct_corrected_global_map(ds: Dataset,
 
 def main():
     print('Loading the dataset...')
-    ds = Dataset(dataset_names[1], preload_csv_files=False)
+    ds = Dataset(dataset_names[0])
     # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')
 

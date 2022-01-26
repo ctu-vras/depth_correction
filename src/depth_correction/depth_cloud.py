@@ -263,7 +263,9 @@ class DepthCloud(object):
         vals = vals.detach()
 
         # min_val, max_val = torch.quantile(vals, torch.tensor([0.01, 0.99], dtype=vals.dtype))
-        min_val, max_val = vals.min(), vals.max()
+        # min_val, max_val = vals.min(), vals.max()
+        valid = torch.isfinite(vals)
+        min_val, max_val = vals[valid].min(), vals[valid].max()
         print('min, max: %.6g, %.6g' % (min_val, max_val))
         colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
         # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)

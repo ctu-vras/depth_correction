@@ -98,7 +98,7 @@ def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False,
 
             n_out = out_of_bounds.sum().item()
             n_total = out_of_bounds.numel()
-            print('%i / %i = %.1f %% out of bounds (input).'
+            print('%i / %i = %.1f %% eigenvalue out of bounds (input).'
                   % (n_out, n_total, 100 * n_out / n_total))
 
         if updated_eigval_bounds is not None:
@@ -110,7 +110,7 @@ def min_eigval_loss(cloud, query=None, k=None, r=None, offset=False,
 
             n_out = out_of_bounds.sum().item()
             n_total = out_of_bounds.numel()
-            print('%i / %i = %.1f %% out of bounds (new).'
+            print('%i / %i = %.1f %% eigenvalue out of bounds (new).'
                   % (n_out, n_total, 100 * n_out / n_total))
 
         if depth_bounds is not None:
@@ -165,15 +165,17 @@ def demo():
     clouds = []
     poses = []
     # ds = Dataset(dataset_names[0])
-    ds = Dataset('apartment')
+    # ds = Dataset('apartment')
     # ds = Dataset('eth')
     # ds = Dataset('gazebo_summer')
+    ds = Dataset('gazebo_winter')
+    # ds = Dataset('wood_summer')
     r = 0.15
-    for id in ds.ids[::10]:
+    for id in ds.ids[::4]:
         t = timer()
         cloud = ds.local_cloud(id)
-        print('min:', cloud.min(axis=0))
-        print('max:', cloud.max(axis=0))
+        # print('min:', cloud.min(axis=0))
+        # print('max:', cloud.max(axis=0))
         pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
         print('%i points read from dataset %s, cloud %i (%.3f s).'
@@ -187,7 +189,7 @@ def demo():
 
         dc = dc.transform(pose)
         dc.update_all(r=r)
-        dc.visualize(colors='inc_angles')
+        # dc.visualize(colors='inc_angles')
         # dc.visualize(colors='min_eigval')
 
         clouds.append(dc)
@@ -196,8 +198,9 @@ def demo():
     combined = DepthCloud.concatenate(clouds, True)
     # combined.update_neighbors(r=r)
     # combined.filter_neighbors_normal_angle(0.5)
-    # combined.visualize(colors='inc_angles')
+    combined.visualize(colors='inc_angles')
     # combined.visualize(colors='min_eigval')
+    # return
 
     # copy = combined.copy()
     # copy.update_neighbors(r=r)
@@ -205,7 +208,8 @@ def demo():
     # copy.visualize()
     eigval_bounds = (0.0, 0.05**2)
     depth_bounds = (1.0, 20.0)
-    max_angle = np.radians(30.)
+    # max_angle = np.radians(30.)
+    max_angle = None
     loss, loss_dc = min_eigval_loss(combined, r=r, offset=True,
                                     input_eigval_bounds=eigval_bounds,
                                     updated_eigval_bounds=eigval_bounds,

@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .nearest_neighbors import nearest_neighbors
 from .utils import map_colors, timing
 import numpy as np
+from numpy.lib.recfunctions import structured_to_unstructured
 import torch
 import open3d as o3d  # used for normals estimation and visualization
 
@@ -358,10 +359,15 @@ class DepthCloud(object):
     def from_points(pts, vps=None):
         """Create depth cloud from points and viewpoints.
 
-        :param pts: Points as ...-by-3 tensor.
+        :param pts: Points as ...-by-3 tensor,
+                or structured array with 'x', 'y', 'z', 'vp_x', 'vp_y', 'vp_z' fields.
         :param vps: Viewpoints as ...-by-3 tensor, or None for zero vector.
         :return:
         """
+        if pts.dtype.names:
+            vps = structured_to_unstructured(pts[['vp_%s' % f for f in 'xyz']])
+            pts = structured_to_unstructured(pts[['x', 'y', 'z']])
+
         if isinstance(pts, np.ndarray):
             pts = torch.tensor(pts)
         assert isinstance(pts, torch.Tensor)

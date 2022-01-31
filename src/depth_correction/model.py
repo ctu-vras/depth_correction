@@ -21,8 +21,8 @@ class BaseModel(nn.Module):
 
 class Linear(BaseModel):
 
-    def __init__(self, w0=1.0, w1=0.0, b=0.0):
-        super(Linear, self).__init__()
+    def __init__(self, w0=1.0, w1=0.0, b=0.0, device=torch.device('cpu')):
+        super(Linear, self).__init__(device=device)
 
         assert isinstance(w0, (float, torch.Tensor))
         assert isinstance(w1, (float, torch.Tensor))

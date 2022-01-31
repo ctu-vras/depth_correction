@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from scipy.spatial import cKDTree
 import torch
-from pytorch3d.ops.knn import knn_points
+# from pytorch3d.ops.knn import knn_points
 
 __all__ = [
     'nearest_neighbors'
@@ -23,29 +23,29 @@ def nearest_neighbors(points, query, k=None, r=None):
 
     points = points.reshape([-1, points.shape[-1]])
     query = query.reshape([-1, points.shape[-1]])
-    if points.device == torch.device('cpu'):
-        # Convert to numpy and squeeze leading dimensions.
-        points = points.detach().numpy()
-        query = query.detach().numpy()
+    # if points.device == torch.device('cpu'):
+    # Convert to numpy and squeeze leading dimensions.
+    points = points.detach().numpy()
+    query = query.detach().numpy()
 
-        # Create index and query points.
-        index = cKDTree(points)
-        if k is not None:
-            dist, ind = index.query(query, k)
-        elif r is not None:
-            dist, ind = None, index.query_ball_point(query, r)
+    # Create index and query points.
+    index = cKDTree(points)
+    if k is not None:
+        dist, ind = index.query(query, k)
+    elif r is not None:
+        dist, ind = None, index.query_ball_point(query, r)
 
-    else:
-        # TODO: currently doesn't support neighbors in a radius vicinity
-        assert isinstance(k, int)
-
-        if points.shape[1] != query.shape[1]:
-            raise ValueError("points and querry must have the same point dimension.")
-
-        with torch.no_grad():
-            dist, ind, _ = knn_points(query[None], points[None], K=k)
-            dist = torch.sqrt(dist).squeeze()
-            ind = ind.squeeze()
+    # else:
+    #     # TODO: currently doesn't support neighbors in a radius vicinity
+    #     assert isinstance(k, int)
+    #
+    #     if points.shape[1] != query.shape[1]:
+    #         raise ValueError("points and querry must have the same point dimension.")
+    #
+    #     with torch.no_grad():
+    #         dist, ind, _ = knn_points(query[None], points[None], K=k)
+    #         dist = torch.sqrt(dist).squeeze()
+    #         ind = ind.squeeze()
 
     return dist, ind
 

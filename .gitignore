@@ -133,3 +133,9 @@ dmypy.json
 
 # Dataset
 data
+# Tensorboard logs
+tb_runs/
+
+# Large files
+*.simg
+*img

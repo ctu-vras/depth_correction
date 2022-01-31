@@ -9,7 +9,7 @@ from timeit import default_timer as timer
 import numpy as np
 from data.asl_laser import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.filters import filter_grid
+from depth_correction.filters import filter_grid, filter_depth
 from depth_correction.loss import min_eigval_loss
 from depth_correction.model import Linear, Polynomial
 
@@ -17,56 +17,61 @@ from depth_correction.model import Linear, Polynomial
 MODEL_TYPE = 'Polynomial'  # 'Linear' or 'Polynomial'
 N_OPT_ITERS = 500
 LR = 0.01
+# DATASET_NAMES = dataset_names
+DATASET_NAMES = [
+    # 'apartment',
+    # 'eth',
+    'gazebo_winter',
+    'gazebo_summer',
+    # 'plain',
+    # 'stairs',
+    # 'wood_summer',
+    # 'wood_autumn'
+]
+DRAW_RESULTS = False
 
 
 def construct_corrected_global_map(ds: Dataset,
                                    model: (Linear, Polynomial),
-                                   k_nn=None, r_nn=None) -> DepthCloud:
+                                   k_nn=None, r_nn=None, grid_res: float = 0.05) -> DepthCloud:
     assert k_nn or r_nn
     clouds = []
     poses = []
     sample_k = 4
-    device = model.device
-    seq_len = 20
+    seq_len = 4
     seq_n = np.random.choice(range(len(ds) - seq_len), 1)[0]
-    for id in ds.ids[seq_n:seq_n+seq_len:sample_k]:
+    for id in ds.ids[seq_n:seq_n + seq_len * sample_k + 1:sample_k]:
         t = timer()
         cloud = ds.local_cloud(id)
         pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
-        print('%i points read from dataset %s, cloud %i (%.3f s).'
-              % (dc.size(), ds.name, id, timer() - t))
+        print('%i points read from dataset %s, cloud %i / %i (%.3f s).'
+              % (dc.size(), ds.name, id, len(ds), timer() - t))
+
+        dc = filter_depth(dc, min=1.0, max=10.0)
 
         t = timer()
-        grid_res = 0.05
         dc = filter_grid(dc, grid_res, keep='last')
         print('%i points kept by grid filter with res. %.2f m (%.3f s).'
               % (dc.size(), grid_res, timer() - t))
 
-        t = timer()
-        pose = pose.to(device)
-        dc = dc.to(device)
-        print('Moving DepthCloud to device (%.3f s).'
-              % (timer() - t))
-
         dc = dc.transform(pose)
         dc.update_all(k=k_nn, r=r_nn)
         dc = model(dc)
-
-        # dc.visualize(colors='inc_angles')
-        # dc.visualize(colors='min_eigval')
+        print('Cloud is transformed by the %s model' % MODEL_TYPE)
 
         clouds.append(dc)
         poses.append(pose)
 
     combined = DepthCloud.concatenate(clouds, True)
+    # combined = model(combined)
+    # combined.update_all(r=r_nn)
     return combined
 
 
 def main():
     print('Loading the datasets...')
-    # datasets = [Dataset(name) for name in ('eth', 'apartment')]
-    datasets = [Dataset(name) for name in dataset_names]
+    datasets = [Dataset(name) for name in DATASET_NAMES]
     # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')
 
@@ -82,27 +87,23 @@ def main():
 
     plot_period = 2
     r_nn = 0.15
-    k_nn = 10
 
     writer = SummaryWriter(f'./tb_runs/model_{MODEL_TYPE}_lr_{LR}')
     for i in range(N_OPT_ITERS):
         ds = np.random.choice(datasets, 1)[0]
-        print('Dataset len:', len(ds))
         optimizer.zero_grad()
 
         # TODO: run everything on GPU
-        combined = construct_corrected_global_map(ds, model, k_nn, r_nn)  # model is passed to correct local maps
-        # combined = model(combined)
-        # combined.update_all(r=r_nn, k=k_nn)
+        combined = construct_corrected_global_map(ds, model, r_nn=r_nn)  # model is passed to correct local maps
 
-        loss, loss_dc = min_eigval_loss(combined, r=r_nn, k=k_nn, offset=True, updated_eigval_bounds=(0.0, 0.05 ** 2))
+        loss, loss_dc = min_eigval_loss(combined, r=r_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
         print('Loss:', loss.item())
         writer.add_scalar("Loss/min_eigval", loss, i)
 
-        # if i % plot_period == 0:
-        #     combined.visualize(colors='inc_angles')
-        #     combined.visualize(colors='min_eigval')
-        #     loss_dc.visualize(colors='loss')
+        if DRAW_RESULTS and i % plot_period == 0:
+            combined.visualize(colors='inc_angles')
+            combined.visualize(colors='min_eigval')
+            loss_dc.visualize(colors='loss')
 
         # Optimization step
         loss.backward()

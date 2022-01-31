@@ -87,10 +87,12 @@ def min_eigval_loss(cloud, k=None, r=None,
     dc = cloud.deepcopy()
     # dc.update_all(k=k, r=r)
     dc.update_points()
+    # TODO: segmentation fault in update_neighbors
     dc.update_neighbors(k=k, r=r)
     if max_angle is not None:
         dc.filter_neighbors_normal_angle(max_angle)
     dc.update_features()
+    print('Updated features')
     dc.loss = dc.eigvals[:, 0]
 
     if offset:
@@ -98,7 +100,8 @@ def min_eigval_loss(cloud, k=None, r=None,
         dc.loss = dc.loss - cloud.eigvals[:, 0]
 
     if eigenvalue_bounds is not None:
-        dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1])
+        keep = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1], only_mask=True)
+        dc.eigvals = dc.eigvals[keep]
         # assert len(eigenvalue_bounds) == 2
         # assert eigenvalue_bounds[0] <= eigenvalue_bounds[1]
         # out_of_bounds = ((dc.eigvals[:, 0] < eigenvalue_bounds[0])

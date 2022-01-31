@@ -179,7 +179,7 @@ class DepthCloud(object):
 
     @timing
     def update_mean(self, invalid=0.0):
-        invalid = torch.full((1, 3), invalid)
+        invalid = torch.full((3,), invalid)
         fun = lambda p, q: p.mean(dim=0) if p.shape[0] >= 1 else invalid
         mean = self.neighbor_fun(fun)
         mean = torch.stack(mean)

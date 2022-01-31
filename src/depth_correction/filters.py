@@ -45,3 +45,47 @@ def filter_grid(cloud, grid_res, keep='random'):
     x = dict(zip(idx, x))
     x = np.stack(x.values())
     return x
+
+
+def within_bounds(x, min=None, max=None, log_variable=None):
+    """Mask of x being within bounds  min <= x <= max."""
+    if not isinstance(x, torch.Tensor):
+        x = torch.tensor(x)
+    assert isinstance(x, torch.Tensor)
+
+    keep = torch.ones((x.numel(),), dtype=torch.bool)
+
+    if min is not None:
+        if not isinstance(min, torch.Tensor):
+            min = torch.tensor(min)
+        keep = keep & (x.flatten() >= min)
+    if max is not None:
+        if not isinstance(max, torch.Tensor):
+            max = torch.tensor(max)
+        keep = keep & (x.flatten() <= max)
+
+    if log_variable is not None:
+        print('%.3f = %i / %i points kept (%.3f <= %s <= %.3f).'
+              % (keep.double().mean(), keep.sum(), keep.numel(),
+                 min if min is not None else float('nan'),
+                 log_variable,
+                 max if max is not None else float('nan')))
+
+    return keep
+
+
+def filter_depth(cloud, min=None, max=None):
+    """Keep points with depth in bounds."""
+    keep = within_bounds(cloud.depth, min=min, max=max, log_variable='depth')
+    filtered = cloud[keep]
+    return filtered
+
+
+def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False):
+    """Keep points with specific eigenvalue in bounds."""
+    keep = within_bounds(cloud.eigvals[:, eigenvalue],
+                         min=min, max=max, log_variable='eigenvalue %i' % eigenvalue)
+    if only_mask:
+        return keep
+    filtered = cloud[keep]
+    return filtered

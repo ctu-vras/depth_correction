@@ -14,8 +14,13 @@ __all__ = [
 
 class DepthCloud(object):
 
+    # Fields kept during slicing cloud[index].
+    sliced_fields = ['vps', 'dirs', 'depth',
+                     'points',
+                     'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace']
+
     def __init__(self, vps=None, dirs=None, depth=None,
-                 points=None, cov=None, eigvals=None, eigvecs=None,
+                 points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
                  normals=None, inc_angles=None, trace=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
@@ -47,9 +52,12 @@ class DepthCloud(object):
         self.points = points
         # self.update_points()
 
-        # Neighborhood features
+        # Nearest neighbor graph
         self.neighbors = None
         self.dist = None
+
+        # Neighborhood features
+        self.mean = mean
         self.cov = cov
         self.eigvals = eigvals
         self.eigvecs = eigvecs
@@ -66,6 +74,7 @@ class DepthCloud(object):
         return dc
 
     def deepcopy(self):
+        # TODO: deepcopy?
         dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth,
                         points=self.points, cov=self.cov, eigvals=self.eigvals, eigvecs=self.eigvecs,
                         normals=self.normals, inc_angles=self.inc_angles, trace=self.trace)
@@ -97,17 +106,20 @@ class DepthCloud(object):
         return dc
 
     def __getitem__(self, item):
-        vps = self.vps[item]
-        dirs = self.dirs[item]
-        depth = self.depth[item]
-        dc = DepthCloud(vps, dirs, depth)
+        # TODO: Allow slicing neighbors etc. (need squeezing).
+        kwargs = {}
+        for f in DepthCloud.sliced_fields:
+            x = getattr(self, f)
+            if x is not None:
+                kwargs[f] = x[item]
+        dc = DepthCloud(**kwargs)
         return dc
 
     def __add__(self, other):
         return DepthCloud.concatenate([self, other], dependent=True)
 
     @timing
-    def update_neighbors(self, k=None, r=None, max_angle=None):
+    def update_neighbors(self, k=None, r=None):
         assert self.points is not None
         self.dist, self.neighbors = nearest_neighbors(self.points, self.points, k=k, r=r)
 
@@ -164,6 +176,14 @@ class DepthCloud(object):
 
     # def cov_fun(self):
     #     assert self.cov is not None
+
+    @timing
+    def update_mean(self, invalid=0.0):
+        invalid = torch.full((1, 3), invalid)
+        fun = lambda p, q: p.mean(dim=0) if p.shape[0] >= 1 else invalid
+        mean = self.neighbor_fun(fun)
+        mean = torch.stack(mean)
+        self.mean = mean
 
     @timing
     def update_cov(self, correction=1, invalid=0.0):
@@ -230,12 +250,11 @@ class DepthCloud(object):
     def update_incidence_angles(self):
         assert self.dirs is not None
         assert self.normals is not None
-        # print('mean dir norm: ', self.dirs.norm(dim=-1).mean())
-        # inc_angles = torch.arccos(-self.normals.inner(self.dirs))
         inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
         self.inc_angles = inc_angles
 
     def update_features(self):
+        self.update_mean()
         self.update_cov()
         # self.update_eigvals()
         self.update_eig()
@@ -249,10 +268,13 @@ class DepthCloud(object):
         self.update_neighbors(k=k, r=r)
         self.update_features()
 
-    def get_colors(self, colors=None):
-        assert colors in ('inc_angles', 'loss', 'min_eigval')
+    def get_colors(self, colors='z'):
+        assert (isinstance(colors, torch.Tensor)
+                or colors in ('inc_angles', 'loss', 'min_eigval', 'z'))
 
-        if colors == 'inc_angles':
+        if isinstance(colors, torch.Tensor):
+            vals = colors
+        elif colors == 'inc_angles':
             assert self.inc_angles is not None
             vals = self.inc_angles
         elif colors == 'loss':
@@ -261,20 +283,27 @@ class DepthCloud(object):
         elif colors == 'min_eigval':
             assert self.eigvals is not None
             vals = self.eigvals[:, :1]
+        elif colors == 'z':
+            assert self.points is not None
+            vals = self.points[:, 2:]
+        else:
+            raise ValueError("Something's wrong.")
+
+        assert isinstance(vals, torch.Tensor)
         vals = vals.detach()
 
         # min_val, max_val = torch.quantile(vals, torch.tensor([0.01, 0.99], dtype=vals.dtype))
         # min_val, max_val = vals.min(), vals.max()
         valid = torch.isfinite(vals)
-        min_val, max_val = vals[valid].min(), vals[valid].max()
+        # min_val, max_val = vals[valid].min(), vals[valid].max()
+        min_val, max_val = torch.quantile(vals[valid], torch.tensor([0.01, 0.99], dtype=vals.dtype))
         print('min, max: %.6g, %.6g' % (min_val, max_val))
-        colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
+        # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
         # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
         colors = map_colors(vals, min_value=min_val, max_value=max_val)
         return colors
 
     def to_point_cloud(self, colors=None):
-        # assert colors in ('inc_angles', 'loss', 'min_eigval', None)
         if self.points is not None:
             self.update_points()
         pcd = o3d.geometry.PointCloud()
@@ -283,22 +312,6 @@ class DepthCloud(object):
             pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
 
         if colors is not None:
-            # if colors == 'inc_angles':
-            #     assert self.inc_angles is not None
-            #     vals = self.inc_angles
-            # elif colors == 'loss':
-            #     assert self.loss is not None
-            #     vals = self.loss
-            # elif colors == 'min_eigval':
-            #     assert self.eigvals is not None
-            #     vals = self.eigvals[:, :1]
-            #
-            # min_val, max_val = torch.quantile(vals, torch.tensor([0., 0.99], dtype=vals.dtype))
-            # print('min, max: %.6g, %.6g' % (min_val, max_val))
-            # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
-            # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
-            # pcd.colors = o3d.utility.Vector3dVector(colors.detach().numpy())
-            # pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors))
             pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors))
 
         return pcd
@@ -315,43 +328,14 @@ class DepthCloud(object):
 
     @staticmethod
     def concatenate(depth_clouds, dependent=False):
-        vps = torch.concat([dc.vps for dc in depth_clouds])
-        dirs = torch.concat([dc.dirs for dc in depth_clouds])
-        depth = torch.concat([dc.depth for dc in depth_clouds])
-
-        # Dependent fields
-        points = None
-        cov = None
-        normals = None
-        inc_angles = None
-        eigvals = None
-        eigvecs = None
-        trace = None
-
-        def all_valid(xs):
-            return all([x is not None for x in xs])
-
-        if dependent:
-            points = [dc.points for dc in depth_clouds]
-            points = torch.concat(points) if all_valid(points) else None
-            # TODO: Concatenate neighbors and dist, shift indices as necessary.
-            cov = [dc.cov for dc in depth_clouds]
-            cov = torch.concat(cov) if all_valid(cov) else None
-            normals = [dc.normals for dc in depth_clouds]
-            normals = torch.concat(normals) if all_valid(normals) else None
-            inc_angles = [dc.inc_angles for dc in depth_clouds]
-            inc_angles = torch.concat(inc_angles) if all_valid(inc_angles) else None
-            eigvals = [dc.eigvals for dc in depth_clouds]
-            eigvals = torch.concat(eigvals) if all_valid(eigvals) else None
-            eigvecs = [dc.eigvecs for dc in depth_clouds]
-            eigvecs = torch.concat(eigvecs) if all_valid(eigvecs) else None
-            trace = [dc.trace for dc in depth_clouds]
-            trace = torch.concat(trace) if all_valid(trace) else None
-
-        dc = DepthCloud(vps, dirs, depth,
-                        points=points, cov=cov, eigvals=eigvals,
-                        eigvecs=eigvecs, trace=trace, normals=normals,
-                        inc_angles=inc_angles)
+        # TODO: Concatenate neighbors and dist, shift indices as necessary.
+        fields = DepthCloud.sliced_fields if dependent else ['vps', 'dirs', 'depth']
+        kwargs = {}
+        for f in fields:
+            xs = [getattr(dc, f) for dc in depth_clouds]
+            if all([x is not None for x in xs]):
+                kwargs[f] = torch.concat(xs)
+        dc = DepthCloud(**kwargs)
 
         return dc
 

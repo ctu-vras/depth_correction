@@ -82,7 +82,8 @@ def main():
 
     plot_period = 2
     r_nn = 0.15
-    k_nn = 10
+    # k_nn = 10
+    k_nn = None
 
     writer = SummaryWriter(f'./tb_runs/model_{MODEL_TYPE}_lr_{LR}')
     for i in range(N_OPT_ITERS):

@@ -17,11 +17,13 @@ class DepthCloud(object):
     # Fields kept during slicing cloud[index].
     sliced_fields = ['vps', 'dirs', 'depth',
                      'points',
-                     'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace']
+                     'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace',
+                     'loss']
 
     def __init__(self, vps=None, dirs=None, depth=None,
                  points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
-                 normals=None, inc_angles=None, trace=None):
+                 normals=None, inc_angles=None, trace=None,
+                 loss=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         Dependent fields are not updated automatically, they can be passed in
@@ -65,7 +67,7 @@ class DepthCloud(object):
         self.inc_angles = inc_angles
         self.trace = trace
 
-        self.loss = None
+        self.loss = loss
 
     def copy(self):
         dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth)

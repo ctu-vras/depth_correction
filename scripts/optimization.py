@@ -7,7 +7,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from timeit import default_timer as timer
 import numpy as np
-from data.asl_laser import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.filters import filter_grid
 from depth_correction.loss import min_eigval_loss
@@ -15,21 +14,28 @@ from depth_correction.model import Linear, Polynomial
 
 
 MODEL_TYPE = 'Polynomial'  # 'Linear' or 'Polynomial'
-N_OPT_ITERS = 500
+N_OPT_ITERS = 100
 LR = 0.01
+SHOW_RESULTS = False
+DATASET = 'ASL_laser'  # 'ASL_laser' or 'UTIAS_3dmap'
+
+if DATASET == 'ASL_laser':
+    from data.asl_laser import Dataset, dataset_names
+elif DATASET == 'UTIAS_3dmap':
+    from data.utias_3dmap import Dataset, dataset_names
 
 
 def construct_corrected_global_map(ds: Dataset,
                                    model: (Linear, Polynomial),
                                    k_nn=None, r_nn=None) -> DepthCloud:
     assert k_nn or r_nn
+    grid_res = 0.05
     clouds = []
     poses = []
     sample_k = 4
-    device = model.device
-    seq_len = 20
+    seq_len = 2
     seq_n = np.random.choice(range(len(ds) - seq_len), 1)[0]
-    for id in ds.ids[seq_n:seq_n+seq_len:sample_k]:
+    for id in ds.ids[seq_n:seq_n + seq_len * sample_k:sample_k]:
         t = timer()
         cloud = ds.local_cloud(id)
         pose = torch.tensor(ds.cloud_pose(id))
@@ -38,23 +44,13 @@ def construct_corrected_global_map(ds: Dataset,
               % (dc.size(), ds.name, id, timer() - t))
 
         t = timer()
-        grid_res = 0.05
         dc = filter_grid(dc, grid_res, keep='last')
         print('%i points kept by grid filter with res. %.2f m (%.3f s).'
               % (dc.size(), grid_res, timer() - t))
 
-        t = timer()
-        pose = pose.to(device)
-        dc = dc.to(device)
-        print('Moving DepthCloud to device (%.3f s).'
-              % (timer() - t))
-
         dc = dc.transform(pose)
         dc.update_all(k=k_nn, r=r_nn)
         dc = model(dc)
-
-        # dc.visualize(colors='inc_angles')
-        # dc.visualize(colors='min_eigval')
 
         clouds.append(dc)
         poses.append(pose)
@@ -65,9 +61,8 @@ def construct_corrected_global_map(ds: Dataset,
 
 def main():
     print('Loading the datasets...')
-    # datasets = [Dataset(name) for name in ('eth', 'apartment')]
+    # datasets = [Dataset(name) for name in ('eth',)]
     datasets = [Dataset(name) for name in dataset_names]
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')
 
     if MODEL_TYPE == 'Polynomial':
@@ -85,7 +80,7 @@ def main():
     # k_nn = 10
     k_nn = None
 
-    writer = SummaryWriter(f'./tb_runs/model_{MODEL_TYPE}_lr_{LR}')
+    writer = SummaryWriter('./tb_runs/model_%s_lr_%f' % (MODEL_TYPE, LR))
     for i in range(N_OPT_ITERS):
         ds = np.random.choice(datasets, 1)[0]
         print('Dataset len:', len(ds))
@@ -100,10 +95,10 @@ def main():
         print('Loss:', loss.item())
         writer.add_scalar("Loss/min_eigval", loss, i)
 
-        # if i % plot_period == 0:
-        #     combined.visualize(colors='inc_angles')
-        #     combined.visualize(colors='min_eigval')
-        #     loss_dc.visualize(colors='loss')
+        if SHOW_RESULTS and i % plot_period == 0:
+            combined.visualize(colors='inc_angles')
+            combined.visualize(colors='min_eigval')
+            loss_dc.visualize(colors='loss')
 
         # Optimization step
         loss.backward()

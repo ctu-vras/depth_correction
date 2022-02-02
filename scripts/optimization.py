@@ -2,20 +2,20 @@
 
 from __future__ import absolute_import, division, print_function
 import sys
-sys.path.append('../src/')
+# sys.path.append('../src/')
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from timeit import default_timer as timer
 import numpy as np
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.filters import filter_grid
+from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
 from depth_correction.loss import min_eigval_loss
 from depth_correction.model import Linear, Polynomial
 
 
 MODEL_TYPE = 'Polynomial'  # 'Linear' or 'Polynomial'
 N_OPT_ITERS = 100
-LR = 0.01
+LR = 0.001
 SHOW_RESULTS = False
 DATASET = 'ASL_laser'  # 'ASL_laser' or 'UTIAS_3dmap'
 
@@ -29,7 +29,12 @@ def construct_corrected_global_map(ds: Dataset,
                                    model: (Linear, Polynomial),
                                    k_nn=None, r_nn=None) -> DepthCloud:
     assert k_nn or r_nn
+
+    # Cloud preprocessing params
+    min_depth = 1.0
+    max_depth = 10.0
     grid_res = 0.05
+
     clouds = []
     poses = []
     sample_k = 4
@@ -40,16 +45,30 @@ def construct_corrected_global_map(ds: Dataset,
         cloud = ds.local_cloud(id)
         pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
-        print('%i points read from dataset %s, cloud %i (%.3f s).'
-              % (dc.size(), ds.name, id, timer() - t))
+        # print('%i points read from dataset %s, cloud %i (%.3f s).'
+        #       % (dc.size(), ds.name, id, timer() - t))
+
+        dc = filter_depth(dc, min=min_depth, max=max_depth, log=False)
 
         t = timer()
         dc = filter_grid(dc, grid_res, keep='last')
-        print('%i points kept by grid filter with res. %.2f m (%.3f s).'
-              % (dc.size(), grid_res, timer() - t))
+        # print('%i points kept by grid filter with res. %.2f m (%.3f s).'
+        #       % (dc.size(), grid_res, timer() - t))
+
+        t = timer()
+        pose = pose.to(device)
+        dc = dc.to(device)
+        # print('Moving DepthCloud to device (%.3f s).'
+        #       % (timer() - t))
 
         dc = dc.transform(pose)
         dc.update_all(k=k_nn, r=r_nn)
+
+        keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True, log=False)
+        keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True, log=False)
+        dc = dc[keep]
+        dc.update_all(k=k_nn, r=r_nn)
+
         dc = model(dc)
 
         clouds.append(dc)
@@ -63,6 +82,7 @@ def main():
     print('Loading the datasets...')
     # datasets = [Dataset(name) for name in ('eth',)]
     datasets = [Dataset(name) for name in dataset_names]
+    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')
 
     if MODEL_TYPE == 'Polynomial':

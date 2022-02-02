@@ -53,7 +53,7 @@ def within_bounds(x, min=None, max=None, log_variable=None):
         x = torch.tensor(x)
     assert isinstance(x, torch.Tensor)
 
-    keep = torch.ones((x.numel(),), dtype=torch.bool)
+    keep = torch.ones((x.numel(),), dtype=torch.bool, device=x.device)
 
     if min is not None:
         if not isinstance(min, torch.Tensor):
@@ -74,17 +74,17 @@ def within_bounds(x, min=None, max=None, log_variable=None):
     return keep
 
 
-def filter_depth(cloud, min=None, max=None):
+def filter_depth(cloud, min=None, max=None, log=True):
     """Keep points with depth in bounds."""
-    keep = within_bounds(cloud.depth, min=min, max=max, log_variable='depth')
+    keep = within_bounds(cloud.depth, min=min, max=max, log_variable='depth' if log else None)
     filtered = cloud[keep]
     return filtered
 
 
-def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False):
+def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False, log=True):
     """Keep points with specific eigenvalue in bounds."""
     keep = within_bounds(cloud.eigvals[:, eigenvalue],
-                         min=min, max=max, log_variable='eigenvalue %i' % eigenvalue)
+                         min=min, max=max, log_variable='eigenvalue %i' % eigenvalue if log else None)
     if only_mask:
         return keep
     filtered = cloud[keep]

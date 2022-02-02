@@ -17,12 +17,16 @@ MODEL_TYPE = 'Polynomial'  # 'Linear' or 'Polynomial'
 N_OPT_ITERS = 100
 LR = 0.001
 SHOW_RESULTS = False
-DATASET = 'ASL_laser'  # 'ASL_laser' or 'UTIAS_3dmap'
+DATASET = 'ASL_laser'  # 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'
 
 if DATASET == 'ASL_laser':
     from data.asl_laser import Dataset, dataset_names
 elif DATASET == 'UTIAS_3dmap':
     from data.utias_3dmap import Dataset, dataset_names
+elif DATASET == 'Chilean_Mine':
+    from data.chilean_underground_mine import Dataset, dataset_names
+else:
+    raise "Supported datasets: 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'"
 
 
 def construct_corrected_global_map(ds: Dataset,
@@ -40,6 +44,7 @@ def construct_corrected_global_map(ds: Dataset,
     sample_k = 4
     seq_len = 2
     seq_n = np.random.choice(range(len(ds) - seq_len), 1)[0]
+    device = model.device
     for id in ds.ids[seq_n:seq_n + seq_len * sample_k:sample_k]:
         t = timer()
         cloud = ds.local_cloud(id)
@@ -48,18 +53,18 @@ def construct_corrected_global_map(ds: Dataset,
         # print('%i points read from dataset %s, cloud %i (%.3f s).'
         #       % (dc.size(), ds.name, id, timer() - t))
 
+        t = timer()
         dc = filter_depth(dc, min=min_depth, max=max_depth, log=False)
+        # print('%i points kept by depth filter with min_depth %.2f, max_depth %.2f m (%.3f s).'
+        #       % (dc.size(), min_depth, max_depth, timer() - t))
 
         t = timer()
         dc = filter_grid(dc, grid_res, keep='last')
         # print('%i points kept by grid filter with res. %.2f m (%.3f s).'
         #       % (dc.size(), grid_res, timer() - t))
 
-        t = timer()
         pose = pose.to(device)
         dc = dc.to(device)
-        # print('Moving DepthCloud to device (%.3f s).'
-        #       % (timer() - t))
 
         dc = dc.transform(pose)
         dc.update_all(k=k_nn, r=r_nn)
@@ -80,8 +85,8 @@ def construct_corrected_global_map(ds: Dataset,
 
 def main():
     print('Loading the datasets...')
-    # datasets = [Dataset(name) for name in ('eth',)]
-    datasets = [Dataset(name) for name in dataset_names]
+    datasets = [Dataset(name) for name in ('eth',)]
+    # datasets = [Dataset(name) for name in dataset_names]
     # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')
 
@@ -95,12 +100,12 @@ def main():
     # Initialize optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-    plot_period = 2
+    plot_period = 10
     r_nn = 0.15
     # k_nn = 10
     k_nn = None
 
-    writer = SummaryWriter('./tb_runs/model_%s_lr_%f' % (MODEL_TYPE, LR))
+    writer = SummaryWriter('./tb_runs/model_%s_lr_%f_%s' % (MODEL_TYPE, LR, DATASET))
     for i in range(N_OPT_ITERS):
         ds = np.random.choice(datasets, 1)[0]
         print('Dataset len:', len(ds))

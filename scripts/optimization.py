@@ -2,7 +2,7 @@
 
 from __future__ import absolute_import, division, print_function
 import sys
-# sys.path.append('../src/')
+sys.path.append('../src/')
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from timeit import default_timer as timer

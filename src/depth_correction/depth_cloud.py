@@ -17,11 +17,13 @@ class DepthCloud(object):
     # Fields kept during slicing cloud[index].
     sliced_fields = ['vps', 'dirs', 'depth',
                      'points',
-                     'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace']
+                     'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace',
+                     'loss']
 
     def __init__(self, vps=None, dirs=None, depth=None,
                  points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
-                 normals=None, inc_angles=None, trace=None):
+                 normals=None, inc_angles=None, trace=None,
+                 loss=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         Dependent fields are not updated automatically, they can be passed in
@@ -65,7 +67,7 @@ class DepthCloud(object):
         self.inc_angles = inc_angles
         self.trace = trace
 
-        self.loss = None
+        self.loss = loss
 
     def copy(self):
         dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth)
@@ -118,12 +120,12 @@ class DepthCloud(object):
     def __add__(self, other):
         return DepthCloud.concatenate([self, other], dependent=True)
 
-    @timing
+    # @timing
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
         self.dist, self.neighbors = nearest_neighbors(self.points, self.points, k=k, r=r)
 
-    @timing
+    # @timing
     def filter_neighbors_normal_angle(self, max_angle):
         assert isinstance(self.neighbors, (list, np.ndarray))
         assert isinstance(self.dist, (type(None), list, np.ndarray))
@@ -161,11 +163,17 @@ class DepthCloud(object):
         assert self.neighbors is not None
         assert callable(fun)
 
-        empty = torch.zeros((0, 3))
+        empty = torch.zeros((0, 3), device=self.points.device)
         result = []
         for i in range(self.size()):
             if len(self.neighbors[i]) > 0:
-                p = torch.index_select(self.points, 0, torch.as_tensor(self.neighbors[i]))
+                # p = torch.index_select(self.points, 0, torch.as_tensor(self.neighbors[i]))
+                if isinstance(self.neighbors, torch.Tensor):
+                    nn = self.neighbors[i]
+                    nn = nn[nn >= 0]
+                else:
+                    nn = torch.as_tensor(self.neighbors[i], device=self.points.device)
+                p = torch.index_select(self.points, 0, nn)
             else:
                 p = empty
             q = self.points[i:i + 1]
@@ -174,20 +182,17 @@ class DepthCloud(object):
 
         return result
 
-    # def cov_fun(self):
-    #     assert self.cov is not None
-
-    @timing
+    # @timing
     def update_mean(self, invalid=0.0):
-        invalid = torch.full((3,), invalid)
+        invalid = torch.full((1, 3), invalid, device=self.points.device)
         fun = lambda p, q: p.mean(dim=0) if p.shape[0] >= 1 else invalid
         mean = self.neighbor_fun(fun)
         mean = torch.stack(mean)
         self.mean = mean
 
-    @timing
+    # @timing
     def update_cov(self, correction=1, invalid=0.0):
-        invalid = torch.full((3, 3), invalid)
+        invalid = torch.full((3, 3), invalid, device=self.points.device)
         fun = lambda p, q: torch.cov(p.transpose(-1, -2), correction=correction) if p.shape[0] >= 2 else invalid
         cov = self.neighbor_fun(fun)
         cov = torch.stack(cov)
@@ -213,7 +218,7 @@ class DepthCloud(object):
 
         return eigvals
 
-    @timing
+    # @timing
     def update_eigvals(self):
         self.eigvals = self.compute_eigvals()
 
@@ -230,7 +235,7 @@ class DepthCloud(object):
 
         return eigvals, eigvecs
 
-    @timing
+    # @timing
     def update_eig(self):
         self.eigvals, self.eigvecs = self.compute_eig()
 
@@ -262,7 +267,7 @@ class DepthCloud(object):
         # Keep incidence angles from the original observations?
         self.update_incidence_angles()
 
-    @timing
+    # @timing
     def update_all(self, k=None, r=None):
         self.update_points()
         self.update_neighbors(k=k, r=r)
@@ -424,14 +429,15 @@ class DepthCloud(object):
         return mesh
 
     def to(self, device=torch.device('cuda:0')):
-        if self.depth is not None:
-            self.depth = self.depth.to(device)
-        if self.dirs is not None:
-            self.dirs = self.dirs.to(device)
-        if self.vps is not None:
-            self.vps = self.vps.to(device)
-        if self.normals is not None:
-            self.normals = self.normals.to(device)
-        if self.inc_angles is not None:
-            self.inc_angles = self.inc_angles.to(device)
+        for f in DepthCloud.sliced_fields:
+            x = getattr(self, f)
+            if x is not None:
+                x = x.to(device)
+                setattr(self, f, x)
         return self
+
+    def cpu(self):
+        return self.to(torch.device('cpu'))
+
+    def gpu(self):
+        return self.to(torch.device('cuda:0'))

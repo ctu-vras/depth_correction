@@ -55,5 +55,6 @@ class Polynomial(BaseModel):
         dc_corr = dc.deepcopy()  # we do deep copy in order not to do costly update_all
         gamma = dc.inc_angles
         bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
-        dc_corr.depth = dc.depth - bias
+        # dc_corr.depth = dc.depth - bias
+        dc_corr.depth = dc.depth * (1. - bias)
         return dc_corr

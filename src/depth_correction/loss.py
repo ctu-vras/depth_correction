@@ -3,6 +3,7 @@ from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
 import numpy as np
+from numpy.polynomial import Polynomial
 from random import shuffle
 import torch
 from timeit import default_timer as timer
@@ -141,13 +142,17 @@ def demo():
     poses = []
     # ds = Dataset('apartment')
     # ids = ds.ids[0:10:2]
-    ds = Dataset('eth')
-    # ids = ds.ids[0:10:2]
-    ids = [0, 10]
+    # ds = Dataset('eth')
+    # ids = ds.ids[::6]
+    # ids = [0, 10]
     # ds = Dataset('gazebo_summer')
     # ds = Dataset('gazebo_winter')
+    ds = Dataset('stairs')
     # ids = ds.ids[0:10:2]
+    ids = ds.ids[::2]
 
+    min_depth = 1.0
+    max_depth = 10.0
     grid_res = 0.05
     k = None
     # k = 9
@@ -162,7 +167,7 @@ def demo():
         print('%i points read from dataset %s, cloud %i (%.3f s).'
               % (dc.size(), ds.name, id, timer() - t))
 
-        dc = filter_depth(dc, min=1.0, max=10.0)
+        dc = filter_depth(dc, min=min_depth, max=max_depth)
 
         t = timer()
         dc = filter_grid(dc, grid_res, keep='last')
@@ -171,29 +176,40 @@ def demo():
 
         dc = dc.transform(pose)
         dc.update_all(k=k, r=r)
-        keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True)
-        keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True)
-        dc = dc[keep]
-        dc.update_all(r=r)
+        # keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True)
+        # keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True)
+        # dc = dc[keep]
+        # dc.update_all(r=r)
 
         clouds.append(dc)
         poses.append(pose)
 
     dc = DepthCloud.concatenate(clouds, True)
-    dc.visualize(colors='inc_angles')
-    # dc.visualize(colors='z')
+    # dc.visualize(colors='inc_angles')
+    dc.visualize(colors='z')
 
     dc.update_all(k=k, r=r)
 
     # Visualize incidence angle to plane distance.
+    # TODO: Compare using plane fit for low incidence angle.
+    inc_angles = (180.0 / np.pi) * dc.inc_angles.detach().numpy().ravel()
     # dist = dc.normals.inner(dc.points - dc.mean)
-    dist = (dc.normals * (dc.points - dc.mean)).sum(dim=1)
+    dist = (dc.normals * (dc.points - dc.mean)).sum(dim=1).detach().numpy().ravel()
+    poly1 = Polynomial.fit(inc_angles, dist, 1)
+    print(poly1)
+    # Negative slope: distance to plane decreases with incidence angle.
+    poly2 = Polynomial.fit(inc_angles, dist, 2)
+    print(poly2)
+    xs = np.linspace(poly1.domain[0], poly1.domain[1], 100)
 
     import matplotlib.pyplot as plt
-    plt.plot(dc.inc_angles.detach().numpy().ravel(), dist.detach().numpy().ravel(),
-             '.', markersize=1)
-    plt.xlabel('Incidence Angle [rad]')
+    plt.plot(inc_angles, dist, '.', markersize=1, label='data')
+    plt.plot(xs, poly1(xs), 'r-', linewidth=1, label='fit deg. 1')
+    plt.plot(xs, poly2(xs), 'g--', linewidth=1, label='fit deg. 2')
+    plt.xticks(np.linspace(0., 90., 10))
+    plt.xlabel('Incidence Angle [deg]')
     plt.ylabel('Distance to Plane [m]')
+    plt.legend()
     plt.show()
 
     return

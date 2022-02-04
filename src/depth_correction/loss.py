@@ -77,8 +77,7 @@ def min_eigval_loss(cloud, k=None, r=None,
                     max_angle=None,
                     eigenvalue_bounds=None,
                     offset=False,
-                    reduction='mean',
-                    invalid=0.):
+                    reduction='mean'):
     assert isinstance(cloud, DepthCloud)
     assert k is None or isinstance(k, int)
     assert r is None or isinstance(r, float)
@@ -88,12 +87,10 @@ def min_eigval_loss(cloud, k=None, r=None,
     dc = cloud.deepcopy()
     # dc.update_all(k=k, r=r)
     dc.update_points()
-    # TODO: segmentation fault in update_neighbors
     dc.update_neighbors(k=k, r=r)
     if max_angle is not None:
         dc.filter_neighbors_normal_angle(max_angle)
     dc.update_features()
-    print('Updated features')
     dc.loss = dc.eigvals[:, 0]
 
     if offset:
@@ -101,18 +98,7 @@ def min_eigval_loss(cloud, k=None, r=None,
         dc.loss = dc.loss - cloud.eigvals[:, 0]
 
     if eigenvalue_bounds is not None:
-        keep = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1], only_mask=True)
-        dc.eigvals = dc.eigvals[keep]
-        # assert len(eigenvalue_bounds) == 2
-        # assert eigenvalue_bounds[0] <= eigenvalue_bounds[1]
-        # out_of_bounds = ((dc.eigvals[:, 0] < eigenvalue_bounds[0])
-        #                  | (dc.eigvals[:, 0] > eigenvalue_bounds[1]))
-        # dc.loss[out_of_bounds] = 0.0
-        #
-        # n_out = out_of_bounds.sum().item()
-        # n_total = out_of_bounds.numel()
-        # print('%i / %i = %.1f %% eigenvalue out of bounds (new).'
-        #       % (n_out, n_total, 100 * n_out / n_total))
+        dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1])
 
     dc.loss = torch.relu(dc.loss)
     loss = reduce(dc.loss, reduction=reduction)

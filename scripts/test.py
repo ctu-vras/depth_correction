@@ -12,38 +12,42 @@ from depth_correction.loss import min_eigval_loss
 from depth_correction.model import Linear, Polynomial
 import rospy
 from sensor_msgs.msg import PointCloud2
-from ros_numpy import msgify, numpify
-
+from ros_numpy import msgify
+import tf
 
 N = 10000
 r_nn = 0.4
-LR = 0.001
+LR = 1e-2
+SHOW_RESULTS = False
+
+
+# define normalized 2D gaussian: https://stackoverflow.com/questions/7687679/how-to-generate-2d-gaussian-with-python
+def gaus2d(x=0, y=0, mx=0, my=0, sx=1, sy=1, normalize=True):
+    gauss = np.exp(-((x - mx)**2. / (2. * sx**2.) + (y - my)**2. / (2. * sy**2.)))
+    if normalize:
+        gauss /= (2. * np.pi * sx * sy)
+    return gauss
 
 
 def main():
     rospy.init_node('depth_correction', anonymous=True)
     pc_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
+    br = tf.TransformBroadcaster()
 
     device = torch.device('cpu')
-    model = Polynomial(p0=0.05, p1=-0.05, device=device)
+    model = Polynomial(p0=1e-3, p1=1e-3, device=device)
+    # model = Linear(w0=1.0 + 1e-3, w1=0.0, b=1e-3, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
     # create flat point cloud (a wall)
     cloud = np.zeros((N, 3), dtype=np.float32)
-    cloud[:, :2] = np.random.rand(N, 2) * 20 - 10  # 10 x 10 m
+    cloud[:, [0, 1]] = np.random.rand(N, 2) * 20 - 10  # 10 x 10 m
     cloud[:, 2] = -10.0
+    # add disturbance
+    cloud[:, 2] += gaus2d(cloud[:, 0], cloud[:, 1], mx=6, my=6, normalize=False)
+    cloud[:, 2] += gaus2d(cloud[:, 0], cloud[:, 1], mx=-6, my=-6, normalize=False)
 
     dc = DepthCloud.from_points(cloud)
-    dc.update_all(r=r_nn)
-
-    # add disturbance: modify Z coord of point with high incidence angle
-    # alpha = dc.inc_angles.squeeze()
-    # min_alpha, max_alpha = 0.4, 0.7
-    # keep = alpha < max_alpha
-    # keep = keep & keep > min_alpha
-    # dc.depth[keep] = dc.depth[keep] + 0.3
-
-    # dc.depth = dc.depth + torch.exp(-torch.sin((dc.inc_angles**2) / 0.3 ** 2))
     dc.update_all(r=r_nn)
 
     # dc.visualize(colors='min_eigval')
@@ -55,30 +59,44 @@ def main():
         optimizer.zero_grad()
 
         dc = model(dc)
-        # dc.update_all(r=r_nn)
 
-        loss, _ = min_eigval_loss(dc, r=r_nn, offset=True)
+        loss, _ = min_eigval_loss(dc, r=r_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
 
-        rospy.loginfo('loss: %f' % loss.item())
+        rospy.loginfo('loss: %g' % loss.item())
 
         # Optimization step
-        loss.backward(retain_graph=True)
-        optimizer.step()
+        with torch.autograd.set_detect_anomaly(True):
+            loss.backward(retain_graph=True)
+            optimizer.step()
 
-        # if i % 20 == 0:
-        #     # dc.visualize(colors='inc_angles')
-        #     dc.visualize(colors='min_eigval')
+        dc.update_points()
+        dc.update_neighbors(r=r_nn)
+        dc.update_mean()
+        dc.update_cov()
+        dc.update_eig()
+        # dc.update_normals() # TODO: gives me torch.autograd inplace operation error
+        # Keep incidence angles from the original observations?
+        dc.update_incidence_angles()
+
+        if i % 20 == 0 and SHOW_RESULTS:
+            dc.visualize(colors='inc_angles', normals=True)
 
         # publish point cloud msg
-        dc.update_points()
         n_pts = dc.points.shape[0]
-        cloud = np.zeros((n_pts,), dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
+        cloud = np.zeros((n_pts,), dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
+                                          ('eig_x', 'f4'), ('eig_y', 'f4'), ('eig_z', 'f4')])
         points = dc.points.detach().numpy()
+        eigs = dc.eigvals.detach().numpy()
         cloud['x'], cloud['y'], cloud['z'] = points[:, 0], points[:, 1], points[:, 2]
+        cloud['eig_x'], cloud['eig_y'], cloud['eig_z'] = eigs[:, 0], eigs[:, 1], eigs[:, 2]
         pc_msg = msgify(PointCloud2, cloud)
         pc_msg.header.frame_id = 'map'
         pc_msg.header.stamp = rospy.Time.now()
         pc_pub.publish(pc_msg)
+
+        # publish viewpoints
+        vp = dc.vps[0]
+        br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), rospy.Time.now(), "vp", "map")
 
 
 if __name__ == '__main__':

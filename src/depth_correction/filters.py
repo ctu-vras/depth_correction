@@ -65,7 +65,7 @@ def within_bounds(x, min=None, max=None, log_variable=None):
         keep = keep & (x.flatten() <= max)
 
     if log_variable is not None:
-        print('%.3f = %i / %i points kept (%.3f <= %s <= %.3f).'
+        print('%.3f = %i / %i points kept (%.3g <= %s <= %.3g).'
               % (keep.double().mean(), keep.sum(), keep.numel(),
                  min if min is not None else float('nan'),
                  log_variable,

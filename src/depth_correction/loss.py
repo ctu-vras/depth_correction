@@ -100,16 +100,6 @@ def min_eigval_loss(cloud, k=None, r=None,
 
     if eigenvalue_bounds is not None:
         dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1])
-        # assert len(eigenvalue_bounds) == 2
-        # assert eigenvalue_bounds[0] <= eigenvalue_bounds[1]
-        # out_of_bounds = ((dc.eigvals[:, 0] < eigenvalue_bounds[0])
-        #                  | (dc.eigvals[:, 0] > eigenvalue_bounds[1]))
-        # dc.loss[out_of_bounds] = 0.0
-        #
-        # n_out = out_of_bounds.sum().item()
-        # n_total = out_of_bounds.numel()
-        # print('%i / %i = %.1f %% eigenvalue out of bounds (new).'
-        #       % (n_out, n_total, 100 * n_out / n_total))
 
     dc.loss = torch.relu(dc.loss)
     loss = reduce(dc.loss, reduction=reduction)
@@ -139,17 +129,22 @@ def demo():
     poses = []
     # ds = Dataset('apartment')
     # ids = ds.ids[0:10:2]
-    # ds = Dataset('eth')
+    ds = Dataset('eth')
     # ids = ds.ids[::6]
     # ids = [0, 10]
     # ds = Dataset('gazebo_summer')
     # ds = Dataset('gazebo_winter')
-    ds = Dataset('stairs')
+    # ds = Dataset('stairs')
     # ids = ds.ids[0:10:2]
-    ids = ds.ids[::2]
+    # step = 10
+    # start = 10
+    # stop = start + step
+    # ids = ds.ids[start:stop:step]
+    # ids = ds.ids[::10]
+    ids = ds.ids[10:21:10]
 
     min_depth = 1.0
-    max_depth = 10.0
+    max_depth = 15.0
     grid_res = 0.05
     k = None
     # k = 9
@@ -161,15 +156,15 @@ def demo():
         cloud = ds.local_cloud(id)
         pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
-        print('%i points read from dataset %s, cloud %i (%.3f s).'
-              % (dc.size(), ds.name, id, timer() - t))
+        # print('%i points read from dataset %s, cloud %i (%.3f s).'
+        #       % (dc.size(), ds.name, id, timer() - t))
 
-        dc = filter_depth(dc, min=min_depth, max=max_depth)
+        dc = filter_depth(dc, min=min_depth, max=max_depth, log=False)
 
         t = timer()
         dc = filter_grid(dc, grid_res, keep='last')
-        print('%i points kept by grid filter with res. %.2f m (%.3f s).'
-              % (dc.size(), grid_res, timer() - t))
+        # print('%i points kept by grid filter with res. %.2f m (%.3f s).'
+        #       % (dc.size(), grid_res, timer() - t))
 
         dc = dc.transform(pose)
         dc.update_all(k=k, r=r)
@@ -183,31 +178,64 @@ def demo():
 
     dc = DepthCloud.concatenate(clouds, True)
     # dc.visualize(colors='inc_angles')
-    dc.visualize(colors='z')
+    # dc.visualize(colors='z')
 
     dc.update_all(k=k, r=r)
 
     # Visualize incidence angle to plane distance.
     # TODO: Compare using plane fit for low incidence angle.
-    inc_angles = (180.0 / np.pi) * dc.inc_angles.detach().numpy().ravel()
+    depth = dc.depth.detach().numpy().ravel()
+    inc = dc.inc_angles.detach().numpy().ravel()
+    # scaled_inc = depth * inc
+    inv_cos = 1.0 / np.cos(inc)
+    # scaled_inv_cos = depth * inv_cos
     # dist = dc.normals.inner(dc.points - dc.mean)
     dist = (dc.normals * (dc.points - dc.mean)).sum(dim=1).detach().numpy().ravel()
-    poly1 = Polynomial.fit(inc_angles, dist, 1)
-    print(poly1)
-    # Negative slope: distance to plane decreases with incidence angle.
-    poly2 = Polynomial.fit(inc_angles, dist, 2)
-    print(poly2)
-    xs = np.linspace(poly1.domain[0], poly1.domain[1], 100)
+    norm_dist = dist / depth
+
+    # Fit models dependent on incidence angle
+    def domain(model, n=100):
+        return np.linspace(model.domain[0], model.domain[1], n)
+
+    def lims(x):
+        return np.nanquantile(x, [0.001, 0.999])
 
     import matplotlib.pyplot as plt
-    plt.plot(inc_angles, dist, '.', markersize=1, label='data')
-    plt.plot(xs, poly1(xs), 'r-', linewidth=1, label='fit deg. 1')
-    plt.plot(xs, poly2(xs), 'g--', linewidth=1, label='fit deg. 2')
-    plt.xticks(np.linspace(0., 90., 10))
-    plt.xlabel('Incidence Angle [deg]')
-    plt.ylabel('Distance to Plane [m]')
-    plt.legend()
-    plt.show()
+    # figsize = 8.27, 8.27
+    figsize = 6.4, 6.4
+
+    def plot_fit(x, y, x_label='x', y_label='y', x_lims=None, y_lims=None):
+        if x_lims is None:
+            x_lims = lims(x)
+        if y_lims is None:
+            y_lims = lims(y)
+        poly1 = Polynomial.fit(x, y, 1)
+        poly2 = Polynomial.fit(x, y, 2)
+        print('%s to %s (deg. 1 fit): %s' % (y_label, x_label, poly1))
+        print('%s to %s (deg. 2 fit): %s' % (y_label, x_label, poly2))
+        xs = domain(poly1)
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        ax.plot(x, y, '.', markersize=1, label='data')
+        ax.plot(xs, poly1(xs), 'r-', linewidth=1, label='fit deg. 1')
+        ax.plot(xs, poly2(xs), 'g--', linewidth=1, label='fit deg. 2')
+        ax.set_xlim(x_lims)
+        ax.set_ylim(y_lims)
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.grid(True)
+        ax.legend()
+        fig.tight_layout()
+        fig.show()
+        # print(np.nanquantile(x, np.linspace(0.0, 1.0, 10)))
+        # print(np.nanquantile(y, np.linspace(0.0, 1.0, 10)))
+
+    plot_fit(inc, dist,
+             'Incidence Angle', 'Distance to Plane [m]')
+    plot_fit(inc, norm_dist,
+             'Incidence Angle', 'Distance to Plane / Depth')
+    plot_fit(inv_cos, norm_dist,
+             '1 / Incidence Angle Cosine', 'Distance to Plane / Depth',
+             x_lims=[1.0, 11.47])
 
     return
 

@@ -253,8 +253,8 @@ def demo():
             x_lims = lims(x)
         if y_lims is None:
             y_lims = lims(y)
-        poly1 = Polynomial.fit(x, y, 1)
-        poly2 = Polynomial.fit(x, y, 2)
+        poly1 = Polynomial.fit(x, y, 1).convert()
+        poly2 = Polynomial.fit(x, y, 2).convert()
         print('%s to %s (deg. 1 fit): %s' % (y_label, x_label, poly1))
         print('%s to %s (deg. 2 fit): %s' % (y_label, x_label, poly2))
         # xs = domain(poly1)

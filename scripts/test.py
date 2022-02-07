@@ -4,21 +4,28 @@ from __future__ import absolute_import, division, print_function
 from rospkg import RosPack
 import sys
 import os
+# sys.path.append('../src/')
 sys.path.append(os.path.join(RosPack().get_path('depth_correction'), 'src/'))
 import torch
 import numpy as np
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.loss import min_eigval_loss
 from depth_correction.model import Linear, Polynomial
+from depth_correction.filters import filter_depth, filter_grid
 import rospy
 from sensor_msgs.msg import PointCloud2
 from ros_numpy import msgify
 import tf
 
-N = 10000
+
+N_pts = 10000
 r_nn = 0.4
 LR = 1e-2
-SHOW_RESULTS = False
+N_ITERS = 200
+SHOW_RESULTS = True
+min_depth = 1.0
+max_depth = 15.0
+grid_res = 0.05
 
 
 # define normalized 2D gaussian: https://stackoverflow.com/questions/7687679/how-to-generate-2d-gaussian-with-python
@@ -40,43 +47,39 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
     # create flat point cloud (a wall)
-    cloud = np.zeros((N, 3), dtype=np.float32)
-    cloud[:, [0, 1]] = np.random.rand(N, 2) * 20 - 10  # 10 x 10 m
+    cloud = np.zeros((N_pts, 3), dtype=np.float32)
+    cloud[:, [0, 1]] = np.random.rand(N_pts, 2) * 20 - 10  # 10 x 10 m
     cloud[:, 2] = -10.0
-    # add disturbance
+    # add disturbances
     cloud[:, 2] += gaus2d(cloud[:, 0], cloud[:, 1], mx=6, my=6, normalize=False)
+    cloud[:, 2] += gaus2d(cloud[:, 0], cloud[:, 1], mx=6, my=-6, normalize=False)
+    cloud[:, 2] += gaus2d(cloud[:, 0], cloud[:, 1], mx=-6, my=6, normalize=False)
     cloud[:, 2] += gaus2d(cloud[:, 0], cloud[:, 1], mx=-6, my=-6, normalize=False)
 
-    dc = DepthCloud.from_points(cloud)
-    dc.update_all(r=r_nn)
+    dc_init = DepthCloud.from_points(cloud)
+    dc_init = filter_depth(dc_init, min=min_depth, max=max_depth, log=False)
+    dc_init = filter_grid(dc_init, grid_res, keep='last')
+    dc_init.update_all(r=r_nn)
 
-    # dc.visualize(colors='min_eigval')
+    # dc_init.visualize(colors='min_eigval', normals=True)
 
     # use model to correct the distortion (hopefully)
-    for i in range(200):
+    for i in range(N_ITERS):
         if rospy.is_shutdown():
             break
         optimizer.zero_grad()
 
-        dc = model(dc)
+        dc = model(dc_init)
 
         loss, _ = min_eigval_loss(dc, r=r_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
 
-        rospy.loginfo('loss: %g' % loss.item())
+        rospy.loginfo('Loss: %g' % loss.item())
 
         # Optimization step
-        with torch.autograd.set_detect_anomaly(True):
-            loss.backward(retain_graph=True)
-            optimizer.step()
+        loss.backward()
+        optimizer.step()
 
-        dc.update_points()
-        dc.update_neighbors(r=r_nn)
-        dc.update_mean()
-        dc.update_cov()
-        dc.update_eig()
-        # dc.update_normals() # TODO: gives me torch.autograd inplace operation error
-        # Keep incidence angles from the original observations?
-        dc.update_incidence_angles()
+        dc.update_all(r=r_nn)
 
         if i % 20 == 0 and SHOW_RESULTS:
             dc.visualize(colors='inc_angles', normals=True)

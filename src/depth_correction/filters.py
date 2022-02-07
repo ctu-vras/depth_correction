@@ -8,7 +8,8 @@ def filter_grid(cloud, grid_res, keep='random'):
     """Keep single point within each cell. Order is not preserved."""
     if isinstance(cloud, DepthCloud):
         assert keep == 'last'
-        x = cloud.points or cloud.to_points()
+        # x = cloud.points or cloud.to_points()
+        x = cloud.points if cloud.points is not None else cloud.to_points()
         x = x.detach()
         keys = (x / grid_res).floor().int()
         keys = [tuple(i) for i in keys.numpy().tolist()]

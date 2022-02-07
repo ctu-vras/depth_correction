@@ -9,13 +9,53 @@ import torch
 from timeit import default_timer as timer
 
 
+refractive_index_vacuum = 1.0
+refractive_index_air = 1.000293
+
+# waist_hokuyo =
+# waist_ouster = 5e-3  # FWHM?
+
+wavelength_hokuyo = 905e-9
+wavelength_ouster = 865e-9
+
+
 __all__ = [
+    'beam_width',
     'min_eigval_loss',
     'neighbor_cov',
     'neighbor_fun',
+    'rayleight_length',
     'reduce',
     'trace_loss',
 ]
+
+
+def rayleight_length(w0, n=refractive_index_air, l=wavelength_hokuyo):
+    """Rayleight lenght (range) for given beam waist.
+
+    :param w0: beam waist [m].
+    :param n: index of refraction of the propagation medium, n=1.0 for vacuum, n=1.000293 for air (default).
+    :param
+    """
+    assert isinstance(w0, torch.Tensor)
+    z_r = torch.pi * w0**2 * n / l
+    return z_r
+
+
+def beam_width(z, w0, n=refractive_index_air, l=wavelength_hokuyo, m2=1.0):
+    """Beam width at given depth.
+
+    :param z: depth [m].
+    :param w0: beam waist [m].
+    :param n: index of refraction of the propagation medium.
+    :param l: wavelength [m].
+    :param m2: M2, "M squared", beam quality factor, or beam propagation factor. m2=1 for ideal Gaussian beam (default).
+    :return: Beam width [m].
+    """
+    assert isinstance(z, torch.Tensor)
+    assert isinstance(w0, torch.Tensor)
+    w = w0 * m2 * torch.sqrt(1.0 + (z / rayleight_length(w0, n, l))**2)
+    return w
 
 
 def reduce(x, reduction='mean', weights=None, only_finite=False, skip_nans=False):

@@ -244,12 +244,13 @@ class DepthCloud(object):
         assert isinstance(self.normals, torch.Tensor)
         # cos = self.dirs.dot(self.normals)
         cos = (self.dirs * self.normals).sum(dim=-1)
-        flip = cos > 0.0
-        self.normals[flip] = -self.normals[flip]
+        sign = torch.sign(cos)[..., None]
+        self.normals = - sign * self.normals
 
     def update_normals(self):
         assert self.eigvecs is not None
-        self.normals = self.eigvecs[..., 0]
+        with torch.no_grad():
+            self.normals = self.eigvecs[..., 0]
         self.orient_normals()
 
     def update_incidence_angles(self):

@@ -134,5 +134,9 @@ dmypy.json
 # Dataset
 data
 
+# Large files
+*.simg
+*img
 singularity/
+
 tb_runs/

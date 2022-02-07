@@ -117,8 +117,7 @@ def min_eigval_loss(cloud, k=None, r=None,
                     max_angle=None,
                     eigenvalue_bounds=None,
                     offset=False,
-                    reduction='mean',
-                    invalid=0.):
+                    reduction='mean'):
     assert isinstance(cloud, DepthCloud)
     assert k is None or isinstance(k, int)
     assert r is None or isinstance(r, float)

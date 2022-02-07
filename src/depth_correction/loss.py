@@ -235,7 +235,11 @@ def demo():
 
     # Fit models dependent on incidence angle
     def domain(model, n=100):
-        return np.linspace(model.domain[0], model.domain[1], n)
+        if isinstance(model, Polynomial):
+            return np.linspace(model.domain[0], model.domain[1], n)
+        if isinstance(model, np.ndarray):
+            return np.linspace(np.nanmin(model), np.nanmax(model), n)
+        raise ValueError('Invalid domain input, only polynomial or data sample is supported.')
 
     def lims(x):
         return np.nanquantile(x, [0.001, 0.999])
@@ -253,7 +257,8 @@ def demo():
         poly2 = Polynomial.fit(x, y, 2)
         print('%s to %s (deg. 1 fit): %s' % (y_label, x_label, poly1))
         print('%s to %s (deg. 2 fit): %s' % (y_label, x_label, poly2))
-        xs = domain(poly1)
+        # xs = domain(poly1)
+        xs = domain(x)
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         ax.plot(x, y, '.', markersize=1, label='data')
         ax.plot(xs, poly1(xs), 'r-', linewidth=1, label='fit deg. 1')

@@ -3,7 +3,7 @@
     <arg name="rviz" default="true"/>
 
     <!-- ROSBAG -->
-    <node name="depth_correction" pkg="depth_correction" type="test.py" output="screen"/>
+    <node name="local_optimization" pkg="depth_correction" type="local_optimization.py" output="screen"/>
 
     <!-- RVIZ -->
     <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz"

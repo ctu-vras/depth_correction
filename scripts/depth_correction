@@ -19,7 +19,7 @@ def load_model(param):
         rospy.loginfo('Loading %s model state from %s.', cls, state_dict)
         model.load_state_dict(torch.load(state_dict))
     else:
-        rospy.logwarn('No model state provided, using the initial one.')
+        rospy.logwarn('Using %s model with initial state.', cls)
 
     model.eval()
     return model

@@ -94,6 +94,11 @@ class DepthCloud(object):
     def update_points(self):
         self.points = self.to_points()
 
+    def get_points(self):
+        if self.points is None:
+            self.update_points()
+        return self.points
+
     def transform(self, T):
         assert isinstance(self.vps, torch.Tensor)
         assert isinstance(self.dirs, torch.Tensor)
@@ -310,10 +315,8 @@ class DepthCloud(object):
         return colors
 
     def to_point_cloud(self, colors=None):
-        if self.points is not None:
-            self.update_points()
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(self.points.detach().cpu())
+        pcd.points = o3d.utility.Vector3dVector(self.get_points().detach().cpu())
         if self.normals is not None:
             pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
 

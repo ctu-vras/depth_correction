@@ -5,6 +5,20 @@
     <!-- ROSBAG -->
     <node name="local_optimization" pkg="depth_correction" type="local_optimization.py" output="screen"/>
 
+    <!-- ONLINE DEPTH CORRECTION -->
+    <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
+        <rosparam >
+            max_age: 1.0
+            model:
+                class: Polynomial
+                <!--
+                state_dict: $(dirname)/../config/hokuyo_scaled_polynomial.pth
+                -->
+        </rosparam>
+        <remap from="input" to="assembled_cloud"/>
+        <remap from="output" to="corrected_cloud"/>
+    </node>
+
     <!-- RVIZ -->
     <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz"
           args="-d $(dirname)/../config/depthcorr.rviz"/>

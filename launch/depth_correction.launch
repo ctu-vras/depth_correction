@@ -2,9 +2,6 @@
 <launch>
     <arg name="rviz" default="true"/>
 
-    <!-- ROSBAG -->
-    <node name="local_optimization" pkg="depth_correction" type="local_optimization.py" output="screen"/>
-
     <!-- ONLINE DEPTH CORRECTION -->
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam >

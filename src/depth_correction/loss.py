@@ -207,10 +207,10 @@ def demo():
 
         dc = dc.transform(pose)
         dc.update_all(k=k, r=r)
-        # keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True)
-        # keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True)
-        # dc = dc[keep]
-        # dc.update_all(r=r)
+        keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True)
+        keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True)
+        dc = dc[keep]
+        dc.update_all(r=r)
 
         clouds.append(dc)
         poses.append(pose)

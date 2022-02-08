@@ -1,22 +1,17 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8" ?><!-- ROSBAG -->
 <launch>
-    <arg name="rviz" default="true"/>
-
-    <!-- ONLINE DEPTH CORRECTION -->
+    <arg name="input" default="assembled_cloud"/>
+    <arg name="output" default="corrected_cloud"/>
+    <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
+    <arg name="model_state_dict" default="" doc="Path to the model state dict."/>
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
-        <rosparam >
+        <rosparam subst_value="true">
             max_age: 1.0
             model:
-                class: Polynomial
-                <!--
-                state_dict: $(dirname)/../config/hokuyo_scaled_polynomial.pth
-                -->
+                class: $(arg model_class)
+                state_dict: '$(arg model_state_dict)'
         </rosparam>
-        <remap from="input" to="assembled_cloud"/>
-        <remap from="output" to="corrected_cloud"/>
+        <remap from="input" to="$(arg input)"/>
+        <remap from="output" to="$(arg output)"/>
     </node>
-
-    <!-- RVIZ -->
-    <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz"
-          args="-d $(dirname)/../config/depthcorr.rviz"/>
 </launch>

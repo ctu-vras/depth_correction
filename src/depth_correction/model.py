@@ -21,12 +21,17 @@ class BaseModel(nn.Module):
 
 class Linear(BaseModel):
 
-    def __init__(self, w0=1.0, w1=0.0, b=0.0, device=torch.device('cpu')):
+    def __init__(self, w0=1.0, w1=0.0, b=0.0, uniform_weights=False, device=torch.device('cpu')):
         super(Linear, self).__init__(device=device)
 
         assert isinstance(w0, (float, torch.Tensor))
         assert isinstance(w1, (float, torch.Tensor))
         assert isinstance(b, (float, torch.Tensor))
+
+        if uniform_weights:
+            w0 = torch.nn.init.uniform(torch.tensor(w0), -0.95, 1.05)
+            w1 = torch.nn.init.uniform(torch.tensor(w1), -0.05, 0.05)
+            b = torch.nn.init.uniform(torch.tensor(b), -0.05, 0.05)
 
         self.w0 = nn.Parameter(torch.tensor(w0, device=self.device))
         self.w1 = nn.Parameter(torch.tensor(w1, device=self.device))
@@ -41,14 +46,18 @@ class Linear(BaseModel):
 
 class Polynomial(BaseModel):
 
-    def __init__(self, p0=0.0, p1=0.0, device=torch.device('cpu')):
+    def __init__(self, p0=0.0, p1=0.0, uniform_weights=False, device=torch.device('cpu')):
         super(Polynomial, self).__init__(device=device)
 
         assert isinstance(p0, (float, torch.Tensor))
         assert isinstance(p1, (float, torch.Tensor))
 
-        self.p0 = nn.Parameter(torch.tensor(p0, device=self.device))
-        self.p1 = nn.Parameter(torch.tensor(p1, device=self.device))
+        if uniform_weights:
+            p0 = torch.nn.init.uniform_(torch.as_tensor(p0), -0.05, 0.05)
+            p1 = torch.nn.init.uniform_(torch.as_tensor(p1), -0.05, 0.05)
+
+        self.p0 = nn.Parameter(torch.as_tensor(p0, device=self.device))
+        self.p1 = nn.Parameter(torch.as_tensor(p1, device=self.device))
 
     def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None

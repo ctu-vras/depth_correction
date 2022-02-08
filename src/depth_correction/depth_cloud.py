@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .nearest_neighbors import nearest_neighbors
 from .utils import map_colors, timing
 import numpy as np
-from numpy.lib.recfunctions import structured_to_unstructured
+from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
 import torch
 import open3d as o3d  # used for normals estimation and visualization
 
@@ -335,6 +335,19 @@ class DepthCloud(object):
         #     vis.update_renderer()
         # o3d.visualization.draw_geometries_with_key_callbacks([pcd], window_name=window_name, {ord('c'): cb})
 
+    def to_structured_array(self):
+        pts = unstructured_to_structured(self.get_points(), names=list('xyz'))
+        vps = unstructured_to_structured(self.vps, names=['vp_%s' % f for f in 'xyz'])
+        parts = [pts, vps]
+        if self.normals is not None:
+            normals = unstructured_to_structured(self.normals, names=['normal_%s' % f for f in 'xyz'])
+            parts.append(normals)
+        if self.loss is not None:
+            loss = unstructured_to_structured(self.loss, names=['loss'])
+            parts.append(loss)
+        cloud = merge_arrays(parts, flatten=True)
+        return cloud
+
     @staticmethod
     def concatenate(depth_clouds, dependent=False):
         # TODO: Concatenate neighbors and dist, shift indices as necessary.
@@ -349,6 +362,17 @@ class DepthCloud(object):
         return dc
 
     @staticmethod
+    def from_structured_array(arr):
+        """Create depth cloud from points """
+        assert isinstance(arr, np.ndarray)
+        pts = structured_to_unstructured(arr[['x', 'y', 'z']])
+        if 'vp_x' in arr.dtype.names:
+            vps = structured_to_unstructured(arr[['vp_%s' % f for f in 'xyz']])
+        else:
+            vps = None
+        return DepthCloud.from_points(pts, vps)
+
+    @staticmethod
     def from_points(pts, vps=None):
         """Create depth cloud from points and viewpoints.
 
@@ -358,8 +382,9 @@ class DepthCloud(object):
         :return:
         """
         if pts.dtype.names:
-            vps = structured_to_unstructured(pts[['vp_%s' % f for f in 'xyz']])
-            pts = structured_to_unstructured(pts[['x', 'y', 'z']])
+            # vps = structured_to_unstructured(pts[['vp_%s' % f for f in 'xyz']])
+            # pts = structured_to_unstructured(pts[['x', 'y', 'z']])
+            return DepthCloud.from_structured_array(pts)
 
         if isinstance(pts, np.ndarray):
             pts = torch.tensor(pts)

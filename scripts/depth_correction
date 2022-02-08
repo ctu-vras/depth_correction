@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+from __future__ import absolute_import, division, print_function
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.model import *
+
+from numpy.lib.recfunctions import merge_arrays, unstructured_to_structured
+from ros_numpy import msgify, numpify
+import rospy
+from sensor_msgs.msg import PointCloud2
+import torch
+
+
+def load_model(param):
+    cls = rospy.get_param('%s/class' % param)
+
+    Cls = eval(cls)
+    model = Cls()
+    assert isinstance(model, BaseModel)
+    assert isinstance(model, torch.nn.Module)
+
+    state_dict = rospy.get_param('%s/state_dict' % param, None)
+    if state_dict:
+        rospy.loginfo('Loading %s model state from %s.', cls, state_dict)
+        model.load_state_dict(torch.load(state_dict))
+    else:
+        rospy.logwarn('No model state provided, using the initial one.')
+
+    model.eval()
+    return model
+
+
+class DepthCorrection(object):
+    def __init__(self):
+        self.model = load_model('~model')
+        self.max_age = rospy.get_param('~max_age', 1.0)
+        # self.sensor_frame = rospy.get_param('sensor_frame', None)
+
+        self.pub = rospy.Publisher('output', PointCloud2, queue_size=2, latch=True)
+        self.sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
+
+    def correct_depth(self, input_msg):
+        assert isinstance(input_msg, PointCloud2)
+        input_cloud = numpify(input_msg)
+        if 'vp_x' not in input_cloud.dtype.names:
+            rospy.logwarn_once('Point cloud does not contain viewpoint fields (vp_x not among %s).',
+                               ', '.join(input_cloud.dtype.names))
+        input_dc = DepthCloud.from_structured_array(input_cloud)
+        output_dc = self.model.correct_depth(input_dc)
+        output_cloud = output_dc.to_structured_array()
+        output_msg = msgify(PointCloud2, output_cloud)
+        output_msg.header = input_msg.header
+        return output_msg
+
+    def process_cloud(self, input_msg):
+        assert isinstance(input_msg, PointCloud2)
+
+        age = (rospy.Time.now() - input_msg.header.stamp).to_sec()
+        if age > self.max_age:
+            rospy.logwarn('Skipping message %.3f s > %.3f s old.', age, self.max_age)
+            return
+
+        output_msg = self.correct_depth(input_msg)
+        self.pub.publish(output_msg)
+
+
+def main():
+    rospy.init_node('depth_correction')
+    node = DepthCorrection()
+    rospy.spin()
+
+
+if __name__ == '__main__':
+    main()

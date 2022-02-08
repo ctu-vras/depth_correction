@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="dataset" default="asl_laser/eth"/>
+    <arg name="start" default="0"/>
+    <arg name="step" default="1"/>
+    <arg name="period" default="1.0"/>
+<!--    <arg name="odom_cov" default="[0.05, 0.05, 0.05, 0.01, 0.01, 0.01]"/>-->
+    <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"/>
+    <arg name="rviz" default="true"/>
+
+    <node name="robot_data" pkg="depth_correction" type="robot_data"
+          output="screen" required="false">
+        <rosparam subst_value="true">
+            dataset: $(arg dataset)
+            start: $(arg start)
+            step: $(arg step)
+            period: $(arg period)
+            odom:
+                cov: $(arg odom_cov)
+            lidar_frame: lidar
+            odom_frame: odom
+        </rosparam>
+    </node>
+
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+        <arg name="config" value="$(dirname)/../config/robot_data.rviz"/>
+    </include>
+</launch>

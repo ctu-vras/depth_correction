@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+"""Node providing robot data from various datasets for SLAM evaluation."""
+from __future__ import absolute_import, division, print_function
+from data.asl_laser import Dataset
+from geometry_msgs.msg import Transform, TransformStamped
+import numpy as np
+from ros_numpy import msgify
+import rospy
+from sensor_msgs.msg import PointCloud2
+from tf2_msgs.msg import TFMessage
+from tf.transformations import euler_matrix
+
+
+class RobotData(object):
+    def __init__(self):
+        self.dataset_name = rospy.get_param('~dataset', 'asl_laser/eth')
+        self.start = rospy.get_param('~start', None)
+        self.stop = rospy.get_param('~stop', None)
+        self.step = rospy.get_param('~step', None)
+        self.ids = rospy.get_param('~ids', None)
+        self.period = rospy.get_param('~period', 1.0)
+        self.delay = rospy.get_param('~delay', 3.0)
+
+        self.odom = rospy.get_param('~odom', None)  # None, 'N(0, 1)'
+        self.odom_cov = rospy.get_param('~odom/cov', None)
+        if self.odom_cov:
+            self.odom_cov = np.array(self.odom_cov)
+            print(self.odom_cov)
+            assert self.odom_cov.shape in ((6,), (6, 6))
+            if self.odom_cov.shape == (6,):
+                self.odom_cov = np.diag(self.odom_cov)
+
+        self.lidar_frame = rospy.get_param('~lidar_frame', 'lidar')
+        self.odom_frame = rospy.get_param('~odom_frame', 'odom')
+
+        self.dataset = None
+        self.position = None
+        if 'asl_laser' in self.dataset_name:
+            name = self.dataset_name.split('/')[1]
+            self.dataset = Dataset(name)
+            if not self.ids:
+                self.ids = self.dataset.ids[slice(self.start, self.stop, self.step)]
+            rospy.loginfo('Using %s dataset, %i positions (%s%s).',
+                          self.dataset_name, len(self.ids),
+                          ', '.join([str(i) for i in self.ids[:5]]),
+                          ', ...' if len(self.ids) > 5 else '')
+            if self.ids:
+                self.position = 0
+
+        self.tf_pub = rospy.Publisher('/tf', TFMessage, queue_size=2, latch=True)
+        self.cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2, latch=True)
+
+        self.timer = rospy.Timer(rospy.Duration(self.delay), self.start_timer, oneshot=True)
+
+    def start_timer(self, evt):
+        self.timer = rospy.Timer(rospy.Duration(self.period), self.publish_and_move)
+
+    def is_valid(self):
+        return self.position < len(self.ids)
+
+    def halt_if_done(self):
+        if not self.is_valid():
+            rospy.loginfo('No more positions.')
+            rospy.signal_shutdown('No more positions.')
+
+    def noisy_pose(self, pose):
+        if self.odom_cov is not None:
+            noise = np.random.multivariate_normal(np.zeros((6,)), self.odom_cov)
+            T = euler_matrix(*noise[3:])
+            T[:3, 3] = noise[:3]
+            pose = np.matmul(pose, T)
+        return pose
+
+    def publish(self):
+        if rospy.is_shutdown():
+            return
+        if not self.is_valid():
+            return
+
+        now = rospy.Time.now()
+
+        pose = self.dataset.cloud_pose(self.ids[self.position])
+        pose = self.noisy_pose(pose)
+        tf = TransformStamped()
+        tf.header.stamp = now
+        tf.header.frame_id = self.odom_frame
+        tf.child_frame_id = self.lidar_frame
+        tf.transform = msgify(Transform, pose)
+        if self.odom:
+            self.tf_pub.publish(TFMessage([tf]))
+
+        cloud = self.dataset.local_cloud(self.ids[self.position])
+        msg = msgify(PointCloud2, cloud)
+        assert isinstance(msg, PointCloud2)
+        msg.header.stamp = now
+        msg.header.frame_id = self.lidar_frame
+        self.cloud_pub.publish(msg)
+
+    def move(self):
+        self.position += 1
+
+    def publish_and_move(self, evt):
+        self.halt_if_done()
+        self.publish()
+        self.move()
+
+
+def main():
+    rospy.init_node('RobotData')
+    node = RobotData()
+    rospy.spin()
+
+
+if __name__ == '__main__':
+    main()

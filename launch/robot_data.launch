@@ -6,7 +6,7 @@
     <arg name="period" default="1.0"/>
 <!--    <arg name="odom_cov" default="[0.05, 0.05, 0.05, 0.01, 0.01, 0.01]"/>-->
     <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"/>
-    <arg name="rviz" default="true"/>
+    <arg name="rviz" default="false"/>
 
     <node name="robot_data" pkg="depth_correction" type="robot_data"
           output="screen" required="false">
@@ -22,7 +22,5 @@
         </rosparam>
     </node>
 
-    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
-        <arg name="config" value="$(dirname)/../config/robot_data.rviz"/>
-    </include>
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch"/>
 </launch>

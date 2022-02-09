@@ -6,5 +6,7 @@
     <node name="local_optimization" pkg="depth_correction" type="local_optimization.py" output="screen"/>
 
     <!-- RVIZ -->
-    <include if="$(arg rviz)" file="$(dirname)/rviz.launch"/>
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+        <arg name="config" value="$(dirname)/../config/local_opt.rviz"/>
+    </include>
 </launch>

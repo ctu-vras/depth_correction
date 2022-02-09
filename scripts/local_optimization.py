@@ -92,7 +92,7 @@ def main():
         if i % 10 == 0:
             # dc.visualize(colors='inc_angles', normals=True)
 
-            # publish point cloud msg
+            # create point cloud to publish from DepthCloud
             n_pts = dc.points.shape[0]
             cloud = np.zeros((n_pts,), dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
                                               ('eig_x', 'f4'), ('eig_y', 'f4'), ('eig_z', 'f4')])
@@ -100,7 +100,8 @@ def main():
             eigs = dc.eigvals.detach().cpu().numpy()
             cloud['x'], cloud['y'], cloud['z'] = points[:, 0], points[:, 1], points[:, 2]
             cloud['eig_x'], cloud['eig_y'], cloud['eig_z'] = eigs[:, 0], eigs[:, 1], eigs[:, 2]
-            # cloud = DepthCloud.to_structured_array(dc)
+
+            # publish point cloud msg
             pc_msg = msgify(PointCloud2, cloud)
             pc_msg.header.frame_id = 'map'
             pc_msg.header.stamp = rospy.Time.now()

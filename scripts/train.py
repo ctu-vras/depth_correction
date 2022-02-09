@@ -26,7 +26,7 @@ elif DATASET == 'UTIAS_3dmap':
 elif DATASET == 'Chilean_Mine':
     from data.chilean_underground_mine import Dataset, dataset_names
 else:
-    raise "Supported datasets: 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'"
+    raise ValueError("Supported datasets: 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'")
 
 
 def construct_corrected_global_map(ds: Dataset,
@@ -46,35 +46,47 @@ def construct_corrected_global_map(ds: Dataset,
     seq_n = np.random.choice(range(len(ds) - seq_len), 1)[0]
     device = model.device
     for id in ds.ids[seq_n:seq_n + seq_len * sample_k:sample_k]:
-        t = timer()
+        # t = timer()
         cloud = ds.local_cloud(id)
         pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
         # print('%i points read from dataset %s, cloud %i (%.3f s).'
-        #       % (dc.size(), ds.name, id, timer() - t))
+        #       % (dc.size(), ds.name, id, timer() - t))  # ~0.06 sec for 180000 pts
 
-        t = timer()
+        # t = timer()
         dc = filter_depth(dc, min=min_depth, max=max_depth, log=False)
         # print('%i points kept by depth filter with min_depth %.2f, max_depth %.2f m (%.3f s).'
-        #       % (dc.size(), min_depth, max_depth, timer() - t))
+        #       % (dc.size(), min_depth, max_depth, timer() - t))  # ~0.002 sec
 
-        t = timer()
+        # t = timer()
         dc = filter_grid(dc, grid_res, keep='last')
         # print('%i points kept by grid filter with res. %.2f m (%.3f s).'
-        #       % (dc.size(), grid_res, timer() - t))
+        #       % (dc.size(), grid_res, timer() - t))  # ~0.1 sec
 
+        # t = timer()
         pose = pose.to(device)
         dc = dc.to(device)
+        # print('moved poses and depth cloud to device (%.3f s).' % (timer() - t))  # ~0.001 sec
 
+        # t = timer()
         dc = dc.transform(pose)
-        dc.update_all(k=k_nn, r=r_nn)
+        # print('transformed depth cloud to global frame (%.3f s).' % (timer() - t))  # ~0.001 sec
 
+        t = timer()
+        dc.update_all(k=k_nn, r=r_nn)
+        print('update_all took (%.3f s).' % (timer() - t))  # ~2.0 sec on CPU and ~7.5 sec on GPU (!)
+
+        t = timer()
         keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True, log=False)
         keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True, log=False)
         dc = dc[keep]
         dc.update_all(k=k_nn, r=r_nn)
+        print('filtering eigvals and update_all took (%.3f s).'
+              % (timer() - t))  # ~1.0 sec on CPU and 3.2 sec on GPU (!)
 
+        # t = timer()
         dc = model(dc)
+        # print('model inference took (%.3f s).' % (timer() - t))  # ~0.001 sec
 
         clouds.append(dc)
         poses.append(pose)
@@ -87,7 +99,7 @@ def main():
     print('Loading the datasets...')
     datasets = [Dataset(name) for name in ('eth',)]
     # datasets = [Dataset(name) for name in dataset_names]
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cuda:0')
     device = torch.device('cpu')
 
     if MODEL_TYPE == 'Polynomial':
@@ -95,7 +107,7 @@ def main():
     elif MODEL_TYPE == 'Linear':
         model = Linear(w0=1.0, w1=0.0, b=0.0, device=device)
     else:
-        raise 'Model type is not supported'
+        raise ValueError('Model type is not supported')
 
     # Initialize optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
@@ -109,16 +121,14 @@ def main():
     min_loss = np.inf
     for i in range(N_OPT_ITERS):
         ds = np.random.choice(datasets, 1)[0]
-        print('Dataset len:', len(ds))
         optimizer.zero_grad()
 
-        # TODO: run everything on GPU
         combined = construct_corrected_global_map(ds, model, k_nn, r_nn)  # model is passed to correct local maps
         # combined = model(combined)
         # combined.update_all(r=r_nn, k=k_nn)
 
         loss, loss_dc = min_eigval_loss(combined, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05**2))
-        print('Loss:', loss.item())
+        print('loss:', loss.item())
         writer.add_scalar("Loss/min_eigval", loss, i)
 
         if SHOW_RESULTS and i % plot_period == 0:
@@ -129,7 +139,7 @@ def main():
         if min_loss > loss.item():
             min_loss = loss.item()
             torch.save(model.state_dict(), './weights/%s.pth' % MODEL_TYPE)
-            print('Better %s model is saved, loss: %g' % (MODEL_TYPE, min_loss))
+            print('better %s model is saved, loss: %g' % (MODEL_TYPE, min_loss))
 
         # Optimization step
         loss.backward()

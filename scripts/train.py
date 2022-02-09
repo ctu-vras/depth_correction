@@ -10,10 +10,10 @@ import numpy as np
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
 from depth_correction.loss import min_eigval_loss
-from depth_correction.model import Linear, Polynomial
+from depth_correction.model import Linear, Polynomial, ScaledPolynomial
 
 
-MODEL_TYPE = 'Polynomial'  # 'Linear' or 'Polynomial'
+MODEL_TYPE = 'ScaledPolynomial'  # 'Linear', 'Polynomial', 'ScaledPolynomial'
 N_OPT_ITERS = 100
 LR = 0.001
 SHOW_RESULTS = False
@@ -104,6 +104,8 @@ def main():
 
     if MODEL_TYPE == 'Polynomial':
         model = Polynomial(p0=0.0, p1=0.0, device=device)
+    elif MODEL_TYPE == 'ScaledPolynomial':
+        model = ScaledPolynomial(p0=0.0, p1=0.0, device=device)
     elif MODEL_TYPE == 'Linear':
         model = Linear(w0=1.0, w1=0.0, b=0.0, device=device)
     else:

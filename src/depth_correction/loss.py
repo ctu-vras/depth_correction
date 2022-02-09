@@ -123,6 +123,24 @@ def min_eigval_loss(cloud, k=None, r=None,
     assert r is None or isinstance(r, float)
     assert eigenvalue_bounds is None or len(eigenvalue_bounds) == 2
 
+    if isinstance(cloud, (list, tuple)):
+        losses, dcs = [], []
+        for c in cloud:
+            loss, dc = min_eigval_loss(c, k=k, r=r,
+                                       max_angle=max_angle,
+                                       eigenvalue_bounds=eigenvalue_bounds,
+                                       offset=offset,
+                                       # reduction='mean')
+                                       reduction='none')
+
+            losses.append(loss)
+            dcs.append(dc)
+        # Double reduction (average of averages)
+        # loss = reduce(torch.cat(losses), reduction=reduction)
+        # Single point-wise reduction (average)
+        loss = reduce(torch.cat([dc.loss for dc in dcs]), reduction=reduction)
+        return loss, dcs
+
     # dc = cloud.copy()
     dc = cloud.deepcopy()
     # dc.update_all(k=k, r=r)

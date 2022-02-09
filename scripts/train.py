@@ -99,8 +99,8 @@ def main():
     print('Loading the datasets...')
     datasets = [Dataset(name) for name in ('eth',)]
     # datasets = [Dataset(name) for name in dataset_names]
-    # device = torch.device('cuda:0')
-    device = torch.device('cpu')
+    device = torch.device('cuda:0')
+    # device = torch.device('cpu')
 
     if MODEL_TYPE == 'Polynomial':
         model = Polynomial(p0=0.0, p1=0.0, device=device)
@@ -121,22 +121,26 @@ def main():
 
     writer = SummaryWriter('./tb_runs/model_%s_lr_%f_%s' % (MODEL_TYPE, LR, DATASET))
     min_loss = np.inf
+    optimizer.zero_grad()
     for i in range(N_OPT_ITERS):
-        ds = np.random.choice(datasets, 1)[0]
-        optimizer.zero_grad()
+        # ds = np.random.choice(datasets, 1)[0]
+        # dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)  # model is passed to correct local maps
+        # loss, dc_loss = min_eigval_loss(dc_combined, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
 
-        combined = construct_corrected_global_map(ds, model, k_nn, r_nn)  # model is passed to correct local maps
-        # combined = model(combined)
-        # combined.update_all(r=r_nn, k=k_nn)
+        dcs = []
+        for ds in datasets:
+            dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)
+            dcs.append(dc_combined)
+        loss, dc_loss = min_eigval_loss(dcs, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
 
-        loss, loss_dc = min_eigval_loss(combined, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05**2))
         print('loss:', loss.item())
         writer.add_scalar("Loss/min_eigval", loss, i)
 
         if SHOW_RESULTS and i % plot_period == 0:
-            combined.visualize(colors='inc_angles')
-            combined.visualize(colors='min_eigval')
-            loss_dc.visualize(colors='loss')
+            for dc in dcs:
+                dc.visualize(colors='inc_angles')
+                dc.visualize(colors='min_eigval')
+            dc_loss.visualize(colors='loss')
 
         if min_loss > loss.item():
             min_loss = loss.item()

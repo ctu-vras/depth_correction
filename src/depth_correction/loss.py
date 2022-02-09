@@ -118,7 +118,6 @@ def min_eigval_loss(cloud, k=None, r=None,
                     eigenvalue_bounds=None,
                     offset=False,
                     reduction='mean'):
-    assert isinstance(cloud, DepthCloud)
     assert k is None or isinstance(k, int)
     assert r is None or isinstance(r, float)
     assert eigenvalue_bounds is None or len(eigenvalue_bounds) == 2
@@ -141,6 +140,7 @@ def min_eigval_loss(cloud, k=None, r=None,
         loss = reduce(torch.cat([dc.loss for dc in dcs]), reduction=reduction)
         return loss, dcs
 
+    assert isinstance(cloud, DepthCloud)
     # dc = cloud.copy()
     dc = cloud.deepcopy()
     # dc.update_all(k=k, r=r)

@@ -179,65 +179,53 @@ def show_cloud(cloud, colormap=None):
     o3d.visualization.draw_geometries([pcd])
 
 
-def demo():
-    from data.asl_laser import Dataset, dataset_names
+def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):
+    cloud = filter_depth(cloud, min=min_depth, max=max_depth, log=False)
+    cloud = filter_grid(cloud, grid_res, keep='last')
+    cloud.update_all(k=k, r=r)
+    keep = filter_eigenvalue(cloud, 0, max=(grid_res / 5) ** 2, only_mask=True)
+    keep = keep & filter_eigenvalue(cloud, 1, min=grid_res ** 2, only_mask=True)
+    cloud = cloud[keep]
+    cloud.update_all(k=k, r=r)
+    return cloud
 
+
+def dataset_to_cloud(ds, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):
     clouds = []
     poses = []
+
+    for cloud, pose in ds:
+        cloud = DepthCloud.from_points(cloud)
+        pose = torch.tensor(pose)
+        cloud = cloud.transform(pose)
+        cloud = preprocess_cloud(cloud, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r)
+        clouds.append(cloud)
+        poses.append(pose)
+
+    cloud = DepthCloud.concatenate(clouds, True)
+    # cloud.visualize(colors='inc_angles')
+    cloud.visualize(colors='z')
+    cloud.update_all(k=k, r=r)
+    return cloud
+
+
+def demo():
+    from data.asl_laser import Dataset
     # ds = Dataset('apartment')
-    # ids = ds.ids[0:10:2]
     ds = Dataset('eth')
-    # ids = ds.ids[::6]
-    # ids = [0, 10]
     # ds = Dataset('gazebo_summer')
     # ds = Dataset('gazebo_winter')
     # ds = Dataset('stairs')
-    # ids = ds.ids[0:10:2]
-    # step = 10
-    # start = 10
-    # stop = start + step
-    # ids = ds.ids[start:stop:step]
-    # ids = ds.ids[::10]
-    ids = ds.ids[10:21:10]
+    # ds = ds[10:21:10]
+    ds = ds[::5]
 
     min_depth = 1.0
     max_depth = 15.0
     grid_res = 0.05
     k = None
-    # k = 9
-    # r = None
-    # r = 0.15
     r = 3 * grid_res
-    for id in ids:
-        t = timer()
-        cloud = ds.local_cloud(id)
-        pose = torch.tensor(ds.cloud_pose(id))
-        dc = DepthCloud.from_points(cloud)
-        # print('%i points read from dataset %s, cloud %i (%.3f s).'
-        #       % (dc.size(), ds.name, id, timer() - t))
 
-        dc = filter_depth(dc, min=min_depth, max=max_depth, log=False)
-
-        t = timer()
-        dc = filter_grid(dc, grid_res, keep='last')
-        # print('%i points kept by grid filter with res. %.2f m (%.3f s).'
-        #       % (dc.size(), grid_res, timer() - t))
-
-        dc = dc.transform(pose)
-        dc.update_all(k=k, r=r)
-        keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True)
-        keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True)
-        dc = dc[keep]
-        dc.update_all(r=r)
-
-        clouds.append(dc)
-        poses.append(pose)
-
-    dc = DepthCloud.concatenate(clouds, True)
-    # dc.visualize(colors='inc_angles')
-    # dc.visualize(colors='z')
-
-    dc.update_all(k=k, r=r)
+    dc = dataset_to_cloud(ds, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r)
 
     # Visualize incidence angle to plane distance.
     # TODO: Compare using plane fit for low incidence angle.

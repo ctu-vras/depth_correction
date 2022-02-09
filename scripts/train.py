@@ -106,6 +106,7 @@ def main():
     k_nn = None
 
     writer = SummaryWriter('./tb_runs/model_%s_lr_%f_%s' % (MODEL_TYPE, LR, DATASET))
+    min_loss = np.inf
     for i in range(N_OPT_ITERS):
         ds = np.random.choice(datasets, 1)[0]
         print('Dataset len:', len(ds))
@@ -124,6 +125,11 @@ def main():
             combined.visualize(colors='inc_angles')
             combined.visualize(colors='min_eigval')
             loss_dc.visualize(colors='loss')
+
+        if min_loss > loss.item():
+            min_loss = loss.item()
+            torch.save(model.state_dict(), './weights/%s.pth' % MODEL_TYPE)
+            print('Better %s model is saved, loss: %g' % (MODEL_TYPE, min_loss))
 
         # Optimization step
         loss.backward()

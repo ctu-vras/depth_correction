@@ -131,7 +131,7 @@ dmypy.json
 # Pycharm Project Files
 .idea/
 
-# Dataset
+# Datasets
 data
 
 # Large files
@@ -139,4 +139,7 @@ data
 *img
 singularity/
 
+# Tensorboard logs
 tb_runs/
+# Pytorch models weights
+*.pth

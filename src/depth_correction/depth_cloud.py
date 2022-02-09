@@ -336,14 +336,17 @@ class DepthCloud(object):
         # o3d.visualization.draw_geometries_with_key_callbacks([pcd], window_name=window_name, {ord('c'): cb})
 
     def to_structured_array(self):
-        pts = unstructured_to_structured(self.get_points(), names=list('xyz'))
-        vps = unstructured_to_structured(self.vps, names=['vp_%s' % f for f in 'xyz'])
+        pts = unstructured_to_structured(np.asarray(self.get_points().detach().numpy(), dtype=np.float32),
+                                         names=list('xyz'))
+        vps = unstructured_to_structured(np.asarray(self.vps.detach().numpy(), dtype=np.float32),
+                                         names=['vp_%s' % f for f in 'xyz'])
         parts = [pts, vps]
         if self.normals is not None:
-            normals = unstructured_to_structured(self.normals, names=['normal_%s' % f for f in 'xyz'])
+            normals = unstructured_to_structured(np.asarray(self.normals.detach().numpy(), dtype=np.float32),
+                                                 names=['normal_%s' % f for f in 'xyz'])
             parts.append(normals)
         if self.loss is not None:
-            loss = unstructured_to_structured(self.loss, names=['loss'])
+            loss = unstructured_to_structured(np.asarray(self.loss.detach().numpy(), dtype=np.float32), names=['loss'])
             parts.append(loss)
         cloud = merge_arrays(parts, flatten=True)
         return cloud

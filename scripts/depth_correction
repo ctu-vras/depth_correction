@@ -2,10 +2,12 @@
 from __future__ import absolute_import, division, print_function
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import *
+from depth_correction.filters import *
 from ros_numpy import msgify, numpify
 import rospy
 from sensor_msgs.msg import PointCloud2
 import torch
+from timeit import default_timer as timer
 
 
 def load_model(param):
@@ -29,6 +31,10 @@ class DepthCorrection(object):
     def __init__(self):
         self.model = load_model('~model')
         self.max_age = rospy.get_param('~max_age', 1.0)
+        self.r_nn = rospy.get_param('~r_nn', 0.15)
+        self.min_depth = rospy.get_param('~min_depth', 1.0)
+        self.max_depth = rospy.get_param('~max_depth', 10.0)
+        self.grid_res = rospy.get_param('~grid_res', 0.05)
         self.pub = rospy.Publisher('output', PointCloud2, queue_size=2, latch=True)
         self.sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
 
@@ -38,8 +44,21 @@ class DepthCorrection(object):
         if 'vp_x' not in input_cloud.dtype.names:
             rospy.logwarn_once('Point cloud does not contain viewpoint fields (vp_x not among %s).',
                                ', '.join(input_cloud.dtype.names))
-        input_dc = DepthCloud.from_structured_array(input_cloud)
-        output_dc = self.model.correct_depth(input_dc)
+        rospy.logdebug("Received point cloud for depth correction")
+        t = timer()
+        with torch.no_grad():
+            input_dc = DepthCloud.from_structured_array(input_cloud)
+            input_dc = filter_depth(input_dc, min=self.min_depth, max=self.max_depth, log=False)
+            input_dc = filter_grid(input_dc, self.grid_res, keep='last')
+            input_dc.update_all(r=self.r_nn)
+            keep = filter_eigenvalue(input_dc, 0, max=(self.grid_res / 5) ** 2, only_mask=True)
+            keep = keep & filter_eigenvalue(input_dc, 1, min=self.grid_res ** 2, only_mask=True)
+            input_dc = input_dc[keep]
+            input_dc.update_all(r=self.r_nn)
+
+            output_dc = self.model(input_dc)
+        rospy.logdebug("Processed cloud in %.3f sec" % (timer() - t))
+
         output_cloud = output_dc.to_structured_array()
         output_msg = msgify(PointCloud2, output_cloud)
         output_msg.header = input_msg.header
@@ -58,7 +77,7 @@ class DepthCorrection(object):
 
 
 def main():
-    rospy.init_node('depth_correction')
+    rospy.init_node('depth_correction', log_level=rospy.INFO)
     node = DepthCorrection()
     rospy.spin()
 

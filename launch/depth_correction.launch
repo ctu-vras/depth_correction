@@ -3,10 +3,15 @@
     <arg name="input" default="assembled_cloud"/>
     <arg name="output" default="corrected_cloud"/>
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
-    <arg name="model_state_dict" default="" doc="Path to the model state dict."/>
+    <arg name="model_state_dict" default="$(find depth_correction)/scripts/weights/ScaledPolynomial.pth"
+         doc="Path to the model state dict."/>
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam subst_value="true">
             max_age: 1.0
+            r_nn: 0.15
+            min_depth: 1.0
+            max_depth: 10.0
+            grid_res: 0.05
             model:
                 class: $(arg model_class)
                 state_dict: '$(arg model_state_dict)'

@@ -184,8 +184,8 @@ def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=Non
     cloud = filter_depth(cloud, min=min_depth, max=max_depth, log=False)
     cloud = filter_grid(cloud, grid_res, keep='last')
     cloud.update_all(k=k, r=r)
-    keep = filter_eigenvalue(cloud, 0, max=(grid_res / 5)**2, only_mask=True)
-    keep = keep & filter_eigenvalue(cloud, 1, min=grid_res**2, only_mask=True)
+    keep = filter_eigenvalue(cloud, 0, max=(grid_res / 5)**2, only_mask=True, log=False)
+    keep = keep & filter_eigenvalue(cloud, 1, min=grid_res**2, only_mask=True, log=False)
     cloud = cloud[keep]
     cloud.update_all(k=k, r=r)
     return cloud

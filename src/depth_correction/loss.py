@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
+from .utils import timing
 import numpy as np
 from numpy.polynomial import Polynomial
 from random import shuffle
@@ -183,20 +184,23 @@ def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=Non
     cloud = filter_depth(cloud, min=min_depth, max=max_depth, log=False)
     cloud = filter_grid(cloud, grid_res, keep='last')
     cloud.update_all(k=k, r=r)
-    keep = filter_eigenvalue(cloud, 0, max=(grid_res / 5) ** 2, only_mask=True)
-    keep = keep & filter_eigenvalue(cloud, 1, min=grid_res ** 2, only_mask=True)
+    keep = filter_eigenvalue(cloud, 0, max=(grid_res / 5)**2, only_mask=True)
+    keep = keep & filter_eigenvalue(cloud, 1, min=grid_res**2, only_mask=True)
     cloud = cloud[keep]
     cloud.update_all(k=k, r=r)
     return cloud
 
 
-def dataset_to_cloud(ds, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):
+def dataset_to_cloud(ds, min_depth=None, max_depth=None, grid_res=None, k=None, r=None, device='cpu'):
+    if isinstance(device, str):
+        device = torch.device(device)
     clouds = []
     poses = []
 
     for cloud, pose in ds:
         cloud = DepthCloud.from_points(cloud)
-        pose = torch.tensor(pose)
+        cloud.to(device)
+        pose = torch.tensor(pose, device=device)
         cloud = cloud.transform(pose)
         cloud = preprocess_cloud(cloud, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r)
         clouds.append(cloud)
@@ -220,12 +224,16 @@ def demo():
     ds = ds[::5]
 
     min_depth = 1.0
-    max_depth = 15.0
+    # max_depth = 15.0
+    max_depth = 10.0
     grid_res = 0.05
     k = None
-    r = 3 * grid_res
+    r = 2 * grid_res
+    # device = torch.device('cpu')
+    device = torch.device('cuda')
 
-    dc = dataset_to_cloud(ds, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r)
+    dc = dataset_to_cloud(ds, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r,
+                          device=device)
 
     # Visualize incidence angle to plane distance.
     # TODO: Compare using plane fit for low incidence angle.

@@ -3,7 +3,7 @@
     <arg name="cloud" default="cloud"/>
     <arg name="odom_frame" default="odom"/>
     <arg name="map_frame" default="map"/>
-	<node name="dynamic_mapper" type="dynamic_mapper" pkg="ethzasl_icp_mapper" output="screen">
+	<node name="dynamic_mapper" type="dynamic_mapper" pkg="ethzasl_icp_mapper" output="log">
 		<rosparam subst_value="true">
             subscribe_scan: false
             icpConfig: $(dirname)/../config/slam/icp.yaml

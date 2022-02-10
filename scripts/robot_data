@@ -19,7 +19,7 @@ class RobotData(object):
         self.step = rospy.get_param('~step', None)
         self.ids = rospy.get_param('~ids', None)
         self.period = rospy.get_param('~period', 1.0)
-        self.delay = rospy.get_param('~delay', 3.0)
+        self.delay = rospy.get_param('~delay', 1.0)
 
         self.odom = rospy.get_param('~odom', None)  # None, 'N(0, 1)'
         self.odom_cov = rospy.get_param('~odom/cov', None)

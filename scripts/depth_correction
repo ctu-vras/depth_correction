@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.model import *
 from depth_correction.filters import *
+from depth_correction.model import *
+from depth_correction.utils import timing
 from ros_numpy import msgify, numpify
 import rospy
 from sensor_msgs.msg import PointCloud2
@@ -10,52 +11,57 @@ import torch
 from timeit import default_timer as timer
 
 
-def load_model(param):
-    cls = rospy.get_param('%s/class' % param)
-    state_dict = rospy.get_param('%s/state_dict' % param, None)
-
-    Cls = eval(cls)
-    model = Cls()
+def load_model(class_name, state_dict, device=torch.device('cpu')):
+    if isinstance(device, str):
+        device = torch.device(device)
+    Class = eval(class_name)
+    model = Class()
     assert isinstance(model, BaseModel)
     if state_dict:
-        rospy.loginfo('Loading %s model state from %s.', cls, state_dict)
+        rospy.loginfo('Using %s model on %s device with state %s.', class_name, device, state_dict)
         model.load_state_dict(torch.load(state_dict))
     else:
-        rospy.logwarn('Using %s model with initial state.', cls)
-
+        rospy.logwarn('Using %s model on %s device with initial state.', class_name, device)
     model.eval()
+    model.to(device)
     return model
 
 
 class DepthCorrection(object):
     def __init__(self):
-        self.model = load_model('~model')
+        self.device = torch.device(rospy.get_param('~device', 'cpu'))
+        self.model = load_model(rospy.get_param('~model/class'),
+                                rospy.get_param('~model/state_dict', None),
+                                self.device)
         self.max_age = rospy.get_param('~max_age', 1.0)
         self.r_nn = rospy.get_param('~r_nn', 0.15)
         self.min_depth = rospy.get_param('~min_depth', 1.0)
         self.max_depth = rospy.get_param('~max_depth', 10.0)
         self.grid_res = rospy.get_param('~grid_res', 0.05)
+
         self.pub = rospy.Publisher('output', PointCloud2, queue_size=2, latch=True)
         self.sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
 
+    @timing
     def correct_depth(self, input_msg):
         assert isinstance(input_msg, PointCloud2)
         input_cloud = numpify(input_msg)
         if 'vp_x' not in input_cloud.dtype.names:
             rospy.logwarn_once('Point cloud does not contain viewpoint fields (vp_x not among %s).',
                                ', '.join(input_cloud.dtype.names))
+
         rospy.logdebug("Received point cloud for depth correction")
         t = timer()
         with torch.no_grad():
             input_dc = DepthCloud.from_structured_array(input_cloud)
+            input_dc.to(self.device)
             input_dc = filter_depth(input_dc, min=self.min_depth, max=self.max_depth, log=False)
             input_dc = filter_grid(input_dc, self.grid_res, keep='last')
             input_dc.update_all(r=self.r_nn)
-            keep = filter_eigenvalue(input_dc, 0, max=(self.grid_res / 5) ** 2, only_mask=True)
-            keep = keep & filter_eigenvalue(input_dc, 1, min=self.grid_res ** 2, only_mask=True)
+            keep = filter_eigenvalue(input_dc, 0, max=(self.grid_res / 5)**2, only_mask=True, log=False)
+            keep = keep & filter_eigenvalue(input_dc, 1, min=self.grid_res**2, only_mask=True, log=False)
             input_dc = input_dc[keep]
             input_dc.update_all(r=self.r_nn)
-
             output_dc = self.model(input_dc)
         rospy.logdebug("Processed cloud in %.3f sec" % (timer() - t))
 

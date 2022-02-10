@@ -79,15 +79,16 @@ class RobotData(object):
 
         now = rospy.Time.now()
 
-        pose = self.dataset.cloud_pose(self.ids[self.position])
-        pose = self.noisy_pose(pose)
-        tf = TransformStamped()
-        tf.header.stamp = now
-        tf.header.frame_id = self.odom_frame
-        tf.child_frame_id = self.lidar_frame
-        tf.transform = msgify(Transform, pose)
-        if self.odom:
-            self.tf_pub.publish(TFMessage([tf]))
+        if self.odom_frame:
+            pose = self.dataset.cloud_pose(self.ids[self.position])
+            pose = self.noisy_pose(pose)
+            tf = TransformStamped()
+            tf.header.stamp = now
+            tf.header.frame_id = self.odom_frame
+            tf.child_frame_id = self.lidar_frame
+            tf.transform = msgify(Transform, pose)
+            if self.odom:
+                self.tf_pub.publish(TFMessage([tf]))
 
         cloud = self.dataset.local_cloud(self.ids[self.position])
         msg = msgify(PointCloud2, cloud)

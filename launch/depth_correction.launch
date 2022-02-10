@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <arg name="input" default="assembled_cloud"/>
+    <arg name="input" default="cloud"/>
     <arg name="output" default="corrected_cloud"/>
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
     <arg name="model_state_dict" default="$(find depth_correction)/scripts/weights/ScaledPolynomial.pth"

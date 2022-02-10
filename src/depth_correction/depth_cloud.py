@@ -237,8 +237,8 @@ class DepthCloud(object):
 
     # @timing
     def update_mean(self, invalid=0.0):
-        # weights = (self.neighbors >= 0).float()[..., None]
-        mean = self.weights * self.get_neighbor_points()
+        w = self.weights.sum(dim=(-2, -1))[..., None]
+        mean = (self.weights * self.get_neighbor_points()).sum(dim=-2) / w
         self.mean = mean
         return
 

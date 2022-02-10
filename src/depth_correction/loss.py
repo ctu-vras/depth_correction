@@ -224,13 +224,12 @@ def demo():
     ds = ds[::5]
 
     min_depth = 1.0
-    # max_depth = 15.0
-    max_depth = 10.0
+    max_depth = 15.0
     grid_res = 0.05
     k = None
-    r = 2 * grid_res
-    # device = torch.device('cpu')
-    device = torch.device('cuda')
+    r = 3 * grid_res
+    device = torch.device('cpu')
+    # device = torch.device('cuda')
 
     dc = dataset_to_cloud(ds, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r,
                           device=device)
@@ -239,10 +238,7 @@ def demo():
     # TODO: Compare using plane fit for low incidence angle.
     depth = dc.depth.detach().numpy().ravel()
     inc = dc.inc_angles.detach().numpy().ravel()
-    # scaled_inc = depth * inc
     inv_cos = 1.0 / np.cos(inc)
-    # scaled_inv_cos = depth * inv_cos
-    # dist = dc.normals.inner(dc.points - dc.mean)
     dist = (dc.normals * (dc.points - dc.mean)).sum(dim=1).detach().numpy().ravel()
     norm_dist = dist / depth
 

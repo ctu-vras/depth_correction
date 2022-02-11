@@ -57,6 +57,11 @@ def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None
 
 
 class DepthCloud(object):
+    """Point cloud constructed from viewpoints, directions, and depths.
+
+    In-place operation are avoided, in general, so that using a shallow copy
+    is enough to create a snapshot.
+    """
 
     # Fields kept during slicing cloud[index].
     sliced_fields = ['vps', 'dirs', 'depth',

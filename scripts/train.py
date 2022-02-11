@@ -30,7 +30,7 @@ else:
 
 
 def construct_corrected_global_map(ds: Dataset,
-                                   model: (Linear, Polynomial),
+                                   model: BaseModel,
                                    k_nn=None, r_nn=None) -> DepthCloud:
     assert k_nn or r_nn
 

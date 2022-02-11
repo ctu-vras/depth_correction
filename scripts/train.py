@@ -10,7 +10,7 @@ import numpy as np
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
 from depth_correction.loss import min_eigval_loss
-from depth_correction.model import Linear, Polynomial, ScaledPolynomial
+from depth_correction.model import BaseModel, Linear, Polynomial, ScaledPolynomial
 
 
 MODEL_TYPE = 'ScaledPolynomial'  # 'Linear', 'Polynomial', 'ScaledPolynomial'

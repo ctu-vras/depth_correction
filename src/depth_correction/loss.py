@@ -142,14 +142,11 @@ def min_eigval_loss(cloud, k=None, r=None,
         return loss, dcs
 
     assert isinstance(cloud, DepthCloud)
-    # dc = cloud.copy()
-    dc = cloud.deepcopy()
-    # dc.update_all(k=k, r=r)
-    dc.update_points()
-    dc.update_neighbors(k=k, r=r)
+    dc = cloud.copy()
+    dc.update_all(k=k, r=r)
     if max_angle is not None:
         dc.filter_neighbors_normal_angle(max_angle)
-    dc.update_features()
+        dc.update_all(k=k, r=r)
     dc.loss = dc.eigvals[:, 0]
 
     if offset:

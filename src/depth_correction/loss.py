@@ -154,7 +154,7 @@ def min_eigval_loss(cloud, k=None, r=None,
         dc.loss = dc.loss - cloud.eigvals[:, 0]
 
     if eigenvalue_bounds is not None:
-        dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1])
+        dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1], log=False)
 
     dc.loss = torch.relu(dc.loss)
     loss = reduce(dc.loss, reduction=reduction)

@@ -68,11 +68,14 @@ class DepthCloud(object):
                      'points',
                      'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace',
                      'loss']
+    not_sliced_fields = ['neighbors', 'dist', 'neighbor_points', 'weights']
+    all_fields = sliced_fields + not_sliced_fields
 
     def __init__(self, vps=None, dirs=None, depth=None,
                  points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
                  normals=None, inc_angles=None, trace=None,
-                 loss=None):
+                 loss=None,
+                 neighbors=None, dist=None, neighbor_points=None, weights=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         Dependent fields are not updated automatically, they can be passed in
@@ -123,19 +126,17 @@ class DepthCloud(object):
         self.loss = loss
 
     def copy(self):
-        dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth)
-        dc.neighbors = self.neighbors
-        dc.dist = self.dist
+        kwargs = {}
+        for f in DepthCloud.all_fields:
+            x = getattr(self, f)
+            if x is not None:
+                kwargs[f] = x
+        dc = DepthCloud(**kwargs)
         return dc
 
     def deepcopy(self):
-        # TODO: deepcopy?
-        dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth,
-                        points=self.points, cov=self.cov, eigvals=self.eigvals, eigvecs=self.eigvecs,
-                        normals=self.normals, inc_angles=self.inc_angles, trace=self.trace)
-        dc.neighbors = self.neighbors
-        dc.dist = self.dist
-        return dc
+        # TODO: Depth cloud deep copy?
+        raise NotImplementedError('Deep copy not implemented. Use copy if possible.')
 
     def size(self):
         return self.dirs.shape[0]

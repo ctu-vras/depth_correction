@@ -50,6 +50,7 @@ def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None
     xx = xx.sum(dim=obs_axis)
     if correction:
         w = w - 1
+    w = w.clamp(1e-6, None)
     xx = xx / w
 
     return xx

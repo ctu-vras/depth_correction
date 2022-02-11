@@ -182,7 +182,7 @@ class DepthCloud(object):
     # @timing
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
-        self.dist, self.neighbors = nearest_neighbors(self.points, self.points, k=k, r=r)
+        self.dist, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
 
     # @timing
@@ -284,47 +284,22 @@ class DepthCloud(object):
         cov = torch.stack(cov)
         self.cov = cov
 
-    def compute_eigvals(self, invalid=0.0):
-        assert self.cov is not None
-
-        # Serial eigvals.
-        # invalid = torch.tensor(invalid)
-        # for i in range(self.size()):
-        #     self.cov[i]
-        # fun = lambda cov: torch.linalg.eigvalsh(torch.cov(p.transpose(-1, -2))) if p.shape[0] >= 3 else invalid
-        # eigvals = self.cov_fun(fun)
-        # eigvals = torch.stack(eigvals)
-
-        # Parallel eigvals.
-        # Degenerate cov matrices must be skipped to avoid exception.
-        eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype)
-        # eigvals = torch.linalg.eigvalsh(self.cov)
-        valid = [i for i, n in enumerate(self.neighbors) if len(n) >= 3]
-        eigvals[valid] = torch.linalg.eigvalsh(self.cov[valid])
-
-        return eigvals
-
-    # @timing
-    def update_eigvals(self):
-        self.eigvals = self.compute_eigvals()
-
     # @timing
     def compute_eig(self, invalid=0.0):
         assert self.cov is not None
-
-        # FIXME: Fast eigh cuda implementation?
-        # Avoid slow eigh cuda implementation.
-        device = self.cov.device
+        # TODO: Switch to a faster cuda eigh implementation.
+        # Use faster cpu eigh implementation.
+        # device = self.cov.device
         device = torch.device('cpu')
-        eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype, device=device)
-        eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype, device=device)
-        # Degenerate cov matrices must be skipped to avoid exception.
-        # valid = [i for i, n in enumerate(self.neighbors) if len(n) >= 3]
-        valid = self.weights.sum(dim=(-2, -1)).to(device) >= 3
-        eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov.to(device)[valid])
-
-        # return eigvals, eigvecs
+        eigvals, eigvecs = torch.linalg.eigh(self.cov.to(device))
         return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
+
+        # # Degenerate cov matrices must be skipped to avoid exception.
+        # eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype, device=device)
+        # eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype, device=device)
+        # valid = self.weights.sum(dim=(-2, -1)).to(device) >= 3
+        # eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov.to(device)[valid])
+        # return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
 
     # @timing
     def update_eig(self):

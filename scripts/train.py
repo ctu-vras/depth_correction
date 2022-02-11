@@ -36,7 +36,7 @@ def construct_corrected_global_map(ds: Dataset,
 
     # Cloud preprocessing params
     min_depth = 1.0
-    max_depth = 10.0
+    max_depth = 15.0
     grid_res = 0.05
 
     clouds = []

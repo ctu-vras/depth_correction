@@ -41,15 +41,11 @@ def construct_corrected_global_map(ds: Dataset,
 
     clouds = []
     poses = []
-    sample_k = 4
-    seq_len = 2
-    seq_n = np.random.choice(range(len(ds) - seq_len), 1)[0]
     device = model.device
-    for id in ds.ids[seq_n:seq_n + seq_len * sample_k:sample_k]:
+    for cloud, pose in ds:
         # t = timer()
-        cloud = ds.local_cloud(id)
-        pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
+        pose = torch.tensor(pose)
         # print('%i points read from dataset %s, cloud %i (%.3f s).'
         #       % (dc.size(), ds.name, id, timer() - t))  # ~0.06 sec for 180000 pts
 
@@ -119,6 +115,10 @@ def main():
     # k_nn = 10
     k_nn = None
 
+    step = 5
+    # start = np.random.choice(step)
+    start = 0
+
     writer = SummaryWriter('./tb_runs/model_%s_lr_%f_%s' % (MODEL_TYPE, LR, DATASET))
     min_loss = np.inf
     optimizer.zero_grad()
@@ -129,6 +129,7 @@ def main():
 
         dcs = []
         for ds in datasets:
+            ds = ds[start::step]
             dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)
             dcs.append(dc_combined)
         loss, dc_loss = min_eigval_loss(dcs, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))

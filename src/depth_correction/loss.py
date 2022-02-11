@@ -138,7 +138,7 @@ def min_eigval_loss(cloud, k=None, r=None,
         # Double reduction (average of averages)
         # loss = reduce(torch.cat(losses), reduction=reduction)
         # Single point-wise reduction (average)
-        loss = reduce(torch.cat([dc.loss for dc in dcs]), reduction=reduction)
+        loss = reduce(torch.cat(losses), reduction=reduction)
         return loss, dcs
 
     assert isinstance(cloud, DepthCloud)

@@ -98,9 +98,9 @@ class DepthCloud(object):
         assert depth.shape[-1] == 1
         assert depth.shape[:-1] == dirs.shape[:-1]
 
-        self.vps = torch.as_tensor(vps, dtype=torch.float64)
-        self.dirs = torch.as_tensor(dirs, dtype=torch.float64)
-        self.depth = torch.as_tensor(depth, dtype=torch.float64)
+        self.vps = vps
+        self.dirs = dirs
+        self.depth = depth
 
         # Dependent features
         self.points = points
@@ -158,6 +158,7 @@ class DepthCloud(object):
         assert isinstance(self.dirs, torch.Tensor)
         assert isinstance(T, torch.Tensor)
         assert T.shape == (4, 4)
+        T = T.to(dtype=self.vps.dtype)
         R = T[:3, :3]
         # print('det(R) = ', torch.linalg.det(R))
         t = T[:3, 3:]
@@ -209,7 +210,7 @@ class DepthCloud(object):
         n_total = 0
 
         for i in range(self.size()):
-            p = torch.index_select(self.normals, 0, torch.tensor(self.neighbors[i]))
+            p = torch.index_select(self.normals, 0, torch.as_tensor(self.neighbors[i]))
             q = self.normals[i:i + 1]
             cos = (p * q).sum(dim=-1)
             keep = cos >= min_cos
@@ -464,13 +465,14 @@ class DepthCloud(object):
             return DepthCloud.from_structured_array(pts)
 
         if isinstance(pts, np.ndarray):
-            pts = torch.tensor(pts)
+            pts = torch.as_tensor(pts)
+
         assert isinstance(pts, torch.Tensor)
 
         if vps is None:
             vps = torch.zeros((pts.shape[0], 3))
         elif isinstance(vps, np.ndarray):
-            vps = torch.tensor(vps)
+            vps = torch.as_tensor(vps)
         assert isinstance(vps, torch.Tensor)
         # print(pts.shape)
         # print(vps.shape)

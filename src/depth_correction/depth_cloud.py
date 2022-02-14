@@ -104,7 +104,6 @@ class DepthCloud(object):
 
         # Dependent features
         self.points = points
-        # self.update_points()
 
         # Nearest neighbor graph
         self.neighbors = None
@@ -234,7 +233,6 @@ class DepthCloud(object):
         result = []
         for i in range(self.size()):
             if len(self.neighbors[i]) > 0:
-                # p = torch.index_select(self.points, 0, torch.as_tensor(self.neighbors[i]))
                 if isinstance(self.neighbors, torch.Tensor):
                     nn = self.neighbors[i]
                     nn = nn[nn >= 0]
@@ -460,8 +458,6 @@ class DepthCloud(object):
         :return:
         """
         if pts.dtype.names:
-            # vps = structured_to_unstructured(pts[['vp_%s' % f for f in 'xyz']])
-            # pts = structured_to_unstructured(pts[['x', 'y', 'z']])
             return DepthCloud.from_structured_array(pts)
 
         if isinstance(pts, np.ndarray):
@@ -474,9 +470,6 @@ class DepthCloud(object):
         elif isinstance(vps, np.ndarray):
             vps = torch.as_tensor(vps)
         assert isinstance(vps, torch.Tensor)
-        # print(pts.shape)
-        # print(vps.shape)
-        # assert vps.shape == pts.shape or tuple(vps.shape) == (3,)
         assert vps.shape == pts.shape
 
         dirs = pts - vps
@@ -486,8 +479,6 @@ class DepthCloud(object):
         assert depth.shape[0] == pts.shape[0]
 
         # TODO: Handle invalid points (zero depth).
-        # print(dirs.shape)
-        # print(depth.shape)
         dirs = dirs / depth
         depth_cloud = DepthCloud(vps, dirs, depth)
         return depth_cloud

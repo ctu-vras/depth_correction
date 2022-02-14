@@ -527,11 +527,20 @@ class DepthCloud(object):
         mesh = Meshes(verts=[verts], faces=[faces.verts_idx])
         return mesh
 
-    def to(self, device=torch.device('cuda:0')):
-        for f in DepthCloud.sliced_fields:
+    def to(self, device=torch.device('cuda:0'), dtype=None, float_type=None, int_type=None):
+        # for f in DepthCloud.sliced_fields:
+        for f in DepthCloud.all_fields:
             x = getattr(self, f)
             if x is not None:
-                x = x.to(device)
+                if (float_type and x.dtype.is_floating_point) \
+                        or (int_type and not x.dtype.is_floating_point) \
+                        or (dtype and dtype.is_floating_point == x.dtype.is_floating_point):
+                    x_type = dtype or float_type or int_type
+                else:
+                    x_type = None
+
+                # x_dtype =  dtype.is_floating_point == x.dtype.is_floating_point
+                x = x.to(device=device, dtype=x_type)
                 setattr(self, f, x)
         return self
 
@@ -540,3 +549,21 @@ class DepthCloud(object):
 
     def gpu(self):
         return self.to(torch.device('cuda:0'))
+
+    def type(self, dtype=None):
+        if dtype is None:
+            assert self.vps.dtype == self.dirs.dtype == self.depth.dtype
+            return self.vps.dtype
+        else:
+            for f in DepthCloud.all_fields:
+                x = getattr(self, f)
+                if x is not None and dtype.is_floating_point == x.dtype.is_floating_point:
+                    x = x.type(dtype)
+                    setattr(self, f, x)
+            return self
+
+    def float(self):
+        return self.type(torch.float32)
+
+    def double(self):
+        return self.type(torch.float64)

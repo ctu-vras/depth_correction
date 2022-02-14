@@ -5,48 +5,57 @@ from numpy.lib.recfunctions import structured_to_unstructured
 import torch
 
 
-def filter_grid(cloud, grid_res, keep='random'):
+def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=False):
     """Keep single point within each cell. Order is not preserved."""
-    if isinstance(cloud, DepthCloud):
-        assert keep == 'last'
-        # x = cloud.points or cloud.to_points()
-        x = cloud.points if cloud.points is not None else cloud.to_points()
-        x = x.detach()
-        keys = (x / grid_res).floor().int()
-        keys = [tuple(i) for i in keys.cpu().numpy().tolist()]
-        keep = dict(zip(keys, range(cloud.size())))
-        keep = list(keep.values())
-        filtered = cloud[keep]
-        return filtered
-
-    assert isinstance(cloud, (np.ndarray, torch.Tensor))
+    assert isinstance(cloud, (DepthCloud, np.ndarray, torch.Tensor))
     assert isinstance(grid_res, float) and grid_res > 0.0
     assert keep in ('first', 'random', 'last')
 
-    x = cloud
-    if isinstance(x, DepthCloud):
-        x = x.points or x.to_points()
-    if isinstance(x, torch.Tensor):
-        x = x.detach().numpy()
+    # Convert to numpy array with positions.
+    if isinstance(cloud, DepthCloud):
+        x = cloud.get_points().detach().cpu().numpy()
+    elif isinstance(cloud, np.ndarray):
+        if cloud.dtype.names:
+            x = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        else:
+            x = cloud
+    elif isinstance(cloud, torch.Tensor):
+        x = cloud.detach().cpu().numpy()
 
+    # Create voxel indices.
+    keys = np.floor(x / grid_res).astype(int).tolist()
+
+    # Last key will be kept, shuffle if needed.
+    # Create index array for tracking the input points.
+    ind = range(len(keys))
     if keep == 'first':
         # Make the first item last.
-        x = x[::-1]
+        keys = keys[::-1]
+        ind = ind[::-1]
     elif keep == 'random':
         # Make the last item random.
-        np.random.shuffle(x)
+        np.random.shuffle(ind)
+        keys = keys[ind]
     elif keep == 'last':
         # Keep the last item last.
         pass
 
-    # Get integer cell indices, as tuples.
-    idx = np.floor(x / grid_res).astype(int)
-    idx = [tuple(i) for i in idx]
-    # TODO: Allow backward using index_select on cloud.
-    # Dict keeps the last value for each key as given by the keep param above.
-    x = dict(zip(idx, x))
-    x = np.stack(x.values())
-    return x
+    # Convert to immutable keys (tuples).
+    keys = [tuple(i) for i in keys]
+
+    # Dict keeps the last value for each key (already reshuffled).
+    key_to_ind = dict(zip(keys, ind))
+    if preserve_order:
+        mask = sorted(key_to_ind.values())
+    else:
+        mask = list(key_to_ind.values())
+
+    if only_mask:
+        # TODO: Convert to boolean mask?
+        return mask
+
+    filtered = cloud[mask]
+    return filtered
 
 
 def within_bounds(x, min=None, max=None, log_variable=None):

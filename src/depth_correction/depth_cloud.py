@@ -68,14 +68,14 @@ class DepthCloud(object):
                      'points',
                      'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace',
                      'loss']
-    not_sliced_fields = ['neighbors', 'dist', 'neighbor_points', 'weights']
+    not_sliced_fields = ['neighbors', 'distances', 'neighbor_points', 'weights']
     all_fields = sliced_fields + not_sliced_fields
 
     def __init__(self, vps=None, dirs=None, depth=None,
                  points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
                  normals=None, inc_angles=None, trace=None,
                  loss=None,
-                 neighbors=None, dist=None, neighbor_points=None, weights=None):
+                 neighbors=None, distances=None, neighbor_points=None, weights=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         Dependent fields are not updated automatically, they can be passed in
@@ -108,7 +108,7 @@ class DepthCloud(object):
 
         # Nearest neighbor graph
         self.neighbors = None
-        self.dist = None
+        self.distances = None
         # Expanded neighbor points
         self.neighbor_points = None
         # Expanded nearest neighbor weights (some may be invalid)
@@ -179,21 +179,27 @@ class DepthCloud(object):
     def __add__(self, other):
         return DepthCloud.concatenate([self, other], dependent=True)
 
+    def update_distances(self):
+        assert self.neighbors is not None
+        x = self.get_points()
+        d = torch.linalg.norm(x.unsqueeze(dim=1) - x[self.neighbors], dim=-1)
+        self.distances = d
+
     # @timing
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
-        self.dist, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
+        self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
 
     # @timing
     def filter_neighbors_normal_angle(self, max_angle):
         assert isinstance(self.neighbors, (list, np.ndarray))
-        assert isinstance(self.dist, (type(None), list, np.ndarray))
+        assert isinstance(self.distances, (type(None), list, np.ndarray))
         if isinstance(self.neighbors, np.ndarray):
             self.neighbors = list(self.neighbors)
             # print('Neighbors converted to list to allow variable number of items.')
-        if isinstance(self.dist, np.ndarray):
-            self.dist = list(self.dist)
+        if isinstance(self.distances, np.ndarray):
+            self.distances = list(self.distances)
         assert isinstance(self.neighbors, list)
         assert isinstance(self.normals, torch.Tensor)
         assert isinstance(max_angle, float) and max_angle >= 0.0
@@ -213,8 +219,8 @@ class DepthCloud(object):
             # print(type(self.neighbors[i]))
             self.neighbors[i] = [n for n, k in zip(self.neighbors[i], keep) if k]
             assert isinstance(self.neighbors[i], list)
-            if self.dist is not None:
-                self.dist[i] = self.dist[i][keep]
+            if self.distances is not None:
+                self.distances[i] = self.distances[i][keep]
         print('%i / %i = %.1f %% neighbors kept in average (normals angle <= %.3f).'
               % (n_kept, n_total, 100 * n_kept / n_total, max_angle))
 
@@ -337,9 +343,12 @@ class DepthCloud(object):
         self.update_incidence_angles()
 
     # @timing
-    def update_all(self, k=None, r=None):
+    def update_all(self, k=None, r=None, keep_neighbors=False):
         self.update_points()
-        self.update_neighbors(k=k, r=r)
+        if keep_neighbors:
+            self.update_distances()
+        else:
+            self.update_neighbors(k=k, r=r)
         self.update_features()
 
     def get_colors(self, colors='z'):
@@ -418,7 +427,7 @@ class DepthCloud(object):
 
     @staticmethod
     def concatenate(depth_clouds, dependent=False):
-        # TODO: Concatenate neighbors and dist, shift indices as necessary.
+        # TODO: Concatenate neighbors and distances, shift indices as necessary.
         fields = DepthCloud.sliced_fields if dependent else ['vps', 'dirs', 'depth']
         kwargs = {}
         for f in fields:

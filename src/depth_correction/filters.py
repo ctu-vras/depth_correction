@@ -75,9 +75,30 @@ def within_bounds(x, min=None, max=None, log_variable=None):
     return keep
 
 
-def filter_depth(cloud, min=None, max=None, log=True):
+def filter_depth(cloud, min=None, max=None, only_mask=False, log=True):
     """Keep points with depth in bounds."""
-    keep = within_bounds(cloud.depth, min=min, max=max, log_variable='depth' if log else None)
+    assert isinstance(cloud, (DepthCloud, np.ndarray))
+
+    if isinstance(cloud, DepthCloud):
+        depth = cloud.depth
+    elif isinstance(cloud, np.ndarray):
+        if cloud.dtype.names:
+            x = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        else:
+            x = cloud
+
+        if cloud.dtype.names and 'vp_x' in cloud.dtype.names:
+            vp = structured_to_unstructured(cloud[['vp_%s' % f for f in 'xyz']])
+        else:
+            vp = np.zeros((1, 3), dtype=x.dtype)
+
+        x = torch.as_tensor(x)
+        vp = torch.as_tensor(vp)
+        depth = torch.linalg.norm(x - vp, dim=1, keepdim=True)
+
+    keep = within_bounds(depth, min=min, max=max, log_variable='depth' if log else None)
+    if only_mask:
+        return keep
     filtered = cloud[keep]
     return filtered
 

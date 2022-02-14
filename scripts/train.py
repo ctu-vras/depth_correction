@@ -15,7 +15,7 @@ from depth_correction.model import Linear, Polynomial, ScaledPolynomial
 
 MODEL_TYPE = 'ScaledPolynomial'  # 'Linear', 'Polynomial', 'ScaledPolynomial'
 N_OPT_ITERS = 100
-LR = 0.001
+LR = 1e-3
 SHOW_RESULTS = False
 DATASET = 'ASL_laser'  # 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'
 
@@ -24,7 +24,7 @@ if DATASET == 'ASL_laser':
 elif DATASET == 'UTIAS_3dmap':
     from data.utias_3dmap import Dataset, dataset_names
 elif DATASET == 'Chilean_Mine':
-    from data.chilean_underground_mine import Dataset, dataset_names
+    from data.chilean_mine import Dataset, dataset_names
 else:
     raise ValueError("Supported datasets: 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'")
 
@@ -97,10 +97,10 @@ def construct_corrected_global_map(ds: Dataset,
 
 def main():
     print('Loading the datasets...')
-    datasets = [Dataset(name) for name in ('eth',)]
-    # datasets = [Dataset(name) for name in dataset_names]
-    device = torch.device('cuda:0')
-    # device = torch.device('cpu')
+    # datasets = [Dataset(name) for name in ('eth',)]
+    datasets = [Dataset(name) for name in dataset_names]
+    # device = torch.device('cuda:0')
+    device = torch.device('cpu')
 
     if MODEL_TYPE == 'Polynomial':
         model = Polynomial(p0=0.0, p1=0.0, device=device)
@@ -119,7 +119,7 @@ def main():
     # k_nn = 10
     k_nn = None
 
-    writer = SummaryWriter('./tb_runs/model_%s_lr_%f_%s' % (MODEL_TYPE, LR, DATASET))
+    writer = SummaryWriter('./tb_runs/model_%s_lr_%f_%s_%f' % (MODEL_TYPE, LR, DATASET, timer()))
     min_loss = np.inf
     optimizer.zero_grad()
     for i in range(N_OPT_ITERS):

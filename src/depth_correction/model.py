@@ -50,7 +50,9 @@ class Linear(BaseModel):
         if mask is None:
             dc_corr.depth = self.w0 * dc_corr.depth + self.w1 * dc_corr.inc_angles + self.b
         else:
-            dc_corr.depth = self.w0 * dc_corr.depth[mask] + self.w1 * dc_corr.inc_angles[mask] + self.b
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = self.w0 * dc_corr.depth[mask] + self.w1 * dc_corr.inc_angles[mask] + self.b
         return dc_corr
 
 
@@ -79,6 +81,8 @@ class Polynomial(BaseModel):
         else:
             gamma = dc.inc_angles[mask]
             bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
             dc_corr.depth[mask] = dc_corr.depth[mask] - bias
         return dc_corr
 
@@ -104,6 +108,8 @@ class ScaledPolynomial(BaseModel):
         else:
             gamma = dc.inc_angles[mask]
             bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
             dc_corr.depth[mask] = dc_corr.depth[mask] * (1. - bias)
         return dc_corr
 

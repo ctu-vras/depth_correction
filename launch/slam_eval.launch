@@ -13,9 +13,14 @@
         <arg name="odom_frame" value="$(eval 'odom' if odom else '')"/>
         <arg name="rviz" value="false"/>
     </include>
-    <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
+    <include file="$(dirname)/cloud_filter.launch">
         <arg name="input" value="cloud"/>
-        <arg name="output" value="corrected_cloud"/>
+        <arg name="output" value="filtered_cloud"/>
+    </include>
+    <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
+        <arg name="cloud" value="filtered_cloud"/>
+        <arg name="filtered_cloud" value=""/>
+        <arg name="corrected_cloud" value="corrected_cloud"/>
         <arg name="model_class" value="ScaledPolynomial"/>
         <arg name="model_state_dict" value="$(dirname)/../config/weights/ScaledPolynomial.pth"/>
     </include>

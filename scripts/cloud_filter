@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+from __future__ import absolute_import, division, print_function
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.filters import *
+from depth_correction.utils import timing
+from ros_numpy import msgify, numpify
+import rospy
+from sensor_msgs.msg import PointCloud2
+import torch
+
+
+class CloudFilter(object):
+
+    def __init__(self):
+        self.device = torch.device(rospy.get_param('~device', 'cpu'))
+        self.max_age = rospy.get_param('~max_age', 1.0)
+        self.min_depth = rospy.get_param('~min_depth', 1.0)
+        self.max_depth = rospy.get_param('~max_depth', 10.0)
+        self.grid_res = rospy.get_param('~grid_res', 0.05)
+
+        self.pub = rospy.Publisher('output', PointCloud2, queue_size=2)
+        self.sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
+
+    @timing
+    def filter_cloud(self, input_msg):
+        assert isinstance(input_msg, PointCloud2)
+        cloud = numpify(input_msg)
+        if self.min_depth or self.max_depth:
+            cloud = filter_depth(cloud, min=self.min_depth, max=self.max_depth, log=False)
+        if self.grid_res:
+            cloud = filter_grid(cloud, self.grid_res, keep='last')
+        output_msg = msgify(PointCloud2, cloud)
+        output_msg.header = input_msg.header
+        return output_msg
+
+    def process_cloud(self, input_msg):
+        assert isinstance(input_msg, PointCloud2)
+
+        age = (rospy.Time.now() - input_msg.header.stamp).to_sec()
+        if age > self.max_age:
+            rospy.logwarn('Skipping message %.3f s > %.3f s old.', age, self.max_age)
+            return
+
+        output_msg = self.filter_cloud(input_msg)
+        self.pub.publish(output_msg)
+
+
+def main():
+    rospy.init_node('cloud_filter', log_level=rospy.INFO)
+    node = CloudFilter()
+    rospy.spin()
+
+
+if __name__ == '__main__':
+    main()

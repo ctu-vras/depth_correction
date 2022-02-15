@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="dataset_name" default="eth"/>
+
+    <node name="pose_optimizer" pkg="depth_correction" type="pose_optimization" output="screen">
+        <rosparam subst_value="true">
+            lr: 0.001
+            n_iters: 100
+            dataset_name: $(arg dataset_name)
+            step: 5
+            device: cpu
+            max_age: 1.0
+            r_nn: 0.15
+            min_depth: 1.0
+            max_depth: 10.0
+            grid_res: 0.05
+            eigenvalue_bounds: [0.0, 0.0025]
+        </rosparam>
+    </node>
+
+    <!-- Rviz -->
+<!--    <arg name="config" default="$(dirname)/../config/train.rviz"/>-->
+<!--    <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg config)"/>-->
+</launch>

@@ -1,0 +1,112 @@
+#! /usr/bin/env python
+
+from __future__ import absolute_import, division, print_function
+import sys
+sys.path.append('../src/')
+import torch
+from torch.utils.tensorboard import SummaryWriter
+from timeit import default_timer as timer
+import numpy as np
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
+from depth_correction.loss import min_eigval_loss
+from depth_correction.model import BaseModel, Linear, Polynomial, ScaledPolynomial
+from data.asl_laser import Dataset, dataset_names
+from tqdm import tqdm
+from pytorch3d.transforms import euler_angles_to_matrix, matrix_to_euler_angles
+
+
+N_OPT_ITERS = 5
+LR = 0.1
+SHOW_RESULTS = False
+min_depth = 1.0
+max_depth = 15.0
+grid_res = 0.05
+r_nn = 0.15
+
+
+def xyzrpy_matrix(xyzrpy):
+    assert isinstance(xyzrpy, torch.Tensor)
+    assert xyzrpy.shape[-1] == 6
+
+    mat = torch.zeros(xyzrpy.shape[:-1] + (4, 4), dtype=xyzrpy.dtype, device=xyzrpy.device)
+    mat[..., :3, :3] = euler_angles_to_matrix(xyzrpy[..., 3:], convention='XYZ')
+    # for i in range(mat.shape[0]):
+    #     mat[i] = torch.from_numpy(euler_matrix(axes='sxyz', *xyzrpy[i, 3:].detach().numpy()))
+    mat[..., :3, 3] = xyzrpy[..., :3]
+    mat[..., 3, 3] = 1.
+    assert mat.shape == xyzrpy.shape[:-1] + (4, 4)
+    # assert mat.shape[-2:] == (4, 4)
+
+    return mat
+
+
+def main():
+    # device = torch.device('cuda:0')
+    device = torch.device('cpu')
+
+    ds = Dataset('eth')
+
+    poses = []
+    for _, pose in ds:
+        poses.append(torch.as_tensor(pose[None]))
+    n_poses = len(poses)
+    poses = torch.concat(poses, dim=0)
+    assert poses.shape == (n_poses, 4, 4)
+
+    rpy = matrix_to_euler_angles(poses[:, :3, :3], convention='XYZ')
+    assert rpy.shape == (n_poses, 3)
+    xyz = poses[:, :3, 3]
+    assert xyz.shape == (n_poses, 3)
+    xyzrpy = torch.concat([xyz, rpy], dim=1)
+    assert xyzrpy.shape == (n_poses, 6)
+
+    mat = xyzrpy_matrix(xyzrpy)
+    print(mat.shape)
+
+    poses.requires_grad = True
+
+    # Initialize optimizer
+    optimizer = torch.optim.Adam([poses], lr=LR)
+    optimizer.zero_grad()
+
+    for i in range(N_OPT_ITERS):
+
+        clouds = []
+        for id in tqdm(ds.ids[::5]):
+            cloud = ds.local_cloud(id)
+            pose = poses[id]
+
+            dc = DepthCloud.from_points(cloud)
+
+            dc = filter_depth(dc, min=min_depth, max=max_depth, log=False)
+            dc = filter_grid(dc, grid_res, keep='last')
+
+            pose = pose.to(device)
+            dc = dc.to(device)
+
+            dc = dc.transform(pose)
+
+            dc.update_all(r=r_nn)
+
+            keep = filter_eigenvalue(dc, 0, max=(grid_res / 5) ** 2, only_mask=True, log=False)
+            keep = keep & filter_eigenvalue(dc, 1, min=grid_res ** 2, only_mask=True, log=False)
+            dc = dc[keep]
+            dc.update_all(r=r_nn)
+
+            clouds.append(dc)
+
+        dc_combined = DepthCloud.concatenate(clouds, True)
+
+        dc_combined.visualize(colors='inc_angles')
+
+        train_loss, _ = min_eigval_loss(dc_combined, r=r_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
+        print('Train loss:', train_loss.item())
+
+        # optimization step
+        train_loss.backward()
+        optimizer.step()
+
+
+if __name__ == '__main__':
+    main()

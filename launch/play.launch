@@ -12,7 +12,7 @@
 
     <!-- Depth correction -->
     <include file="$(dirname)/depth_correction.launch">
-        <arg name="input" value="cloud"/>
+        <arg name="cloud" value="cloud"/>
     </include>
 
     <!-- RVIZ -->

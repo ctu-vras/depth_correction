@@ -17,7 +17,7 @@ from pytorch3d.transforms import euler_angles_to_matrix, matrix_to_euler_angles
 
 
 N_OPT_ITERS = 5
-LR = 0.1
+LR = 1e-3
 SHOW_RESULTS = False
 min_depth = 1.0
 max_depth = 15.0
@@ -37,7 +37,6 @@ def xyzrpy_matrix(xyzrpy):
     mat[..., 3, 3] = 1.
     assert mat.shape == xyzrpy.shape[:-1] + (4, 4)
     # assert mat.shape[-2:] == (4, 4)
-
     return mat
 
 
@@ -61,13 +60,10 @@ def main():
     xyzrpy = torch.concat([xyz, rpy], dim=1)
     assert xyzrpy.shape == (n_poses, 6)
 
-    mat = xyzrpy_matrix(xyzrpy)
-    print(mat.shape)
-
-    poses.requires_grad = True
+    xyzrpy.requires_grad = True
 
     # Initialize optimizer
-    optimizer = torch.optim.Adam([poses], lr=LR)
+    optimizer = torch.optim.Adam([xyzrpy], lr=LR)
     optimizer.zero_grad()
 
     for i in range(N_OPT_ITERS):
@@ -75,7 +71,8 @@ def main():
         clouds = []
         for id in tqdm(ds.ids[::5]):
             cloud = ds.local_cloud(id)
-            pose = poses[id]
+            # pose = poses[id]
+            pose = xyzrpy_matrix(xyzrpy[id][None]).squeeze(0)
 
             dc = DepthCloud.from_points(cloud)
 

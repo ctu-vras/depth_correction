@@ -1,20 +1,21 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <arg name="input" default="assembled_cloud"/>
+    <arg name="input" default="cloud"/>
     <arg name="output" default="corrected_cloud"/>
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
     <arg name="model_state_dict" default="$(find depth_correction)/scripts/weights/ScaledPolynomial.pth"
          doc="Path to the model state dict."/>
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam subst_value="true">
+            model:
+                class: $(arg model_class)
+                state_dict: '$(arg model_state_dict)'
+            device: cpu
             max_age: 1.0
             r_nn: 0.15
             min_depth: 1.0
             max_depth: 10.0
             grid_res: 0.05
-            model:
-                class: $(arg model_class)
-                state_dict: '$(arg model_state_dict)'
         </rosparam>
         <remap from="input" to="$(arg input)"/>
         <remap from="output" to="$(arg output)"/>

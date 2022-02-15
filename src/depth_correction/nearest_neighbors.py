@@ -1,22 +1,22 @@
 from __future__ import absolute_import, division, print_function
 import numpy as np
+# from pytorch3d.ops.knn import knn_points
 from scipy.spatial import cKDTree
 import torch
-# from pytorch3d.ops.knn import knn_points
 
 __all__ = [
     'nearest_neighbors'
 ]
 
 
-def nearest_neighbors(points, query, k=None, r=None):
+def nearest_neighbors(points, query, k=None, r=None, n_jobs=-1):
     """Find nearest neighbors of query in points.
 
-    :param points:
-    :param query:
+    :param points: Reference points in rows.
+    :param query: Query points in rows.
     :param k: Number of neighbors.
     :param r: Radius in which to find neighbors.
-    :return:
+    :return: Tuple with distances and indices. Distances may be None. Missing neighbors are indicated by -1.
     """
     assert isinstance(points, torch.Tensor)
     assert isinstance(query, torch.Tensor)
@@ -27,15 +27,19 @@ def nearest_neighbors(points, query, k=None, r=None):
     # if points.device == torch.device('cpu'):
     device = points.device
     # Convert to numpy and squeeze leading dimensions.
-    points = points.cpu().detach().numpy()
-    query = query.cpu().detach().numpy()
+    points = points.detach().cpu().numpy()
+    query = query.detach().cpu().numpy()
 
     # Create index and query points.
+    invalid_dist = float('nan')
+    invalid_index = -1
     index = cKDTree(points)
     if k is not None:
-        dist, ind = index.query(query, k)
+        dist, ind = index.query(query, k, distance_upper_bound=r, n_jobs=n_jobs)
+        ind[ind == index.n] = invalid_index
+
     elif r is not None:
-        dist, ind = None, index.query_ball_point(query, r)
+        dist, ind = None, index.query_ball_point(query, r, n_jobs=n_jobs)
 
     # else:
     #     # TODO: currently doesn't support neighbors in a radius vicinity
@@ -50,11 +54,11 @@ def nearest_neighbors(points, query, k=None, r=None):
     #         ind = ind.squeeze()
 
     # Convert distances and indices to fixed size array if using cuda.
-    if device.type == 'cuda':
+    if True or device.type == 'cuda':
         n = max([len(x) for x in ind])
         if dist is not None:
-            dist = np.array([x + (n - len(x)) * [-1] for x in dist])
-        ind = np.array([x + (n - len(x)) * [-1] for x in ind])
+            dist = np.array([x + (n - len(x)) * [invalid_dist] for x in dist])
+        ind = np.array([x + (n - len(x)) * [invalid_index] for x in ind])
 
         # Move nearest neighbor output to input device.
         if dist is not None:

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <!-- Evaluation of SLAM pipelines with and without depth correction module. -->
+    <arg name="dataset" default="asl_laser/eth"/>
+    <arg name="depth_correction" default="false"/>
+    <arg name="rviz" default="true"/>
+    <arg name="odom" default="true"/>
+    <!-- Publish data from selected dataset, play bag files etc. -->
+    <include file="$(dirname)/robot_data.launch">
+        <arg name="dataset" value="$(arg dataset)"/>
+        <arg name="period" value="3.0"/>
+        <arg name="lidar_frame" value="lidar"/>
+        <arg name="odom_frame" value="$(eval 'odom' if odom else '')"/>
+        <arg name="rviz" value="false"/>
+    </include>
+    <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
+        <arg name="input" value="cloud"/>
+        <arg name="output" value="corrected_cloud"/>
+        <arg name="model_class" value="ScaledPolynomial"/>
+        <arg name="model_state_dict" value="$(dirname)/../config/weights/ScaledPolynomial.pth"/>
+    </include>
+    <include file="$(dirname)/slam.launch">
+        <arg name="cloud" value="$(eval 'corrected_cloud' if depth_correction else 'cloud')"/>
+        <arg name="odom_frame" value="$(eval 'odom' if odom else 'lidar')"/>
+    </include>
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+        <arg name="config" value="$(dirname)/../config/slam.rviz"/>
+    </include>
+</launch>

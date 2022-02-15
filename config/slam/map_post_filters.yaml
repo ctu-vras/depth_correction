@@ -1,0 +1,26 @@
+# - RandomSamplingDataPointsFilter:
+#       prob: 0.9
+
+# - SurfaceNormalDataPointsFilter:
+#       knn: 15
+#       epsilon: 3.16
+#       keepNormals: 1
+#       keepDensities: 1
+
+# - SurfaceCovarianceDataPointsFilter:
+#     knn: 15
+#     epsilon: 3.16
+
+# - DecomposeCovarianceDataPointsFilter:
+#       keepNormals: 1
+
+#- MaxDensityDataPointsFilter:
+#    maxDensity: 10.0
+
+- SurfaceNormalDataPointsFilter:
+    knn: 15
+
+- CutAtDescriptorThresholdDataPointsFilter:
+    descName: probabilityDynamic
+    useLargerThan: 1
+    threshold: 0.5

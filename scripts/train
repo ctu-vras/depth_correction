@@ -10,14 +10,14 @@ import numpy as np
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
 from depth_correction.loss import min_eigval_loss
-from depth_correction.model import Linear, Polynomial, ScaledPolynomial
+from depth_correction.model import BaseModel, Linear, Polynomial, ScaledPolynomial
 
 
 MODEL_TYPE = 'ScaledPolynomial'  # 'Linear', 'Polynomial', 'ScaledPolynomial'
 N_OPT_ITERS = 100
 LR = 1e-3
 SHOW_RESULTS = False
-DATASET = 'ASL_laser'  # 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'
+DATASET = 'ASL_laser'  # 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine', 'ESA_robotics'
 
 if DATASET == 'ASL_laser':
     from data.asl_laser import Dataset, dataset_names
@@ -25,31 +25,29 @@ elif DATASET == 'UTIAS_3dmap':
     from data.utias_3dmap import Dataset, dataset_names
 elif DATASET == 'Chilean_Mine':
     from data.chilean_mine import Dataset, dataset_names
+elif DATASET == 'ESA_robotics':
+    from data.esa_robotics import Dataset, dataset_names
 else:
-    raise ValueError("Supported datasets: 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine'")
+    raise ValueError("Supported datasets: 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine', 'ESA_robotics'")
 
 
 def construct_corrected_global_map(ds: Dataset,
-                                   model: (Linear, Polynomial),
+                                   model: BaseModel,
                                    k_nn=None, r_nn=None) -> DepthCloud:
     assert k_nn or r_nn
 
     # Cloud preprocessing params
     min_depth = 1.0
-    max_depth = 10.0
+    max_depth = 15.0
     grid_res = 0.05
 
     clouds = []
     poses = []
-    sample_k = 4
-    seq_len = 2
-    seq_n = np.random.choice(range(len(ds) - seq_len), 1)[0]
     device = model.device
-    for id in ds.ids[seq_n:seq_n + seq_len * sample_k:sample_k]:
+    for cloud, pose in ds:
         # t = timer()
-        cloud = ds.local_cloud(id)
-        pose = torch.tensor(ds.cloud_pose(id))
         dc = DepthCloud.from_points(cloud)
+        pose = torch.tensor(pose)
         # print('%i points read from dataset %s, cloud %i (%.3f s).'
         #       % (dc.size(), ds.name, id, timer() - t))  # ~0.06 sec for 180000 pts
 
@@ -97,8 +95,8 @@ def construct_corrected_global_map(ds: Dataset,
 
 def main():
     print('Loading the datasets...')
-    # datasets = [Dataset(name) for name in ('eth',)]
-    datasets = [Dataset(name) for name in dataset_names]
+    datasets = [Dataset(name) for name in ('eth', 'apartment', 'stairs', 'gazebo_winter')]
+    # datasets = [Dataset(name) for name in dataset_names]
     # device = torch.device('cuda:0')
     device = torch.device('cpu')
 
@@ -119,7 +117,9 @@ def main():
     # k_nn = 10
     k_nn = None
 
-    writer = SummaryWriter('./tb_runs/model_%s_lr_%f_%s_%f' % (MODEL_TYPE, LR, DATASET, timer()))
+    writer = SummaryWriter('../config/tb_runs/model_%s_lr_%f_%s_%f' % (MODEL_TYPE, LR, DATASET, timer()))
+    step = 5
+
     min_loss = np.inf
     optimizer.zero_grad()
     for i in range(N_OPT_ITERS):
@@ -129,12 +129,21 @@ def main():
 
         dcs = []
         for ds in datasets:
+            ds = ds[::step]
             dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)
             dcs.append(dc_combined)
-        loss, dc_loss = min_eigval_loss(dcs, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
+        train_loss, _ = min_eigval_loss(dcs, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
+        print('Train loss:', train_loss.item())
+        writer.add_scalar("min_eigval loss/train", train_loss, i)
 
-        print('loss:', loss.item())
-        writer.add_scalar("Loss/min_eigval", loss, i)
+        dcs = []
+        for ds in datasets:
+            ds = ds[(step//2)::step]
+            dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)
+            dcs.append(dc_combined)
+        val_loss, dc_loss = min_eigval_loss(dcs, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
+        print('Val loss:', val_loss.item())
+        writer.add_scalar("min_eigval loss/val", val_loss, i)
 
         if SHOW_RESULTS and i % plot_period == 0:
             for dc in dcs:
@@ -142,13 +151,13 @@ def main():
                 dc.visualize(colors='min_eigval')
             dc_loss.visualize(colors='loss')
 
-        if min_loss > loss.item():
-            min_loss = loss.item()
-            torch.save(model.state_dict(), './weights/%s.pth' % MODEL_TYPE)
-            print('better %s model is saved, loss: %g' % (MODEL_TYPE, min_loss))
+        if min_loss > val_loss.item():
+            min_loss = val_loss.item()
+            torch.save(model.state_dict(), '../config/weights/%s_%s_min_eigval_loss_%g.pth' % (MODEL_TYPE, DATASET, val_loss.item()))
+            print('better %s model is saved, validation loss: %g' % (MODEL_TYPE, min_loss))
 
         # Optimization step
-        loss.backward()
+        train_loss.backward()
         optimizer.step()
 
     del ds, datasets

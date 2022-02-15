@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
+from .utils import timing
 import numpy as np
 from numpy.polynomial import Polynomial
 from random import shuffle
@@ -137,18 +138,15 @@ def min_eigval_loss(cloud, k=None, r=None,
         # Double reduction (average of averages)
         # loss = reduce(torch.cat(losses), reduction=reduction)
         # Single point-wise reduction (average)
-        loss = reduce(torch.cat([dc.loss for dc in dcs]), reduction=reduction)
+        loss = reduce(torch.cat(losses), reduction=reduction)
         return loss, dcs
 
     assert isinstance(cloud, DepthCloud)
-    # dc = cloud.copy()
-    dc = cloud.deepcopy()
-    # dc.update_all(k=k, r=r)
-    dc.update_points()
-    dc.update_neighbors(k=k, r=r)
+    dc = cloud.copy()
+    dc.update_all(k=k, r=r)
     if max_angle is not None:
         dc.filter_neighbors_normal_angle(max_angle)
-    dc.update_features()
+        dc.update_all(k=k, r=r)
     dc.loss = dc.eigvals[:, 0]
 
     if offset:
@@ -156,7 +154,7 @@ def min_eigval_loss(cloud, k=None, r=None,
         dc.loss = dc.loss - cloud.eigvals[:, 0]
 
     if eigenvalue_bounds is not None:
-        dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1])
+        dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1], log=False)
 
     dc.loss = torch.relu(dc.loss)
     loss = reduce(dc.loss, reduction=reduction)
@@ -183,20 +181,23 @@ def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=Non
     cloud = filter_depth(cloud, min=min_depth, max=max_depth, log=False)
     cloud = filter_grid(cloud, grid_res, keep='last')
     cloud.update_all(k=k, r=r)
-    keep = filter_eigenvalue(cloud, 0, max=(grid_res / 5) ** 2, only_mask=True)
-    keep = keep & filter_eigenvalue(cloud, 1, min=grid_res ** 2, only_mask=True)
+    keep = filter_eigenvalue(cloud, 0, max=(grid_res / 5)**2, only_mask=True, log=False)
+    keep = keep & filter_eigenvalue(cloud, 1, min=grid_res**2, only_mask=True, log=False)
     cloud = cloud[keep]
     cloud.update_all(k=k, r=r)
     return cloud
 
 
-def dataset_to_cloud(ds, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):
+def dataset_to_cloud(ds, min_depth=None, max_depth=None, grid_res=None, k=None, r=None, device='cpu'):
+    if isinstance(device, str):
+        device = torch.device(device)
     clouds = []
     poses = []
 
     for cloud, pose in ds:
         cloud = DepthCloud.from_points(cloud)
-        pose = torch.tensor(pose)
+        cloud.to(device)
+        pose = torch.tensor(pose, device=device)
         cloud = cloud.transform(pose)
         cloud = preprocess_cloud(cloud, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r)
         clouds.append(cloud)
@@ -224,17 +225,17 @@ def demo():
     grid_res = 0.05
     k = None
     r = 3 * grid_res
+    device = torch.device('cpu')
+    # device = torch.device('cuda')
 
-    dc = dataset_to_cloud(ds, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r)
+    dc = dataset_to_cloud(ds, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r,
+                          device=device)
 
     # Visualize incidence angle to plane distance.
     # TODO: Compare using plane fit for low incidence angle.
     depth = dc.depth.detach().numpy().ravel()
     inc = dc.inc_angles.detach().numpy().ravel()
-    # scaled_inc = depth * inc
     inv_cos = 1.0 / np.cos(inc)
-    # scaled_inv_cos = depth * inv_cos
-    # dist = dc.normals.inner(dc.points - dc.mean)
     dist = (dc.normals * (dc.points - dc.mean)).sum(dim=1).detach().numpy().ravel()
     norm_dist = dist / depth
 

@@ -3,6 +3,7 @@ from .nearest_neighbors import nearest_neighbors
 from .utils import map_colors, timing
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
+import rospy
 import torch
 import open3d as o3d  # used for normals estimation and visualization
 
@@ -12,18 +13,69 @@ __all__ = [
 ]
 
 
+# @timing
+def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None):
+    """Create covariance matrices from multiple samples."""
+    assert isinstance(x, torch.Tensor)
+    assert obs_axis != var_axis
+    assert weights is None or isinstance(weights, torch.Tensor)
+
+    # Use sum of provided weights or number of observation for normalization.
+    if weights is not None:
+        w = weights.sum(dim=obs_axis, keepdim=True)
+    else:
+        w = x.shape[obs_axis]
+
+    # Center the points if requested.
+    if center:
+        if weights is not None:
+            xm = (weights * x).sum(dim=obs_axis, keepdim=True) / w
+        else:
+            xm = x.mean(dim=obs_axis, keepdim=True)
+        xc = x - xm
+    else:
+        xc = x
+
+    # Construct possibly weighted xx = x * x^T.
+    var_axis_2 = var_axis + 1 if var_axis >= 0 else var_axis - 1
+    xx = xc.unsqueeze(var_axis) * xc.unsqueeze(var_axis_2)
+    if weights is not None:
+        xx = weights.unsqueeze(var_axis) * xx
+
+    # Compute weighted average of x * x^T to get cov.
+    if obs_axis < var_axis and obs_axis < 0:
+        obs_axis -= 1
+    elif obs_axis > var_axis and obs_axis > 0:
+        obs_axis += 1
+    xx = xx.sum(dim=obs_axis)
+    if correction:
+        w = w - 1
+    w = w.clamp(1e-6, None)
+    xx = xx / w
+
+    return xx
+
+
 class DepthCloud(object):
+    """Point cloud constructed from viewpoints, directions, and depths.
+
+    In-place operation are avoided, in general, so that using a shallow copy
+    is enough to create a snapshot.
+    """
 
     # Fields kept during slicing cloud[index].
     sliced_fields = ['vps', 'dirs', 'depth',
                      'points',
                      'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace',
                      'loss']
+    not_sliced_fields = ['neighbors', 'dist', 'neighbor_points', 'weights']
+    all_fields = sliced_fields + not_sliced_fields
 
     def __init__(self, vps=None, dirs=None, depth=None,
                  points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
                  normals=None, inc_angles=None, trace=None,
-                 loss=None):
+                 loss=None,
+                 neighbors=None, dist=None, neighbor_points=None, weights=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         Dependent fields are not updated automatically, they can be passed in
@@ -57,6 +109,10 @@ class DepthCloud(object):
         # Nearest neighbor graph
         self.neighbors = None
         self.dist = None
+        # Expanded neighbor points
+        self.neighbor_points = None
+        # Expanded nearest neighbor weights (some may be invalid)
+        self.weights = None
 
         # Neighborhood features
         self.mean = mean
@@ -70,19 +126,17 @@ class DepthCloud(object):
         self.loss = loss
 
     def copy(self):
-        dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth)
-        dc.neighbors = self.neighbors
-        dc.dist = self.dist
+        kwargs = {}
+        for f in DepthCloud.all_fields:
+            x = getattr(self, f)
+            if x is not None:
+                kwargs[f] = x
+        dc = DepthCloud(**kwargs)
         return dc
 
     def deepcopy(self):
-        # TODO: deepcopy?
-        dc = DepthCloud(vps=self.vps, dirs=self.dirs, depth=self.depth,
-                        points=self.points, cov=self.cov, eigvals=self.eigvals, eigvecs=self.eigvecs,
-                        normals=self.normals, inc_angles=self.inc_angles, trace=self.trace)
-        dc.neighbors = self.neighbors
-        dc.dist = self.dist
-        return dc
+        # TODO: Depth cloud deep copy?
+        raise NotImplementedError('Deep copy not implemented. Use copy if possible.')
 
     def size(self):
         return self.dirs.shape[0]
@@ -128,7 +182,8 @@ class DepthCloud(object):
     # @timing
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
-        self.dist, self.neighbors = nearest_neighbors(self.points, self.points, k=k, r=r)
+        self.dist, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
+        self.weights = (self.neighbors >= 0).float()[..., None]
 
     # @timing
     def filter_neighbors_normal_angle(self, max_angle):
@@ -189,56 +244,62 @@ class DepthCloud(object):
 
     # @timing
     def update_mean(self, invalid=0.0):
+        w = self.weights.sum(dim=(-2, -1))[..., None]
+        mean = (self.weights * self.get_neighbor_points()).sum(dim=-2) / w
+        self.mean = mean
+        return
+
         invalid = torch.full((1, 3), invalid, device=self.points.device)
         fun = lambda p, q: p.mean(dim=0) if p.shape[0] >= 1 else invalid
         mean = self.neighbor_fun(fun)
         mean = torch.stack(mean)
         self.mean = mean
 
+    def compute_neighbor_points(self):
+        return self.get_points()[self.neighbors]
+
+    def update_neighbor_points(self):
+        self.neighbor_points = self.compute_neighbor_points()
+
+    def get_neighbor_points(self):
+        if self.neighbor_points is None:
+            self.update_neighbor_points()
+        return self.neighbor_points
+
+    def neighbor_points(self):
+        pts = self.get_points()
+        nn = pts[self.neighbors]
+        rospy.loginfo('Expanded neighbors: %s', nn.shape)
+        return nn
+
     # @timing
     def update_cov(self, correction=1, invalid=0.0):
+        cov = covs(self.get_neighbor_points(), weights=self.weights)
+        self.cov = cov
+        return
+
         invalid = torch.full((3, 3), invalid, device=self.points.device)
         fun = lambda p, q: torch.cov(p.transpose(-1, -2), correction=correction) if p.shape[0] >= 2 else invalid
         cov = self.neighbor_fun(fun)
         cov = torch.stack(cov)
         self.cov = cov
 
-    def compute_eigvals(self, invalid=0.0):
-        assert self.cov is not None
-
-        # Serial eigvals.
-        # invalid = torch.tensor(invalid)
-        # for i in range(self.size()):
-        #     self.cov[i]
-        # fun = lambda cov: torch.linalg.eigvalsh(torch.cov(p.transpose(-1, -2))) if p.shape[0] >= 3 else invalid
-        # eigvals = self.cov_fun(fun)
-        # eigvals = torch.stack(eigvals)
-
-        # Parallel eigvals.
-        # Degenerate cov matrices must be skipped to avoid exception.
-        eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype)
-        # eigvals = torch.linalg.eigvalsh(self.cov)
-        valid = [i for i, n in enumerate(self.neighbors) if len(n) >= 3]
-        eigvals[valid] = torch.linalg.eigvalsh(self.cov[valid])
-
-        return eigvals
-
     # @timing
-    def update_eigvals(self):
-        self.eigvals = self.compute_eigvals()
-
     def compute_eig(self, invalid=0.0):
         assert self.cov is not None
+        # TODO: Switch to a faster cuda eigh implementation.
+        # Use faster cpu eigh implementation.
+        # device = self.cov.device
+        device = torch.device('cpu')
+        eigvals, eigvecs = torch.linalg.eigh(self.cov.to(device))
+        return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
 
-        eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype, device=self.cov.device)
-        eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype, device=self.cov.device)
-        # Degenerate cov matrices must be skipped to avoid exception.
-        # eigvals = torch.linalg.eigvalsh(self.cov)
-        valid = [i for i, n in enumerate(self.neighbors) if len(n) >= 3]
-        # eigvals[valid] = torch.linalg.eigvalsh(self.cov[valid])
-        eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov[valid])
-
-        return eigvals, eigvecs
+        # # Degenerate cov matrices must be skipped to avoid exception.
+        # eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype, device=device)
+        # eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype, device=device)
+        # valid = self.weights.sum(dim=(-2, -1)).to(device) >= 3
+        # eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov.to(device)[valid])
+        # return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
 
     # @timing
     def update_eig(self):
@@ -254,6 +315,7 @@ class DepthCloud(object):
 
     def update_normals(self):
         assert self.eigvecs is not None
+        # TODO: Keep grad?
         with torch.no_grad():
             self.normals = self.eigvecs[..., 0]
         self.orient_normals()
@@ -264,6 +326,7 @@ class DepthCloud(object):
         inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
         self.inc_angles = inc_angles
 
+    # @timing
     def update_features(self):
         self.update_mean()
         self.update_cov()
@@ -307,7 +370,8 @@ class DepthCloud(object):
         # min_val, max_val = vals.min(), vals.max()
         valid = torch.isfinite(vals)
         # min_val, max_val = vals[valid].min(), vals[valid].max()
-        min_val, max_val = torch.quantile(vals[valid], torch.tensor([0.01, 0.99], dtype=vals.dtype))
+        q = torch.tensor([0.01, 0.99], dtype=vals.dtype, device=vals.device)
+        min_val, max_val = torch.quantile(vals[valid], q)
         print('min, max: %.6g, %.6g' % (min_val, max_val))
         # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
         # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
@@ -336,17 +400,18 @@ class DepthCloud(object):
         # o3d.visualization.draw_geometries_with_key_callbacks([pcd], window_name=window_name, {ord('c'): cb})
 
     def to_structured_array(self):
-        pts = unstructured_to_structured(np.asarray(self.get_points().detach().numpy(), dtype=np.float32),
+        pts = unstructured_to_structured(np.asarray(self.get_points().detach().cpu().numpy(), dtype=np.float32),
                                          names=list('xyz'))
-        vps = unstructured_to_structured(np.asarray(self.vps.detach().numpy(), dtype=np.float32),
+        vps = unstructured_to_structured(np.asarray(self.vps.detach().cpu().numpy(), dtype=np.float32),
                                          names=['vp_%s' % f for f in 'xyz'])
         parts = [pts, vps]
         if self.normals is not None:
-            normals = unstructured_to_structured(np.asarray(self.normals.detach().numpy(), dtype=np.float32),
+            normals = unstructured_to_structured(np.asarray(self.normals.detach().cpu().numpy(), dtype=np.float32),
                                                  names=['normal_%s' % f for f in 'xyz'])
             parts.append(normals)
         if self.loss is not None:
-            loss = unstructured_to_structured(np.asarray(self.loss.detach().numpy(), dtype=np.float32), names=['loss'])
+            loss = unstructured_to_structured(np.asarray(self.loss.detach().cpu().numpy(), dtype=np.float32),
+                                              names=['loss'])
             parts.append(loss)
         cloud = merge_arrays(parts, flatten=True)
         return cloud

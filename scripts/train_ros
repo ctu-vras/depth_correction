@@ -1,0 +1,191 @@
+#!/usr/bin/env python
+
+from __future__ import absolute_import, division, print_function
+
+import os
+from depth_correction.filters import *
+from depth_correction.model import *
+from depth_correction.utils import timing
+from depth_correction.loss import min_eigval_loss
+from data.asl_laser import Dataset, dataset_names
+from ros_numpy import msgify, numpify
+import rospy
+from rospkg import RosPack
+from sensor_msgs.msg import PointCloud2
+import torch
+from torch.utils.tensorboard import SummaryWriter
+from timeit import default_timer as timer
+
+
+def load_model(class_name, state_dict, device=torch.device('cpu')):
+    if isinstance(device, str):
+        device = torch.device(device)
+    Class = eval(class_name)
+    model = Class()
+    assert isinstance(model, BaseModel)
+    if state_dict and os.path.exists(state_dict):
+        rospy.loginfo('Using %s model on %s device with state %s.', class_name, device, state_dict)
+        model.load_state_dict(torch.load(state_dict))
+    else:
+        rospy.logwarn('Using %s model on %s device with initial state.', class_name, device)
+    model.train()
+    model.to(device)
+    return model
+
+
+def dc_to_ros_msg(dc, frame_id, stamp):
+    pc_msg = msgify(PointCloud2, dc.to_structured_array())
+    pc_msg.header.frame_id = frame_id
+    pc_msg.header.stamp = stamp
+    return pc_msg
+
+
+class Trainer(object):
+    def __init__(self):
+        self.device = torch.device(rospy.get_param('~device', 'cpu'))
+        self.model = load_model(rospy.get_param('~model/class'),
+                                rospy.get_param('~model/state_dict', None),
+                                self.device)
+        self.lr = rospy.get_param('~lr', 0.001)
+        self.dataset_names = rospy.get_param('~dataset_names', dataset_names)
+        self.step = rospy.get_param('~step', 5)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        self.n_iters = rospy.get_param('~n_iters', 100)
+
+        self.max_age = rospy.get_param('~max_age', 1.0)
+        self.r_nn = rospy.get_param('~r_nn', 0.15)
+        self.min_depth = rospy.get_param('~min_depth', 1.0)
+        self.max_depth = rospy.get_param('~max_depth', 10.0)
+        self.grid_res = rospy.get_param('~grid_res', 0.05)
+        self.eigenvalue_bounds = rospy.get_param('~eigenvalue_bounds', (0.0, 0.05 ** 2))
+
+        # construct initial (without correction) global maps for visualization
+        self.datasets = []
+        self.initial_global_dcs = []
+        self.dc_pubs = {'initial': [], 'corrected': []}
+        for name in self.dataset_names:
+            ds = Dataset(name)
+            self.datasets.append(ds)
+
+            rospy.loginfo('Constructing global map for %s...' % name)
+            dc_global = self.construct_global_map(ds[::self.step], correction=False)
+            self.initial_global_dcs.append(dc_global)
+
+            self.dc_pubs['initial'].append(rospy.Publisher(name, PointCloud2, queue_size=2, latch=True))
+            self.dc_pubs['corrected'].append(rospy.Publisher(name + '_corrected', PointCloud2, queue_size=2, latch=True))
+        self.path = RosPack().get_path('depth_correction')
+        self.tb_writer = SummaryWriter(os.path.join(self.path,
+                                                    'config/tb_runs/model_%s_lr_%f_ASL_laser_%f' %
+                                                    (rospy.get_param('~model/class'), self.lr, timer())))
+
+        self.run_rate = rospy.get_param('~run_rate', 1.0)
+        self.world_frame = rospy.get_param('~world_frame', 'world')
+        # self.initial_dcs_timer = rospy.Timer(rospy.Duration(3), self.publish_init_clouds())
+
+    @timing
+    def construct_global_map(self, ds: Dataset, correction: bool = True) -> DepthCloud:
+        clouds = []
+        for cloud, pose in ds:
+            t = timer()
+            dc = DepthCloud.from_points(cloud)
+            pose = torch.tensor(pose)
+            rospy.logdebug('%i points read from dataset %s, (%.3f s).'
+                           % (dc.size(), ds.name, timer() - t))  # ~0.06 sec for 180000 pts
+
+            # grid and depth filters
+            if correction:
+                t = timer()
+                dc = filter_depth(dc, min=self.min_depth, max=self.max_depth, log=False)
+                rospy.logdebug('%i points kept by depth filter with min_depth %.2f, max_depth %.2f m (%.3f s).'
+                               % (dc.size(), self.min_depth, self.max_depth, timer() - t))  # ~0.002 sec
+
+                t = timer()
+                dc = filter_grid(dc, self.grid_res, keep='last')
+                rospy.logdebug('%i points kept by grid filter with res. %.2f m (%.3f s).'
+                               % (dc.size(), self.grid_res, timer() - t))  # ~0.1 sec
+
+            t = timer()
+            pose = pose.to(self.device)
+            dc = dc.to(self.device)
+            rospy.logdebug('moved poses and depth cloud to device (%.3f s).' % (timer() - t))  # ~0.001 sec
+
+            t = timer()
+            dc = dc.transform(pose)
+            rospy.logdebug('transformed depth cloud to global frame (%.3f s).' % (timer() - t))  # ~0.001 sec
+
+            # eigenvalues filter and depth correction with model
+            if correction:
+                t = timer()
+                dc.update_all(r=self.r_nn)
+                rospy.logdebug('update_all took (%.3f s).' % (timer() - t))  # ~2.0 sec on CPU and ~7.5 sec on GPU (!)
+
+                t = timer()
+                keep = filter_eigenvalue(dc, 0, max=(self.grid_res / 5) ** 2, only_mask=True, log=False)
+                keep = keep & filter_eigenvalue(dc, 1, min=self.grid_res ** 2, only_mask=True, log=False)
+                dc = dc[keep]
+                dc.update_all(r=self.r_nn)
+                rospy.logdebug('filtering eigvals and update_all took (%.3f s).'
+                               % (timer() - t))  # ~1.0 sec on CPU and 3.2 sec on GPU (!)
+                t = timer()
+                dc = self.model(dc)
+                rospy.logdebug('model inference took (%.3f s).' % (timer() - t))  # ~0.001 sec
+
+            clouds.append(dc)
+
+        dc_combined = DepthCloud.concatenate(clouds, True)
+        return dc_combined
+
+    def publish_init_clouds(self):
+        for k, dc_global in enumerate(self.initial_global_dcs):
+            pc_msg = dc_to_ros_msg(dc_global, frame_id=self.world_frame, stamp=rospy.Time.now())
+            self.dc_pubs['initial'][k].publish(pc_msg)
+
+    def train(self):
+        min_val_loss = np.inf
+        self.optimizer.zero_grad()
+        for i in range(self.n_iters):
+            dcs = []
+            for k, ds in enumerate(self.datasets):
+                ds = ds[::self.step]
+                dc_global_corrected = self.construct_global_map(ds, correction=True)
+
+                pc_msg = dc_to_ros_msg(dc_global_corrected, frame_id=self.world_frame, stamp=rospy.Time.now())
+                self.dc_pubs['corrected'][k].publish(pc_msg)
+
+                dcs.append(dc_global_corrected)
+
+            train_loss, _ = min_eigval_loss(dcs, r=self.r_nn, offset=True, eigenvalue_bounds=self.eigenvalue_bounds)
+            rospy.loginfo('iter N %d, train loss: %g' % (i, train_loss.item()))
+            self.tb_writer.add_scalar("min_eigval loss/train", train_loss, i)
+
+            # optimization step
+            train_loss.backward()
+            self.optimizer.step()
+
+            # evaluation and initial clouds publishing
+            dcs = []
+            for k, ds in enumerate(self.datasets):
+                ds = ds[(self.step // 2)::self.step]
+                dc_global_corrected = self.construct_global_map(ds)
+                dcs.append(dc_global_corrected)
+            val_loss, _ = min_eigval_loss(dcs, r=self.r_nn, offset=True, eigenvalue_bounds=self.eigenvalue_bounds)
+            rospy.loginfo('iter N %d, val loss: %g' % (i, val_loss.item()))
+            self.tb_writer.add_scalar("min_eigval loss/val", val_loss, i)
+
+            if min_val_loss > val_loss.item():
+                min_val_loss = val_loss.item()
+                model_name = '%s_ASL_laser_min_eigval_loss_%g.pth' % (rospy.get_param('~model/class'), val_loss.item())
+                torch.save(self.model.state_dict(), os.path.join(self.path, 'config/weights', model_name))
+                rospy.loginfo('better %s model is saved, validation loss: %g' % (rospy.get_param('~model/class'),
+                                                                                 val_loss.item()))
+
+
+def main():
+    rospy.init_node('depth_correction_trainer', log_level=rospy.INFO)
+    trainer = Trainer()
+    trainer.train()
+    rospy.spin()
+
+
+if __name__ == '__main__':
+    main()

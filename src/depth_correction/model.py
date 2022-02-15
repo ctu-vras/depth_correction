@@ -46,8 +46,8 @@ class Linear(BaseModel):
 
     def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None
-        dc_corr = dc.deepcopy()  # we do deep copy in order not to do costly update_all
-        dc_corr.depth = self.w0 * dc.depth + self.w1 * dc.inc_angles + self.b
+        dc_corr = dc.copy()
+        dc_corr.depth = self.w0 * dc_corr.depth + self.w1 * dc_corr.inc_angles + self.b
         return dc_corr
 
 
@@ -68,10 +68,10 @@ class Polynomial(BaseModel):
 
     def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None
-        dc_corr = dc.deepcopy()  # we do deep copy in order not to do costly update_all
+        dc_corr = dc.copy()
         gamma = dc.inc_angles
         bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
-        dc_corr.depth = dc.depth - bias
+        dc_corr.depth = dc_corr.depth - bias
         return dc_corr
 
 
@@ -88,9 +88,9 @@ class ScaledPolynomial(BaseModel):
 
     def correct_depth(self, dc: DepthCloud) -> DepthCloud:
         assert dc.inc_angles is not None
-        dc_corr = dc.deepcopy()  # we do deep copy in order not to do costly update_all
+        dc_corr = dc.copy()
         gamma = dc.inc_angles
         bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
-        dc_corr.depth = dc.depth * (1. - bias)
+        dc_corr.depth = dc_corr.depth * (1. - bias)
         return dc_corr
 

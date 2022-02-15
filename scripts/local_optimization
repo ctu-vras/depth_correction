@@ -4,9 +4,8 @@ from __future__ import absolute_import, division, print_function
 from rospkg import RosPack
 import sys
 import os
-# sys.path.append('../src/')
 PATH = RosPack().get_path('depth_correction')
-sys.path.append(os.path.join(PATH, 'src/'))
+# sys.path.append(os.path.join(PATH, 'src/'))
 import torch
 import numpy as np
 from depth_correction.depth_cloud import DepthCloud

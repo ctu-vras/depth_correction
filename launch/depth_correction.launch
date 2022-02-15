@@ -3,7 +3,7 @@
     <arg name="input" default="cloud"/>
     <arg name="output" default="corrected_cloud"/>
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
-    <arg name="model_state_dict" default="$(find depth_correction)/scripts/weights/ScaledPolynomial.pth"
+    <arg name="model_state_dict" default="$(find depth_correction)/config/weights/ScaledPolynomial.pth"
          doc="Path to the model state dict."/>
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam subst_value="true">

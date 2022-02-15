@@ -6,7 +6,7 @@
 
     <!-- Robot data: from ASL dataset -->
     <include file="$(dirname)/robot_data.launch">
-        <env name="PYTHONPATH" value="$(optenv PYTHONPATH):$(arg data_path)"/>
+<!--        <env name="PYTHONPATH" value="$(optenv PYTHONPATH):$(arg data_path)"/>-->
         <arg name="period" default="2.0"/>
     </include>
 

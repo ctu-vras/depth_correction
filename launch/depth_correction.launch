@@ -1,23 +1,31 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <arg name="input" default="cloud"/>
-    <arg name="output" default="corrected_cloud"/>
+    <arg name="cloud" default="cloud"/>
+    <arg name="filtered_cloud" default=""/>
+    <arg name="corrected_cloud" default="corrected_cloud"/>
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
     <arg name="model_state_dict" default="$(find depth_correction)/config/weights/ScaledPolynomial.pth"
          doc="Path to the model state dict."/>
+    <arg name="publish_filtered" default="$(eval bool(filtered_cloud))"/>
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam subst_value="true">
             model:
                 class: $(arg model_class)
                 state_dict: '$(arg model_state_dict)'
             device: cpu
+<!--            device: cuda-->
+<!--            float_type: float64-->
             max_age: 1.0
+            min_depth: ''
+            max_depth: ''
+            grid_res: ''
+            publish_filtered: $(arg publish_filtered)
+
             r_nn: 0.15
-            min_depth: 1.0
-            max_depth: 10.0
-            grid_res: 0.05
+            eigenvalue_bounds: [[0, -.inf, 0.0001], [1, 0.0025, .inf]]
         </rosparam>
-        <remap from="input" to="$(arg input)"/>
-        <remap from="output" to="$(arg output)"/>
+        <remap from="cloud" to="$(arg cloud)"/>
+        <remap if="$(arg publish_filtered)" from="filtered_cloud" to="$(arg filtered_cloud)"/>
+        <remap from="corrected_cloud" to="$(arg corrected_cloud)"/>
     </node>
 </launch>

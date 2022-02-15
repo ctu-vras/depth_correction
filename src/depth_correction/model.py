@@ -22,7 +22,7 @@ class BaseModel(nn.Module):
         dc = self.correct_depth(dc)
         return dc
 
-    def correct_depth(self, dc: DepthCloud) -> DepthCloud:
+    def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         return dc
 
 
@@ -44,10 +44,15 @@ class Linear(BaseModel):
         self.w1 = nn.Parameter(torch.tensor(w1, device=self.device))
         self.b = nn.Parameter(torch.tensor(b, device=self.device))
 
-    def correct_depth(self, dc: DepthCloud) -> DepthCloud:
+    def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         assert dc.inc_angles is not None
         dc_corr = dc.copy()
-        dc_corr.depth = self.w0 * dc_corr.depth + self.w1 * dc_corr.inc_angles + self.b
+        if mask is None:
+            dc_corr.depth = self.w0 * dc_corr.depth + self.w1 * dc_corr.inc_angles + self.b
+        else:
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = self.w0 * dc_corr.depth[mask] + self.w1 * dc_corr.inc_angles[mask] + self.b
         return dc_corr
 
 
@@ -66,12 +71,19 @@ class Polynomial(BaseModel):
         self.p0 = nn.Parameter(torch.as_tensor(p0, device=self.device))
         self.p1 = nn.Parameter(torch.as_tensor(p1, device=self.device))
 
-    def correct_depth(self, dc: DepthCloud) -> DepthCloud:
+    def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         assert dc.inc_angles is not None
         dc_corr = dc.copy()
-        gamma = dc.inc_angles
-        bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
-        dc_corr.depth = dc_corr.depth - bias
+        if mask is None:
+            gamma = dc.inc_angles
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            dc_corr.depth = dc_corr.depth - bias
+        else:
+            gamma = dc.inc_angles[mask]
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = dc_corr.depth[mask] - bias
         return dc_corr
 
 
@@ -86,11 +98,18 @@ class ScaledPolynomial(BaseModel):
         self.p0 = nn.Parameter(torch.tensor(p0, device=self.device))
         self.p1 = nn.Parameter(torch.tensor(p1, device=self.device))
 
-    def correct_depth(self, dc: DepthCloud) -> DepthCloud:
+    def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         assert dc.inc_angles is not None
         dc_corr = dc.copy()
-        gamma = dc.inc_angles
-        bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
-        dc_corr.depth = dc_corr.depth * (1. - bias)
+        if mask is None:
+            gamma = dc.inc_angles
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            dc_corr.depth = dc_corr.depth * (1. - bias)
+        else:
+            gamma = dc.inc_angles[mask]
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = dc_corr.depth[mask] * (1. - bias)
         return dc_corr
 

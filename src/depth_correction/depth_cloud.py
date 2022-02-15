@@ -68,14 +68,14 @@ class DepthCloud(object):
                      'points',
                      'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace',
                      'loss']
-    not_sliced_fields = ['neighbors', 'dist', 'neighbor_points', 'weights']
+    not_sliced_fields = ['neighbors', 'distances', 'neighbor_points', 'weights']
     all_fields = sliced_fields + not_sliced_fields
 
     def __init__(self, vps=None, dirs=None, depth=None,
                  points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
                  normals=None, inc_angles=None, trace=None,
                  loss=None,
-                 neighbors=None, dist=None, neighbor_points=None, weights=None):
+                 neighbors=None, distances=None, neighbor_points=None, weights=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
         Dependent fields are not updated automatically, they can be passed in
@@ -98,17 +98,16 @@ class DepthCloud(object):
         assert depth.shape[-1] == 1
         assert depth.shape[:-1] == dirs.shape[:-1]
 
-        self.vps = torch.as_tensor(vps, dtype=torch.float64)
-        self.dirs = torch.as_tensor(dirs, dtype=torch.float64)
-        self.depth = torch.as_tensor(depth, dtype=torch.float64)
+        self.vps = vps
+        self.dirs = dirs
+        self.depth = depth
 
         # Dependent features
         self.points = points
-        # self.update_points()
 
         # Nearest neighbor graph
         self.neighbors = None
-        self.dist = None
+        self.distances = None
         # Expanded neighbor points
         self.neighbor_points = None
         # Expanded nearest neighbor weights (some may be invalid)
@@ -158,6 +157,7 @@ class DepthCloud(object):
         assert isinstance(self.dirs, torch.Tensor)
         assert isinstance(T, torch.Tensor)
         assert T.shape == (4, 4)
+        T = T.to(dtype=self.vps.dtype)
         R = T[:3, :3]
         # print('det(R) = ', torch.linalg.det(R))
         t = T[:3, 3:]
@@ -179,21 +179,27 @@ class DepthCloud(object):
     def __add__(self, other):
         return DepthCloud.concatenate([self, other], dependent=True)
 
+    def update_distances(self):
+        assert self.neighbors is not None
+        x = self.get_points()
+        d = torch.linalg.norm(x.unsqueeze(dim=1) - x[self.neighbors], dim=-1)
+        self.distances = d
+
     # @timing
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
-        self.dist, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
+        self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
 
     # @timing
     def filter_neighbors_normal_angle(self, max_angle):
         assert isinstance(self.neighbors, (list, np.ndarray))
-        assert isinstance(self.dist, (type(None), list, np.ndarray))
+        assert isinstance(self.distances, (type(None), list, np.ndarray))
         if isinstance(self.neighbors, np.ndarray):
             self.neighbors = list(self.neighbors)
             # print('Neighbors converted to list to allow variable number of items.')
-        if isinstance(self.dist, np.ndarray):
-            self.dist = list(self.dist)
+        if isinstance(self.distances, np.ndarray):
+            self.distances = list(self.distances)
         assert isinstance(self.neighbors, list)
         assert isinstance(self.normals, torch.Tensor)
         assert isinstance(max_angle, float) and max_angle >= 0.0
@@ -203,7 +209,7 @@ class DepthCloud(object):
         n_total = 0
 
         for i in range(self.size()):
-            p = torch.index_select(self.normals, 0, torch.tensor(self.neighbors[i]))
+            p = torch.index_select(self.normals, 0, torch.as_tensor(self.neighbors[i]))
             q = self.normals[i:i + 1]
             cos = (p * q).sum(dim=-1)
             keep = cos >= min_cos
@@ -213,8 +219,8 @@ class DepthCloud(object):
             # print(type(self.neighbors[i]))
             self.neighbors[i] = [n for n, k in zip(self.neighbors[i], keep) if k]
             assert isinstance(self.neighbors[i], list)
-            if self.dist is not None:
-                self.dist[i] = self.dist[i][keep]
+            if self.distances is not None:
+                self.distances[i] = self.distances[i][keep]
         print('%i / %i = %.1f %% neighbors kept in average (normals angle <= %.3f).'
               % (n_kept, n_total, 100 * n_kept / n_total, max_angle))
 
@@ -227,7 +233,6 @@ class DepthCloud(object):
         result = []
         for i in range(self.size()):
             if len(self.neighbors[i]) > 0:
-                # p = torch.index_select(self.points, 0, torch.as_tensor(self.neighbors[i]))
                 if isinstance(self.neighbors, torch.Tensor):
                     nn = self.neighbors[i]
                     nn = nn[nn >= 0]
@@ -337,9 +342,12 @@ class DepthCloud(object):
         self.update_incidence_angles()
 
     # @timing
-    def update_all(self, k=None, r=None):
+    def update_all(self, k=None, r=None, keep_neighbors=False):
         self.update_points()
-        self.update_neighbors(k=k, r=r)
+        if keep_neighbors:
+            self.update_distances()
+        else:
+            self.update_neighbors(k=k, r=r)
         self.update_features()
 
     def get_colors(self, colors='z'):
@@ -418,7 +426,7 @@ class DepthCloud(object):
 
     @staticmethod
     def concatenate(depth_clouds, dependent=False):
-        # TODO: Concatenate neighbors and dist, shift indices as necessary.
+        # TODO: Concatenate neighbors and distances, shift indices as necessary.
         fields = DepthCloud.sliced_fields if dependent else ['vps', 'dirs', 'depth']
         kwargs = {}
         for f in fields:
@@ -450,22 +458,18 @@ class DepthCloud(object):
         :return:
         """
         if pts.dtype.names:
-            # vps = structured_to_unstructured(pts[['vp_%s' % f for f in 'xyz']])
-            # pts = structured_to_unstructured(pts[['x', 'y', 'z']])
             return DepthCloud.from_structured_array(pts)
 
         if isinstance(pts, np.ndarray):
-            pts = torch.tensor(pts)
+            pts = torch.as_tensor(pts)
+
         assert isinstance(pts, torch.Tensor)
 
         if vps is None:
             vps = torch.zeros((pts.shape[0], 3))
         elif isinstance(vps, np.ndarray):
-            vps = torch.tensor(vps)
+            vps = torch.as_tensor(vps)
         assert isinstance(vps, torch.Tensor)
-        # print(pts.shape)
-        # print(vps.shape)
-        # assert vps.shape == pts.shape or tuple(vps.shape) == (3,)
         assert vps.shape == pts.shape
 
         dirs = pts - vps
@@ -475,8 +479,6 @@ class DepthCloud(object):
         assert depth.shape[0] == pts.shape[0]
 
         # TODO: Handle invalid points (zero depth).
-        # print(dirs.shape)
-        # print(depth.shape)
         dirs = dirs / depth
         depth_cloud = DepthCloud(vps, dirs, depth)
         return depth_cloud
@@ -525,11 +527,20 @@ class DepthCloud(object):
         mesh = Meshes(verts=[verts], faces=[faces.verts_idx])
         return mesh
 
-    def to(self, device=torch.device('cuda:0')):
-        for f in DepthCloud.sliced_fields:
+    def to(self, device=torch.device('cuda:0'), dtype=None, float_type=None, int_type=None):
+        # for f in DepthCloud.sliced_fields:
+        for f in DepthCloud.all_fields:
             x = getattr(self, f)
             if x is not None:
-                x = x.to(device)
+                if (float_type and x.dtype.is_floating_point) \
+                        or (int_type and not x.dtype.is_floating_point) \
+                        or (dtype and dtype.is_floating_point == x.dtype.is_floating_point):
+                    x_type = dtype or float_type or int_type
+                else:
+                    x_type = None
+
+                # x_dtype =  dtype.is_floating_point == x.dtype.is_floating_point
+                x = x.to(device=device, dtype=x_type)
                 setattr(self, f, x)
         return self
 
@@ -538,3 +549,21 @@ class DepthCloud(object):
 
     def gpu(self):
         return self.to(torch.device('cuda:0'))
+
+    def type(self, dtype=None):
+        if dtype is None:
+            assert self.vps.dtype == self.dirs.dtype == self.depth.dtype
+            return self.vps.dtype
+        else:
+            for f in DepthCloud.all_fields:
+                x = getattr(self, f)
+                if x is not None and dtype.is_floating_point == x.dtype.is_floating_point:
+                    x = x.type(dtype)
+                    setattr(self, f, x)
+            return self
+
+    def float(self):
+        return self.type(torch.float32)
+
+    def double(self):
+        return self.type(torch.float64)

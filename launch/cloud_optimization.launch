@@ -3,7 +3,7 @@
     <arg name="rviz" default="true"/>
 
     <!-- Correction of a local point cloud -->
-    <node name="local_optimization" pkg="depth_correction" type="local_optimization" output="screen"/>
+    <node name="cloud_optimization" pkg="depth_correction" type="cloud_optimization" output="screen"/>
 
     <!-- RVIZ -->
     <include if="$(arg rviz)" file="$(dirname)/rviz.launch">

@@ -62,19 +62,18 @@ class DepthCloud(object):
     In-place operation are avoided, in general, so that using a shallow copy
     is enough to create a snapshot.
     """
-
     # Fields kept during slicing cloud[index].
     sliced_fields = ['vps', 'dirs', 'depth',
-                     'points',
-                     'cov', 'eigvals', 'eigvecs', 'normals', 'inc_angles', 'trace',
-                     'loss']
+                     'points', 'mean', 'cov', 'eigvals', 'eigvecs',
+                     'normals', 'inc_angles', 'trace',
+                     'loss', 'mask']
     not_sliced_fields = ['neighbors', 'distances', 'neighbor_points', 'weights']
     all_fields = sliced_fields + not_sliced_fields
 
     def __init__(self, vps=None, dirs=None, depth=None,
                  points=None, mean=None, cov=None, eigvals=None, eigvecs=None,
                  normals=None, inc_angles=None, trace=None,
-                 loss=None,
+                 loss=None, mask=None,
                  neighbors=None, distances=None, neighbor_points=None, weights=None):
         """Create depth cloud from viewpoints, directions, and depth.
 
@@ -123,8 +122,10 @@ class DepthCloud(object):
         self.trace = trace
 
         self.loss = loss
+        self.mask = mask
 
     def copy(self):
+        """Create shallow copy of the cloud."""
         kwargs = {}
         for f in DepthCloud.all_fields:
             x = getattr(self, f)
@@ -133,12 +134,23 @@ class DepthCloud(object):
         dc = DepthCloud(**kwargs)
         return dc
 
-    def deepcopy(self):
-        # TODO: Depth cloud deep copy?
-        raise NotImplementedError('Deep copy not implemented. Use copy if possible.')
+    def clone(self):
+        """Create deep copy of the cloud.
+
+        Gradients are still propagated if detach is not called."""
+        kwargs = {}
+        for f in DepthCloud.all_fields:
+            x = getattr(self, f)
+            if x is not None:
+                kwargs[f] = x.clone()
+        dc = DepthCloud(**kwargs)
+        return dc
 
     def size(self):
         return self.dirs.shape[0]
+
+    def __len__(self):
+        return self.size()
 
     def to_points(self):
         pts = self.vps + self.depth * self.dirs
@@ -193,6 +205,7 @@ class DepthCloud(object):
 
     # @timing
     def filter_neighbors_normal_angle(self, max_angle):
+        # TODO: Batch computation using neighbors tensor.
         assert isinstance(self.neighbors, (list, np.ndarray))
         assert isinstance(self.distances, (type(None), list, np.ndarray))
         if isinstance(self.neighbors, np.ndarray):
@@ -567,3 +580,11 @@ class DepthCloud(object):
 
     def double(self):
         return self.type(torch.float64)
+
+    def detach(self):
+        for f in DepthCloud.all_fields:
+            x = getattr(self, f)
+            if x is not None:
+                x = x.detach()
+                setattr(self, f, x)
+        return self

@@ -24,6 +24,8 @@
             odom_frame: "$(arg odom_frame)"
             odom:
                 cov: $(arg odom_cov)
+            gt_frames: ["gt/map", "gt/$(arg lidar_frame)"]
+            eval_frames: ["map", "$(arg lidar_frame)"]
         </rosparam>
         <remap from="cloud" to="$(arg cloud)"/>
     </node>

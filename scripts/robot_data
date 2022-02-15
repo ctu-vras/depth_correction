@@ -4,11 +4,13 @@ from __future__ import absolute_import, division, print_function
 from data.asl_laser import Dataset
 from geometry_msgs.msg import Transform, TransformStamped
 import numpy as np
-from ros_numpy import msgify
+from ros_numpy import msgify, numpify
 import rospy
 from sensor_msgs.msg import PointCloud2
-from tf2_msgs.msg import TFMessage
 from tf.transformations import euler_matrix
+from tf2_msgs.msg import TFMessage
+from tf2_ros import Buffer, TransformException, TransformListener
+from queue import Queue
 
 
 class RobotData(object):
@@ -21,17 +23,20 @@ class RobotData(object):
         self.period = rospy.get_param('~period', 1.0)
         self.delay = rospy.get_param('~delay', 1.0)
 
-        self.odom = rospy.get_param('~odom', None)  # None, 'N(0, 1)'
-        self.odom_cov = rospy.get_param('~odom/cov', None)
+        self.odom_source = rospy.get_param('~odom/source', 'ground_truth')
+        self.odom_cov = rospy.get_param('~odom/cov', 6 * [0.])
         if self.odom_cov:
             self.odom_cov = np.array(self.odom_cov)
-            print(self.odom_cov)
             assert self.odom_cov.shape in ((6,), (6, 6))
             if self.odom_cov.shape == (6,):
                 self.odom_cov = np.diag(self.odom_cov)
 
         self.lidar_frame = rospy.get_param('~lidar_frame', 'lidar')
         self.odom_frame = rospy.get_param('~odom_frame', 'odom')
+
+        # self.gt_frame_prefix = rospy.get_param('~gt_frame_prefix', 'gt/')
+        self.gt_frames = tuple(rospy.get_param('~gt_frames', ['gt/map', 'gt/lidar']))
+        self.eval_frames = tuple(rospy.get_param('~eval_frames', ['map', self.lidar_frame]))
 
         self.dataset = None
         self.position = None
@@ -47,10 +52,50 @@ class RobotData(object):
             if self.ids:
                 self.position = 0
 
+        # Timestamps to evaluate localization accuracy.
+        self.eval_stamps = []
+        # Use sufficiently large TF buffer cache to be able to evaluate
+        # localization during the whole run ex post.
+        self.tf = Buffer(cache_time=rospy.Duration.from_sec(600.0))
+        self.tf_sub = TransformListener(self.tf)
+
         self.tf_pub = rospy.Publisher('/tf', TFMessage, queue_size=2, latch=True)
         self.cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2, latch=True)
 
         self.timer = rospy.Timer(rospy.Duration(self.delay), self.start_timer, oneshot=True)
+
+    def evaluate(self):
+        timeout = rospy.Duration.from_sec(3.0)
+        r_angles = []
+        t_norms = []
+        for stamp in self.eval_stamps:
+            time = (stamp - self.eval_stamps[0]).to_sec()
+            assert isinstance(stamp, rospy.Time)
+            try:
+                gt = self.tf.lookup_transform(*self.gt_frames, stamp, timeout)
+                gt = numpify(gt.transform)
+                tf = self.tf.lookup_transform(*self.eval_frames, stamp, timeout)
+                tf = numpify(tf.transform)
+            except TransformException as ex:
+                rospy.logerr('Could not evaluate transform at time %.1f s: %s', time, ex)
+                continue
+            delta = np.linalg.solve(tf, gt)
+            # print(delta)
+            r = delta[:3, :3]
+            t = delta[:3, 3:]
+            r_angle = np.arccos((np.trace(r) - 1.0) / 2.0).item()
+            t_norm = np.linalg.norm(t).item()
+            r_angles.append(r_angle)
+            t_norms.append(t_norm)
+            rospy.loginfo('Error at %.1f s: rotation %.3f deg., translation %.3f m.',
+                          time, np.degrees(r_angle), t_norm)
+
+        # print(r_angles)
+        # print(t_norms)
+        r_angle = np.mean(r_angles).item()
+        t_norm = np.mean(t_norms).item()
+        rospy.logwarn('Average error: rotation %.3f deg., translation %.3f m.',
+                      np.degrees(r_angle), t_norm)
 
     def start_timer(self, evt):
         self.timer = rospy.Timer(rospy.Duration(self.period), self.publish_and_move)
@@ -60,10 +105,12 @@ class RobotData(object):
 
     def halt_if_done(self):
         if not self.is_valid():
+            if self.gt_frames and self.eval_frames:
+                self.evaluate()
             rospy.loginfo('No more positions.')
             rospy.signal_shutdown('No more positions.')
 
-    def noisy_pose(self, pose):
+    def perturb_pose(self, pose):
         if self.odom_cov is not None:
             noise = np.random.multivariate_normal(np.zeros((6,)), self.odom_cov)
             T = euler_matrix(*noise[3:])
@@ -79,16 +126,26 @@ class RobotData(object):
 
         now = rospy.Time.now()
 
-        if self.odom_frame:
-            pose = self.dataset.cloud_pose(self.ids[self.position])
-            pose = self.noisy_pose(pose)
+        pose = self.dataset.cloud_pose(self.ids[self.position])
+
+        # Publish ground-truth pose.
+        if self.gt_frames and len(self.gt_frames) == 2:
+            tf = TransformStamped()
+            tf.header.stamp = now
+            tf.header.frame_id = self.gt_frames[0]
+            tf.child_frame_id = self.gt_frames[1]
+            tf.transform = msgify(Transform, pose)
+            self.tf_pub.publish(TFMessage([tf]))
+
+        # Publish (perturbed) odometry?
+        if self.odom_source == 'ground_truth':
+            pose = self.perturb_pose(pose)
             tf = TransformStamped()
             tf.header.stamp = now
             tf.header.frame_id = self.odom_frame
             tf.child_frame_id = self.lidar_frame
             tf.transform = msgify(Transform, pose)
-            if self.odom:
-                self.tf_pub.publish(TFMessage([tf]))
+            self.tf_pub.publish(TFMessage([tf]))
 
         cloud = self.dataset.local_cloud(self.ids[self.position])
         msg = msgify(PointCloud2, cloud)
@@ -96,6 +153,8 @@ class RobotData(object):
         msg.header.stamp = now
         msg.header.frame_id = self.lidar_frame
         self.cloud_pub.publish(msg)
+
+        self.eval_stamps.append(now)
 
     def move(self):
         self.position += 1

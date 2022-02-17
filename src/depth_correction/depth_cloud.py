@@ -67,7 +67,7 @@ class DepthCloud(object):
                      'points', 'mean', 'cov', 'eigvals', 'eigvecs',
                      'normals', 'inc_angles', 'trace',
                      'loss', 'mask']
-    not_sliced_fields = ['neighbors', 'distances', 'neighbor_points', 'weights']
+    not_sliced_fields = ['neighbors', 'weights', 'distances', 'neighbor_points']
     all_fields = sliced_fields + not_sliced_fields
 
     def __init__(self, vps=None, dirs=None, depth=None,
@@ -106,11 +106,11 @@ class DepthCloud(object):
 
         # Nearest neighbor graph
         self.neighbors = None
+        # Expanded nearest neighbor weights (some may be invalid)
+        self.weights = None
         self.distances = None
         # Expanded neighbor points
         self.neighbor_points = None
-        # Expanded nearest neighbor weights (some may be invalid)
-        self.weights = None
 
         # Neighborhood features
         self.mean = mean
@@ -165,6 +165,7 @@ class DepthCloud(object):
         return self.points
 
     def transform(self, T):
+        # TODO: Optionally, transform all / specified fields.
         assert isinstance(self.vps, torch.Tensor)
         assert isinstance(self.dirs, torch.Tensor)
         assert isinstance(T, torch.Tensor)
@@ -393,7 +394,7 @@ class DepthCloud(object):
         # min_val, max_val = vals[valid].min(), vals[valid].max()
         q = torch.tensor([0.01, 0.99], dtype=vals.dtype, device=vals.device)
         min_val, max_val = torch.quantile(vals[valid], q)
-        print('min, max: %.6g, %.6g' % (min_val, max_val))
+        # print('min, max: %.6g, %.6g' % (min_val, max_val))
         # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
         # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
         colors = map_colors(vals, min_value=min_val, max_value=max_val)
@@ -438,31 +439,46 @@ class DepthCloud(object):
         return cloud
 
     @staticmethod
-    def concatenate(depth_clouds, dependent=False):
+    def concatenate(clouds, dependent=False):
         # TODO: Concatenate neighbors and distances, shift indices as necessary.
-        fields = DepthCloud.sliced_fields if dependent else ['vps', 'dirs', 'depth']
+        # fields = DepthCloud.sliced_fields if dependent else ['vps', 'dirs', 'depth']
+        fields = DepthCloud.all_fields if dependent else ['vps', 'dirs', 'depth']
         kwargs = {}
         for f in fields:
-            xs = [getattr(dc, f) for dc in depth_clouds]
+            # Collect field values from individual clouds.
+            xs = [getattr(dc, f) for dc in clouds]
+            # Concatenate the values if present in all clouds.
             if all([x is not None for x in xs]):
+                # Shift indices by number of points in preceding clouds.
+                if f == 'neighbors':
+                    sizes = [len(cloud) for cloud in clouds]
+                    shift = [0] + list(np.cumsum(sizes[:-1]))
+                    for i in range(len(xs)):
+                        xs[i] += shift[i]
+
                 kwargs[f] = torch.concat(xs)
+            else:
+                # rospy.logwarn('Field %s not available for some of %i clouds.', f, len(clouds))
+                pass
         dc = DepthCloud(**kwargs)
 
         return dc
 
     @staticmethod
-    def from_structured_array(arr):
+    def from_structured_array(arr, dtype=None):
         """Create depth cloud from points """
         assert isinstance(arr, np.ndarray)
-        pts = structured_to_unstructured(arr[['x', 'y', 'z']])
+        pts = structured_to_unstructured(arr[['x', 'y', 'z']], dtype=dtype)
         if 'vp_x' in arr.dtype.names:
-            vps = structured_to_unstructured(arr[['vp_%s' % f for f in 'xyz']])
+            vps = structured_to_unstructured(arr[['vp_%s' % f for f in 'xyz']], dtype=dtype)
         else:
+            rospy.logwarn('Viewpoints not provided.')
             vps = None
+        # rospy.loginfo('Types: %s, %s', pts.dtype, vps.dtype)
         return DepthCloud.from_points(pts, vps)
 
     @staticmethod
-    def from_points(pts, vps=None):
+    def from_points(pts, vps=None, dtype=None):
         """Create depth cloud from points and viewpoints.
 
         :param pts: Points as ...-by-3 tensor,
@@ -474,14 +490,14 @@ class DepthCloud(object):
             return DepthCloud.from_structured_array(pts)
 
         if isinstance(pts, np.ndarray):
-            pts = torch.as_tensor(pts)
+            pts = torch.as_tensor(pts, dtype=dtype)
 
         assert isinstance(pts, torch.Tensor)
 
         if vps is None:
             vps = torch.zeros((pts.shape[0], 3))
         elif isinstance(vps, np.ndarray):
-            vps = torch.as_tensor(vps)
+            vps = torch.as_tensor(vps, dtype=dtype)
         assert isinstance(vps, torch.Tensor)
         assert vps.shape == pts.shape
 

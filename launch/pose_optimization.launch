@@ -19,6 +19,6 @@
     </node>
 
     <!-- Rviz -->
-<!--    <arg name="config" default="$(dirname)/../config/train.rviz"/>-->
-<!--    <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg config)"/>-->
+    <arg name="config" default="$(dirname)/../config/poseopt.rviz"/>
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg config)"/>
 </launch>

@@ -118,7 +118,12 @@ class DepthCorrection(object):
             rospy.logwarn('Skipping message %.3f s > %.3f s old.', age, self.max_age)
             return
 
-        output_msg = self.correct_depth(input_msg)
+        # Make a shortcut for pass-through model.
+        if type(self.model) is BaseModel:
+            rospy.loginfo('Publishing input cloud for pass-through model.')
+            output_msg = input_msg
+        else:
+            output_msg = self.correct_depth(input_msg)
         self.corrected_pub.publish(output_msg)
 
 

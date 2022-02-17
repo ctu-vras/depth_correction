@@ -27,7 +27,7 @@ def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=
 
     # Last key will be kept, shuffle if needed.
     # Create index array for tracking the input points.
-    ind = range(len(keys))
+    ind = list(range(len(keys)))
     if keep == 'first':
         # Make the first item last.
         keys = keys[::-1]
@@ -35,7 +35,8 @@ def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=
     elif keep == 'random':
         # Make the last item random.
         np.random.shuffle(ind)
-        keys = keys[ind]
+        # keys = keys[ind]
+        keys = [keys[i] for i in ind]
     elif keep == 'last':
         # Keep the last item last.
         pass
@@ -46,19 +47,22 @@ def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=
     # Dict keeps the last value for each key (already reshuffled).
     key_to_ind = dict(zip(keys, ind))
     if preserve_order:
-        mask = sorted(key_to_ind.values())
+        ind = sorted(key_to_ind.values())
     else:
-        mask = list(key_to_ind.values())
+        ind = list(key_to_ind.values())
 
     if log:
+        # print('%.3f = %i / %i points kept (grid res. %.3f m).'
+        #       % (mask.double().mean(), mask.sum(), mask.numel(), grid_res))
         print('%.3f = %i / %i points kept (grid res. %.3f m).'
-              % (mask.double().mean(), mask.sum(), mask.numel(), grid_res))
+              % (len(ind) / len(keys), len(ind), len(keys), grid_res))
 
+    # TODO: Convert to boolean mask?
     if only_mask:
-        # TODO: Convert to boolean mask?
-        return mask
+        # return mask
+        return ind
 
-    filtered = cloud[mask]
+    filtered = cloud[ind]
     return filtered
 
 
@@ -89,7 +93,7 @@ def within_bounds(x, min=None, max=None, log_variable=None):
     return keep
 
 
-def filter_depth(cloud, min=None, max=None, only_mask=False, log=True):
+def filter_depth(cloud, min=None, max=None, only_mask=False, log=False):
     """Keep points with depth in bounds."""
     assert isinstance(cloud, (DepthCloud, np.ndarray))
 
@@ -117,7 +121,7 @@ def filter_depth(cloud, min=None, max=None, only_mask=False, log=True):
     return filtered
 
 
-def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False, log=True):
+def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False, log=False):
     """Keep points with specific eigenvalue in bounds."""
     keep = within_bounds(cloud.eigvals[:, eigenvalue],
                          min=min, max=max, log_variable='eigenvalue %i' % eigenvalue if log else None)

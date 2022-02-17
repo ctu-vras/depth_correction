@@ -19,11 +19,14 @@ class BaseModel(nn.Module):
 
     # @timing
     def forward(self, dc: DepthCloud) -> DepthCloud:
-        dc = self.correct_depth(dc)
+        dc = self.correct_depth(dc, dc.mask)
         return dc
 
     def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         return dc
+
+    def __str__(self):
+        return 'BaseModel()'
 
 
 class Linear(BaseModel):
@@ -54,6 +57,9 @@ class Linear(BaseModel):
             dc_corr.depth = dc_corr.depth.clone()
             dc_corr.depth[mask] = self.w0 * dc_corr.depth[mask] + self.w1 * dc_corr.inc_angles[mask] + self.b
         return dc_corr
+
+    def __str__(self):
+        return 'Linear(%.6g, %.6g, %.6g)' % (self.w0.item(), self.w1.item(), self.b.item())
 
 
 class Polynomial(BaseModel):
@@ -86,6 +92,9 @@ class Polynomial(BaseModel):
             dc_corr.depth[mask] = dc_corr.depth[mask] - bias
         return dc_corr
 
+    def __str__(self):
+        return 'Polynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
+
 
 class ScaledPolynomial(BaseModel):
 
@@ -112,4 +121,8 @@ class ScaledPolynomial(BaseModel):
             dc_corr.depth = dc_corr.depth.clone()
             dc_corr.depth[mask] = dc_corr.depth[mask] * (1. - bias)
         return dc_corr
+
+    def __str__(self):
+        return 'ScaledPolynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
+
 

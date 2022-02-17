@@ -28,7 +28,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: Global Cloud
+    SyncSource: Corrected Global Cloud
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -150,7 +150,7 @@ Visualization Manager:
         Y: 0
         Z: 0
       Pose Color: 255; 85; 255
-      Pose Style: None
+      Pose Style: Axes
       Queue Size: 10
       Radius: 0.05999999865889549
       Shaft Diameter: 0.10000000149011612
@@ -186,7 +186,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 46.93350601196289
+      Distance: 50.055320739746094
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1

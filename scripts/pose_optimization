@@ -47,6 +47,19 @@ def xyz_axis_angle_to_matrix(xyz_axis_angle):
     return mat
 
 
+def matrix_to_xyz_axis_angle(T):
+    assert isinstance(T, torch.Tensor)
+    assert T.dim() == 3
+    assert T.shape[1:] == (4, 4)
+    n_poses = len(T)
+    q = matrix_to_quaternion(T[:, :3, :3])
+    axis_angle = quaternion_to_axis_angle(q)
+    xyz = T[:, :3, 3]
+    poses = torch.concat([xyz, axis_angle], dim=1)
+    assert poses.shape == (n_poses, 6)
+    return poses
+
+
 def xyz_axis_angle_to_pose_msg(xyz_axis_angle):
     # assert isinstance(xyz_axis_angle, torch.Tensor)
     # assert isinstance(xyz_axis_angle, list)
@@ -55,7 +68,7 @@ def xyz_axis_angle_to_pose_msg(xyz_axis_angle):
     return msg
 
 
-@timing
+# @timing
 def xyz_axis_angle_to_path_msg(xyz_axis_angle, frame_id, stamp):
     assert isinstance(xyz_axis_angle, torch.Tensor)
     assert xyz_axis_angle.dim() == 2
@@ -90,12 +103,14 @@ class PoseOptimizer(object):
         self.dc_pub = rospy.Publisher('global_cloud', PointCloud2, queue_size=2)
         self.dc_opt_pub = rospy.Publisher('global_cloud_opt', PointCloud2, queue_size=2)
 
-    @timing
-    def construct_global_map(self, ds: Dataset, xyz_axis_angle: torch.Tensor) -> DepthCloud:
+    # @timing
+    def construct_global_map(self, ds: Dataset, poses: torch.Tensor) -> DepthCloud:
+        assert poses.dim() == 3
+        assert poses.shape[1:] == (4, 4)
         clouds = []
         for id in tqdm(self.ds.ids[::5]):
             cloud = self.ds.local_cloud(id)
-            pose = xyz_axis_angle_to_matrix(xyz_axis_angle[id][None]).squeeze(0)
+            pose = poses[id]
 
             t = timer()
             dc = DepthCloud.from_points(cloud)
@@ -150,27 +165,27 @@ class PoseOptimizer(object):
         Ts = torch.concat(Ts, dim=0)
         assert Ts.shape == (n_poses, 4, 4)
 
-        q = matrix_to_quaternion(Ts[:, :3, :3])
-        axis_angle = quaternion_to_axis_angle(q)
-        xyz = Ts[:, :3, 3]
-        poses = torch.concat([xyz, axis_angle], dim=1)
-        assert poses.shape == (n_poses, 6)
+        poses_corr = torch.zeros((n_poses, 6), dtype=Ts.dtype)  # x, y, z, *axis_angle
+        assert poses_corr.shape == (n_poses, 6)
 
-        poses.requires_grad = True
+        poses_corr.requires_grad = True
 
         # Initialize optimizer
-        optimizer = torch.optim.Adam([poses], lr=self.lr)
-        optimizer.zero_grad()
+        optimizer = torch.optim.Adam([poses_corr], lr=self.lr)
 
         pc_msg = None
         path_msg = None
         for i in range(self.n_iters):
+            optimizer.zero_grad()
+
             if rospy.is_shutdown():
                 break
 
+            poses_corr_Ts = xyz_axis_angle_to_matrix(poses_corr)
+            poses = torch.matmul(Ts, poses_corr_Ts)
             dc_opt_global = self.construct_global_map(self.ds, poses)
 
-            # dc_opt_global.visualize(colors='inc_angles')
+            # dc_opt_global.visualize()
 
             train_loss, _ = min_eigval_loss(dc_opt_global, r=self.r_nn, offset=True,
                                             eigenvalue_bounds=self.eigenvalue_bounds)
@@ -179,7 +194,8 @@ class PoseOptimizer(object):
             # publish poses and clouds
             stamp = rospy.Time.now()
             pc_opt_msg = dc_to_ros_msg(dc_opt_global, frame_id=self.world_frame, stamp=stamp)
-            path_opt_msg = xyz_axis_angle_to_path_msg(poses, frame_id=self.world_frame, stamp=stamp)
+            path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses),
+                                                      frame_id=self.world_frame, stamp=stamp)
             if i == 0:
                 pc_msg = pc_opt_msg
                 path_msg = path_opt_msg

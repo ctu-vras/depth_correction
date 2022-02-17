@@ -4,7 +4,7 @@
 
     <node name="pose_optimizer" pkg="depth_correction" type="pose_optimization" output="screen">
         <rosparam subst_value="true">
-            lr: 0.001
+            lr: 0.1
             n_iters: 100
             dataset_name: $(arg dataset_name)
             step: 5

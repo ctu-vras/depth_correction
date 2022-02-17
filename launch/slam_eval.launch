@@ -8,9 +8,11 @@
     <!-- Publish data from selected dataset, play bag files etc. -->
     <include file="$(dirname)/robot_data.launch">
         <arg name="dataset" value="$(arg dataset)"/>
-        <arg name="step" value="1"/>
-        <arg name="period" value="2.0"/>
-        <arg name="delay" value="3.0"/>
+        <arg name="start" value="0"/>
+        <arg name="step" value="2"/>
+        <arg name="period" value="3.0"/>
+        <arg name="delay_start" value="3.0"/>
+        <arg name="delay_end" value="3.0"/>
         <arg name="lidar_frame" value="lidar"/>
         <arg name="odom_frame" value="$(eval 'odom' if odom else '')"/>
         <arg name="rviz" value="false"/>

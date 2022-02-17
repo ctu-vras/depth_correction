@@ -21,7 +21,10 @@ class RobotData(object):
         self.step = rospy.get_param('~step', None)
         self.ids = rospy.get_param('~ids', None)
         self.period = rospy.get_param('~period', 1.0)
-        self.delay = rospy.get_param('~delay', 1.0)
+        self.delay_start = rospy.get_param('~delay_start', 1.0)
+        self.delay_start = self.delay_start if self.delay_start > 0.0 else 0.0
+        self.delay_end = rospy.get_param('~delay_end', 5.0)
+        self.delay_end = self.delay_end if self.delay_end > 0.0 else 0.0
 
         self.odom_source = rospy.get_param('~odom/source', 'ground_truth')
         self.odom_cov = rospy.get_param('~odom/cov', 6 * [0.])
@@ -62,7 +65,7 @@ class RobotData(object):
         self.tf_pub = rospy.Publisher('/tf', TFMessage, queue_size=2, latch=True)
         self.cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2, latch=True)
 
-        self.timer = rospy.Timer(rospy.Duration(self.delay), self.start_timer, oneshot=True)
+        self.timer = rospy.Timer(rospy.Duration(self.delay_start), self.start_timer, oneshot=True)
 
     def evaluate(self):
         timeout = rospy.Duration.from_sec(3.0)
@@ -87,27 +90,31 @@ class RobotData(object):
             t_norm = np.linalg.norm(t).item()
             r_angles.append(r_angle)
             t_norms.append(t_norm)
-            rospy.loginfo('Error at %.1f s: rotation %.3f deg., translation %.3f m.',
+            rospy.loginfo('Error at %.1f s: rotation %.6f deg., translation %.6f m.',
                           time, np.degrees(r_angle), t_norm)
 
         # print(r_angles)
         # print(t_norms)
         r_angle = np.mean(r_angles).item()
         t_norm = np.mean(t_norms).item()
-        rospy.logwarn('Average error: rotation %.3f deg., translation %.3f m.',
+        rospy.logwarn('Average error: rotation %.6f deg., translation %.6f m.',
                       np.degrees(r_angle), t_norm)
 
     def start_timer(self, evt):
         self.timer = rospy.Timer(rospy.Duration(self.period), self.publish_and_move)
+        rospy.loginfo('Publishing robot data.')
 
     def is_valid(self):
         return self.position < len(self.ids)
 
     def halt_if_done(self):
         if not self.is_valid():
+            rospy.loginfo('No more positions.')
             if self.gt_frames and self.eval_frames:
                 self.evaluate()
-            rospy.loginfo('No more positions.')
+            if self.delay_end > 0.0:
+                rospy.loginfo('Delaying end by %.3f s.', self.delay_end)
+                rospy.sleep(rospy.Duration.from_sec(self.delay_end))
             rospy.signal_shutdown('No more positions.')
 
     def perturb_pose(self, pose):

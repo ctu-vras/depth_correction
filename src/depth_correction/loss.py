@@ -3,6 +3,7 @@ from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
 from .utils import timing
+from enum import Enum
 import numpy as np
 from numpy.polynomial import Polynomial
 from random import shuffle
@@ -10,57 +11,24 @@ import torch
 from timeit import default_timer as timer
 
 
-refractive_index_vacuum = 1.0
-refractive_index_air = 1.000293
-
-# waist_hokuyo =
-# waist_ouster = 5e-3  # FWHM?
-
-wavelength_hokuyo = 905e-9
-wavelength_ouster = 865e-9
-
-
 __all__ = [
-    'beam_width',
     'min_eigval_loss',
     'neighbor_cov',
     'neighbor_fun',
-    'rayleight_length',
     'reduce',
     'trace_loss',
 ]
 
 
-def rayleight_length(w0, n=refractive_index_air, l=wavelength_hokuyo):
-    """Rayleight lenght (range) for given beam waist.
-
-    :param w0: beam waist [m].
-    :param n: index of refraction of the propagation medium, n=1.0 for vacuum, n=1.000293 for air (default).
-    :param
-    """
-    assert isinstance(w0, torch.Tensor)
-    z_r = torch.pi * w0**2 * n / l
-    return z_r
+class Reduction(Enum):
+    NONE = 'none'
+    MEAN = 'mean'
+    SUM = 'sum'
 
 
-def beam_width(z, w0, n=refractive_index_air, l=wavelength_hokuyo, m2=1.0):
-    """Beam width at given depth.
-
-    :param z: depth [m].
-    :param w0: beam waist [m].
-    :param n: index of refraction of the propagation medium.
-    :param l: wavelength [m].
-    :param m2: M2, "M squared", beam quality factor, or beam propagation factor. m2=1 for ideal Gaussian beam (default).
-    :return: Beam width [m].
-    """
-    assert isinstance(z, torch.Tensor)
-    assert isinstance(w0, torch.Tensor)
-    w = w0 * m2 * torch.sqrt(1.0 + (z / rayleight_length(w0, n, l))**2)
-    return w
-
-
-def reduce(x, reduction='mean', weights=None, only_finite=False, skip_nans=False):
-    assert reduction in ('none', 'mean', 'sum')
+def reduce(x, reduction=Reduction.MEAN, weights=None, only_finite=False, skip_nans=False):
+    # assert reduction in ('none', 'mean', 'sum')
+    assert reduction in Reduction
 
     keep = None
     if only_finite:
@@ -72,12 +40,12 @@ def reduce(x, reduction='mean', weights=None, only_finite=False, skip_nans=False
             weights = weights[keep]
         x = x[keep]
 
-    if reduction == 'mean':
+    if reduction == Reduction.MEAN:
         if weights is None:
             x = x.mean()
         else:
             x = (weights * x).sum() / weights.sum()
-    elif reduction == 'sum':
+    elif reduction == Reduction.SUM:
         if weights is None:
             x = x.sum()
         else:
@@ -114,24 +82,55 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def min_eigval_loss(cloud, k=None, r=None,
-                    max_angle=None,
-                    eigenvalue_bounds=None,
-                    offset=False,
-                    reduction='mean'):
-    assert k is None or isinstance(k, int)
-    assert r is None or isinstance(r, float)
-    assert eigenvalue_bounds is None or len(eigenvalue_bounds) == 2
+def min_eigval_loss(cloud,  # k=None, r=None,
+                    # max_angle=None,
+                    # eigenvalue_bounds=None,
+                    mask=None,
+                    # offset=False,
+                    offset=None,
+                    # reduction='mean'):
+                    reduction=Reduction.MEAN):
+    """Map consistency loss based on the smallest eigenvalue.
 
+    Pre-filter cloud before, or set the mask to select points to be used in
+    loss reduction. In general, surfaces for which incidence angles can be
+    reliably estimated should be selected, typically planar regions.
+
+    :param cloud:
+    :param k:
+    :param r:
+    :param max_angle:
+    :param eigenvalue_bounds:
+    :param offset: Source cloud to offset point-wise loss values, optional.
+    :param reduction:
+    :return:
+    """
+    assert isinstance(cloud, (DepthCloud, list, tuple))
+    # assert k is None or isinstance(k, int)
+    # assert r is None or isinstance(r, float)
+    assert mask is None or isinstance(mask, (torch.Tensor, list, tuple))
+    assert offset is None or isinstance(offset, (DepthCloud, list, tuple))
+    # assert eigenvalue_bounds is None or len(eigenvalue_bounds) == 2
+
+    # If a batch of clouds are provided (as a list), process them separately,
+    # and reduce point-wise loss in the end.
     if isinstance(cloud, (list, tuple)):
+        assert mask is None or isinstance(mask, (list, tuple))
+        assert offset is None or isinstance(offset, (list, tuple))
         losses, dcs = [], []
-        for c in cloud:
-            loss, dc = min_eigval_loss(c, k=k, r=r,
-                                       max_angle=max_angle,
-                                       eigenvalue_bounds=eigenvalue_bounds,
-                                       offset=offset,
+        for i in range(len(cloud)):
+            c = cloud[i]
+            m = None if mask is None else mask[i]
+            o = None if offset is None else offset[i]
+            loss, dc = min_eigval_loss(c,  # k=k, r=r,
+                                       # max_angle=max_angle,
+                                       # eigenvalue_bounds=eigenvalue_bounds,
+                                       mask=m,
+                                       offset=o,
                                        # reduction='mean')
-                                       reduction='none')
+                                       # reduction=Reduction.MEAN)
+                                       # reduction='none')
+                                       reduction=Reduction.NONE)
 
             losses.append(loss)
             dcs.append(dc)
@@ -142,23 +141,74 @@ def min_eigval_loss(cloud, k=None, r=None,
         return loss, dcs
 
     assert isinstance(cloud, DepthCloud)
-    dc = cloud.copy()
-    dc.update_all(k=k, r=r)
-    if max_angle is not None:
-        dc.filter_neighbors_normal_angle(max_angle)
-        dc.update_all(k=k, r=r)
-    dc.loss = dc.eigvals[:, 0]
+    assert cloud.eigvals is not None
+    # dc = cloud.copy()
+    # dc.update_all(k=k, r=r)
+    # if max_angle is not None:
+    #     dc.filter_neighbors_normal_angle(max_angle)
+    #     dc.update_all(k=k, r=r)
+    # cloud = cloud.copy()
+    # cloud.loss = cloud.eigvals[:, 0]
 
-    if offset:
-        assert cloud.eigvals is not None
-        dc.loss = dc.loss - cloud.eigvals[:, 0]
+    # mask = torch.ones((cloud.size()), dtype=cloud.vps.dtype)
+    # mask = torch.ones((cloud.size()), dtype=torch.bool)
+    # if cloud.mask is not None:
+    #     with torch.no_grad():
+    #         mask = mask & cloud.mask
+    # mask = cloud.mask
+    if mask is None:
+        loss = cloud.eigvals
+    else:
+        loss = cloud.eigvals[mask, 0]
+    # if mask is None:
+    #     loss = cloud.eigvals[mask, 0]
+    # else:
+    #     loss = cloud.eigvals[mask, 0]
 
-    if eigenvalue_bounds is not None:
-        dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1], log=False)
+    # mask = None
+    if offset is not None:
+        # assert cloud.eigvals is not None
+        assert offset.eigvals is not None
+        if isinstance(offset, DepthCloud):
+            # Offset the loss using eigenvalues from original cloud.
+            # cloud.loss = cloud.loss - offset.loss
+            if mask is None:
+                loss = loss - offset.eigvals
+            else:
+                loss = loss - offset.eigvals[mask, 0]
+            # if mask is None:
+            #     mask = offset.mask
+            # elif offset.mask is not None:
+            #     mask = mask.minimum(offset.mask)
+            # if offset.mask is not None:
+            #     # mask = mask.minimum(offset.mask)
+            #     mask = mask & offset.mask
+        else:
+            # cloud.loss = cloud.loss - cloud.eigvals[:, 0]
+            raise ValueError('Offset must be depth cloud with eigenvalues.')
+        loss = torch.relu(loss)
 
-    dc.loss = torch.relu(dc.loss)
-    loss = reduce(dc.loss, reduction=reduction)
-    return loss, dc
+    # if eigenvalue_bounds is not None:
+    #     # dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1], log=False)
+    #
+    #     tmp_mask = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1],
+    #                                  only_mask=True, log=False)
+    #     mask = mask.minimum(tmp_mask)
+
+    # cloud.loss = torch.relu(cloud.loss)
+    # loss = reduce(cloud.loss[mask], reduction=reduction, weights=mask)
+    # cloud.loss = torch.relu(cloud.loss)
+    # loss = reduce(cloud.loss[mask], reduction=reduction, weights=mask)
+    if mask is None:
+        cloud = cloud.copy()
+    else:
+        cloud = cloud[mask]
+    cloud.loss = loss
+
+    loss = reduce(loss, reduction=reduction)
+    # Output only the points used in loss computation?
+    # dc = dc[mask > 0]
+    return loss, cloud
 
 
 def trace_loss(points, query=None, k=None, r=None, reduction='mean', invalid=0.):
@@ -168,13 +218,6 @@ def trace_loss(points, query=None, k=None, r=None, reduction='mean', invalid=0.)
     loss = torch.stack(loss)
     loss = reduce(loss, reduction=reduction)
     return loss
-
-
-def show_cloud(cloud, colormap=None):
-    import open3d as o3d
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(cloud)
-    o3d.visualization.draw_geometries([pcd])
 
 
 def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):
@@ -266,9 +309,9 @@ def demo():
         # xs = domain(poly1)
         xs = domain(x)
         fig, ax = plt.subplots(1, 1, figsize=figsize)
-        ax.plot(x, y, '.', markersize=1, label='data')
-        ax.plot(xs, poly1(xs), 'r-', linewidth=1, label='fit deg. 1')
-        ax.plot(xs, poly2(xs), 'g--', linewidth=1, label='fit deg. 2')
+        ax.plot(x, y, '.', markersize=0.5, label='data')
+        ax.plot(xs, poly1(xs), 'r-', linewidth=2, label='fit deg. 1')
+        ax.plot(xs, poly2(xs), 'g--', linewidth=2, label='fit deg. 2')
         ax.set_xlim(x_lims)
         ax.set_ylim(y_lims)
         ax.set_xlabel(x_label)

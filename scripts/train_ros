@@ -33,7 +33,7 @@ def load_model(class_name, state_dict, device=torch.device('cpu')):
     return model
 
 
-def dc_to_ros_msg(dc, frame_id, stamp):
+def cloud_to_ros_msg(dc, frame_id, stamp):
     pc_msg = msgify(PointCloud2, dc.to_structured_array())
     pc_msg.header.frame_id = frame_id
     pc_msg.header.stamp = stamp
@@ -47,137 +47,180 @@ class Trainer(object):
                                 rospy.get_param('~model/state_dict', None),
                                 self.device)
         self.lr = rospy.get_param('~lr', 0.001)
-        self.dataset_names = rospy.get_param('~dataset_names', dataset_names)
-        self.step = rospy.get_param('~step', 5)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        self.train_names = rospy.get_param('train_seqs', ['apartment', 'eth'])
+        self.val_names = rospy.get_param('val_seqs', ['stairs', 'gazebo_winter'])
+        self.step = rospy.get_param('~step', 3)
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9, nesterov=True)
         self.n_iters = rospy.get_param('~n_iters', 100)
 
-        self.max_age = rospy.get_param('~max_age', 1.0)
-        self.r_nn = rospy.get_param('~r_nn', 0.15)
+        self.r_nn = rospy.get_param('~r_nn', 0.20)
         self.min_depth = rospy.get_param('~min_depth', 1.0)
         self.max_depth = rospy.get_param('~max_depth', 10.0)
-        self.grid_res = rospy.get_param('~grid_res', 0.05)
-        self.eigenvalue_bounds = rospy.get_param('~eigenvalue_bounds', (0.0, 0.05 ** 2))
+        self.grid_res = rospy.get_param('~grid_res', 0.10)
+        self.log_filters = rospy.get_param('~log_filters', False)
+        self.max_eig_0 = rospy.get_param('~max_eig_0', 0.02 ** 2)
+        self.min_eig_1 = rospy.get_param('~max_eig_1', 0.05 ** 2)
+        self.dtype = np.float64
+        self.train_neighbors = None
 
-        # construct initial (without correction) global maps for visualization
-        self.datasets = []
-        self.initial_global_dcs = []
-        self.dc_pubs = {'initial': [], 'corrected': []}
-        for name in self.dataset_names:
-            ds = Dataset(name)
-            self.datasets.append(ds)
-
-            rospy.loginfo('Constructing global map for %s...' % name)
-            dc_global = self.construct_global_map(ds[::self.step], correction=False)
-            self.initial_global_dcs.append(dc_global)
-
-            self.dc_pubs['initial'].append(rospy.Publisher(name, PointCloud2, queue_size=2, latch=True))
-            self.dc_pubs['corrected'].append(rospy.Publisher(name + '_corrected', PointCloud2, queue_size=2, latch=True))
         self.path = RosPack().get_path('depth_correction')
         self.tb_writer = SummaryWriter(os.path.join(self.path,
                                                     'config/tb_runs/model_%s_lr_%f_ASL_laser_%f' %
                                                     (rospy.get_param('~model/class'), self.lr, timer())))
 
-        self.run_rate = rospy.get_param('~run_rate', 1.0)
         self.world_frame = rospy.get_param('~world_frame', 'world')
-        # self.initial_dcs_timer = rospy.Timer(rospy.Duration(3), self.publish_init_clouds())
 
-    @timing
-    def construct_global_map(self, ds: Dataset, correction: bool = True) -> DepthCloud:
-        clouds = []
-        for cloud, pose in ds:
-            t = timer()
-            dc = DepthCloud.from_points(cloud)
-            pose = torch.tensor(pose)
-            rospy.logdebug('%i points read from dataset %s, (%.3f s).'
-                           % (dc.size(), ds.name, timer() - t))  # ~0.06 sec for 180000 pts
+    def filtered_cloud(self, cloud):
+        cloud = filter_depth(cloud, min=self.min_depth, max=self.max_depth, log=self.log_filters)
+        cloud = filter_grid(cloud, grid_res=self.grid_res, keep='random', log=self.log_filters)
+        return cloud
 
-            # grid and depth filters
-            if correction:
-                t = timer()
-                dc = filter_depth(dc, min=self.min_depth, max=self.max_depth, log=False)
-                rospy.logdebug('%i points kept by depth filter with min_depth %.2f, max_depth %.2f m (%.3f s).'
-                               % (dc.size(), self.min_depth, self.max_depth, timer() - t))  # ~0.002 sec
+    def local_feature_cloud(self, cloud):
+        # Convert to depth cloud and transform.
+        cloud = DepthCloud.from_structured_array(cloud, dtype=self.dtype)
+        cloud = cloud.to(device=self.device)
+        # Find/update neighbors and estimate all features.
+        cloud.update_all(r=self.r_nn)
+        # Select planar regions to correct as in prediction phase.
+        mask = filter_eigenvalue(cloud, 0, max=self.max_eig_0, only_mask=True, log=self.log_filters)
+        mask = mask & filter_eigenvalue(cloud, 1, min=self.min_eig_1, only_mask=True, log=self.log_filters)
+        cloud.mask = mask
+        return cloud
 
-                t = timer()
-                dc = filter_grid(dc, self.grid_res, keep='last')
-                rospy.logdebug('%i points kept by grid filter with res. %.2f m (%.3f s).'
-                               % (dc.size(), self.grid_res, timer() - t))  # ~0.1 sec
-
-            t = timer()
-            pose = pose.to(self.device)
-            dc = dc.to(self.device)
-            rospy.logdebug('moved poses and depth cloud to device (%.3f s).' % (timer() - t))  # ~0.001 sec
-
-            t = timer()
+    def global_cloud(self, clouds, poses: torch.Tensor) -> DepthCloud:
+        assert poses.dim() == 3
+        assert poses.shape[1:] == (4, 4)
+        transformed_clouds = []
+        for i, dc in enumerate(clouds):
+            dc = self.model(dc)
+            pose = poses[i]
             dc = dc.transform(pose)
-            rospy.logdebug('transformed depth cloud to global frame (%.3f s).' % (timer() - t))  # ~0.001 sec
+            transformed_clouds.append(dc)
+        cloud = DepthCloud.concatenate(transformed_clouds, True)
+        return cloud
 
-            # eigenvalues filter and depth correction with model
-            if correction:
-                t = timer()
-                dc.update_all(r=self.r_nn)
-                rospy.logdebug('update_all took (%.3f s).' % (timer() - t))  # ~2.0 sec on CPU and ~7.5 sec on GPU (!)
-
-                t = timer()
-                keep = filter_eigenvalue(dc, 0, max=(self.grid_res / 5) ** 2, only_mask=True, log=False)
-                keep = keep & filter_eigenvalue(dc, 1, min=self.grid_res ** 2, only_mask=True, log=False)
-                dc = dc[keep]
-                dc.update_all(r=self.r_nn)
-                rospy.logdebug('filtering eigvals and update_all took (%.3f s).'
-                               % (timer() - t))  # ~1.0 sec on CPU and 3.2 sec on GPU (!)
-                t = timer()
-                dc = self.model(dc)
-                rospy.logdebug('model inference took (%.3f s).' % (timer() - t))  # ~0.001 sec
-
-            clouds.append(dc)
-
-        dc_combined = DepthCloud.concatenate(clouds, True)
-        return dc_combined
-
-    def publish_init_clouds(self):
-        for k, dc_global in enumerate(self.initial_global_dcs):
-            pc_msg = dc_to_ros_msg(dc_global, frame_id=self.world_frame, stamp=rospy.Time.now())
-            self.dc_pubs['initial'][k].publish(pc_msg)
+    def global_clouds(self, clouds, poses):
+        ret = []
+        for c, p in zip(clouds, poses):
+            cloud = self.global_cloud(c, p)
+            ret.append(cloud)
+        return ret
 
     def train(self):
-        min_val_loss = np.inf
-        self.optimizer.zero_grad()
-        for i in range(self.n_iters):
-            dcs = []
-            for k, ds in enumerate(self.datasets):
-                ds = ds[::self.step]
-                dc_global_corrected = self.construct_global_map(ds, correction=True)
+        train_clouds = []
+        train_poses = []
+        # Pose corrections :3 elements axis-angle, 3 translation.
+        train_pose_deltas = []
+        train_neighbors = [None] * len(self.train_names)
+        train_masks = [None] * len(self.train_names)
+        for name in self.train_names:
+            clouds = []
+            poses = []
+            for cloud, pose in Dataset(name)[::self.step]:
+                cloud = self.filtered_cloud(cloud)
+                cloud = self.local_feature_cloud(cloud)
+                # If poses are not optimized, depth can be corrected on global
+                # feature clouds.
+                # If poses are to be optimized, depth can be corrected on local
+                # clouds and these can then be transformed to global cloud.
+                clouds.append(cloud)
+                poses.append(pose)
+            train_clouds.append(clouds)
+            poses = np.stack(poses).astype(dtype=self.dtype)
+            poses = torch.as_tensor(poses, device=self.device)
+            train_poses.append(poses)
+            pose_deltas = torch.zeros((poses.shape[0], 6))
+            train_pose_deltas.append(pose_deltas)
 
-                pc_msg = dc_to_ros_msg(dc_global_corrected, frame_id=self.world_frame, stamp=rospy.Time.now())
-                self.dc_pubs['corrected'][k].publish(pc_msg)
+        val_clouds = []
+        val_poses = []
+        val_neighbors = [None] * len(self.val_names)
+        val_masks = [None] * len(self.val_names)
+        for name in self.val_names:
+            clouds = []
+            poses = []
+            for cloud, pose in Dataset(name)[::self.step]:
+                cloud = self.filtered_cloud(cloud)
+                cloud = self.local_feature_cloud(cloud)
+                clouds.append(cloud)
+                poses.append(pose)
+            val_clouds.append(clouds)
+            poses = np.stack(poses).astype(dtype=self.dtype)
+            poses = torch.as_tensor(poses, device=self.device)
+            val_poses.append(poses)
 
-                dcs.append(dc_global_corrected)
+        min_loss = np.inf
+        for it in range(self.n_iters):
 
-            train_loss, _ = min_eigval_loss(dcs, r=self.r_nn, offset=True, eigenvalue_bounds=self.eigenvalue_bounds)
-            rospy.loginfo('iter N %d, train loss: %g' % (i, train_loss.item()))
-            self.tb_writer.add_scalar("min_eigval_loss/train", train_loss, i)
+            if rospy.is_shutdown():
+                break
 
-            # optimization step
+            # Training
+
+            # TODO: Allow optimizing pose deltas.
+            # if train_pose_deltas is None:
+            #     poses = train_poses
+            # else:
+            #     # TODO: Convert pose deltas to matrices
+            #     pass
+            clouds = self.global_clouds(train_clouds, train_poses)
+            for i in range(len(clouds)):
+                cloud = clouds[i]
+                if train_neighbors[i] is None:
+                    cloud.update_all(r=self.r_nn)
+                    train_neighbors[i] = cloud.neighbors, cloud.weights
+                    mask = filter_eigenvalue(cloud, 0, max=self.max_eig_0, only_mask=True, log=self.log_filters)
+                    mask = mask & filter_eigenvalue(cloud, 1, min=self.min_eig_1, only_mask=True, log=self.log_filters)
+                    rospy.loginfo('Training on %.3f = %i / %i points.'
+                                  % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
+                    train_masks[i] = mask
+                else:
+                    cloud.neighbors, cloud.weights = train_neighbors[i]
+                    cloud.update_all(r=self.r_nn, keep_neighbors=True)
+                clouds[i] = cloud
+
+            train_loss, _ = min_eigval_loss(clouds, mask=train_masks)
+            self.tb_writer.add_scalar("min_eigval_loss/train", train_loss, it)
+
+            # Validation
+
+            clouds = self.global_clouds(val_clouds, val_poses)
+            for i in range(len(clouds)):
+                cloud = clouds[i]
+                if val_neighbors[i] is None:
+                    cloud.update_all(r=self.r_nn)
+                    val_neighbors[i] = cloud.neighbors, cloud.weights
+                    mask = filter_eigenvalue(cloud, 0, max=self.max_eig_0, only_mask=True, log=self.log_filters)
+                    mask = mask & filter_eigenvalue(cloud, 1, min=self.min_eig_1, only_mask=True, log=self.log_filters)
+                    rospy.loginfo('Validating on %.3f = %i / %i points.'
+                                  % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
+                    val_masks[i] = mask
+                else:
+                    cloud.neighbors, cloud.weights = val_neighbors[i]
+                    cloud.update_all(r=self.r_nn, keep_neighbors=True)
+                clouds[i] = cloud
+
+            val_loss, _ = min_eigval_loss(clouds, mask=val_masks)
+            self.tb_writer.add_scalar("min_eigval_loss/val", val_loss, it)
+
+            if val_loss.item() < min_loss:
+                saved = True
+                min_loss = val_loss.item()
+                model_name = '%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth' %\
+                             (rospy.get_param('~model/class'), self.train_names, self.val_names, self.r_nn,
+                              self.max_eig_0, self.min_eig_1, val_loss.item())
+                torch.save(self.model.state_dict(), os.path.join(self.path, 'config/weights', model_name))
+            else:
+                saved = False
+
+            rospy.loginfo('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
+                          % (it, train_loss.item(), val_loss.item(), self.model, 'saved' if saved else 'not saved'))
+
+            # Optimization step
+            self.optimizer.zero_grad()
             train_loss.backward()
             self.optimizer.step()
-
-            # evaluation and initial clouds publishing
-            dcs = []
-            for k, ds in enumerate(self.datasets):
-                ds = ds[(self.step // 2)::self.step]
-                dc_global_corrected = self.construct_global_map(ds)
-                dcs.append(dc_global_corrected)
-            val_loss, _ = min_eigval_loss(dcs, r=self.r_nn, offset=True, eigenvalue_bounds=self.eigenvalue_bounds)
-            rospy.loginfo('iter N %d, val loss: %g' % (i, val_loss.item()))
-            self.tb_writer.add_scalar("min_eigval loss/val", val_loss, i)
-
-            if min_val_loss > val_loss.item():
-                min_val_loss = val_loss.item()
-                model_name = '%s_ASL_laser_min_eigval_loss_%g.pth' % (rospy.get_param('~model/class'), val_loss.item())
-                torch.save(self.model.state_dict(), os.path.join(self.path, 'config/weights', model_name))
-                rospy.loginfo('better %s model is saved, validation loss: %g' % (rospy.get_param('~model/class'),
-                                                                                 val_loss.item()))
 
 
 def main():

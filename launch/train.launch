@@ -4,28 +4,31 @@
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
     <arg name="model_state_dict" default="$(find depth_correction)/config/weights/ScaledPolynomial.pth"
          doc="Path to the pretrained model state dict."/>
-    <arg name="dataset_names" default="['eth', 'apartment', 'stairs', 'gazebo_winter']"/>
+    <arg name="train_seqs" default="['eth', 'apartment']"/>
+    <arg name="val_seqs" default="['stairs', 'gazebo_winter']"/>
+    <arg name="rviz" default="false"/>
+
     <node name="depth_correction_trainer" pkg="depth_correction" type="train_ros" output="screen">
         <rosparam subst_value="true">
             model:
                 class: $(arg model_class)
                 state_dict: '$(arg model_state_dict)'
-            lr: 0.0001
+            lr: 0.01
             n_iters: 100
-            dataset_names: $(arg dataset_names)
-            step: 5
+            train_seqs: $(arg train_seqs)
+            val_seqs: $(arg val_seqs)
+            step: 3
             device: cpu
-            max_age: 1.0
-            r_nn: 0.15
+            r_nn: 0.20
             min_depth: 1.0
             max_depth: 10.0
-            grid_res: 0.05
-            eigenvalue_bounds: [0.0, 0.0025]
-            run_rate: 1.0
+            grid_res: 0.10
+            max_eig_0: 0.0004
+            max_eig_1: 0.0025
         </rosparam>
     </node>
 
     <!-- Rviz -->
     <arg name="config" default="$(dirname)/../config/train.rviz"/>
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg config)"/>
+    <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz" args="-d $(arg config)"/>
 </launch>

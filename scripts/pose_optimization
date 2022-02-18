@@ -22,10 +22,9 @@ from pytorch3d.transforms import (axis_angle_to_matrix,
                                   matrix_to_quaternion,
                                   quaternion_to_axis_angle,
                                   axis_angle_to_quaternion)
-from tqdm import tqdm
 
 
-def dc_to_ros_msg(dc, frame_id, stamp):
+def cloud_to_ros_msg(dc, frame_id, stamp):
     pc_msg = msgify(PointCloud2, dc.to_structured_array())
     pc_msg.header.frame_id = frame_id
     pc_msg.header.stamp = stamp
@@ -38,8 +37,6 @@ def xyz_axis_angle_to_matrix(xyz_axis_angle):
 
     mat = torch.zeros(xyz_axis_angle.shape[:-1] + (4, 4), dtype=xyz_axis_angle.dtype, device=xyz_axis_angle.device)
     mat[..., :3, :3] = axis_angle_to_matrix(xyz_axis_angle[..., 3:])
-    # for i in range(mat.shape[0]):
-    #     mat[i] = torch.from_numpy(euler_matrix(axes='sxyz', *xyzrpy[i, 3:].detach().numpy()))
     mat[..., :3, 3] = xyz_axis_angle[..., :3]
     mat[..., 3, 3] = 1.
     assert mat.shape == xyz_axis_angle.shape[:-1] + (4, 4)
@@ -90,11 +87,10 @@ class PoseOptimizer(object):
         self.step = rospy.get_param('~step', 5)
         self.n_iters = rospy.get_param('~n_iters', 100)
 
-        self.max_age = rospy.get_param('~max_age', 1.0)
-        self.r_nn = rospy.get_param('~r_nn', 0.15)
+        self.r_nn = rospy.get_param('~r_nn', 0.20)
         self.min_depth = rospy.get_param('~min_depth', 1.0)
         self.max_depth = rospy.get_param('~max_depth', 10.0)
-        self.grid_res = rospy.get_param('~grid_res', 0.05)
+        self.grid_res = rospy.get_param('~grid_res', 0.10)
         self.log_filters = rospy.get_param('~log_filters', False)
         self.max_eig_0 = rospy.get_param('~max_eig_0', 0.02**2)
         self.min_eig_1 = rospy.get_param('~max_eig_1', 0.05**2)
@@ -159,12 +155,11 @@ class PoseOptimizer(object):
         Ts = torch.concat(Ts, dim=0)
         assert Ts.shape == (n_poses, 4, 4)
 
-        # poses_corr = torch.zeros((n_poses, 6), dtype=Ts.dtype)  # x, y, z, *axis_angle
-        poses_corr = torch.zeros((1, 6), dtype=Ts.dtype)  # same correction broadcasted to all poses x, y, z, *a
-        poses_corr.requires_grad = True
+        pose_deltas = torch.zeros((1, 6), dtype=Ts.dtype)  # same correction broadcasted to all poses x, y, z, *a
+        pose_deltas.requires_grad = True
 
         # Initialize optimizer
-        optimizer = torch.optim.Adam([poses_corr], lr=self.lr)
+        optimizer = torch.optim.Adam([pose_deltas], lr=self.lr)
 
         pc_msg = None
         path_msg = None
@@ -175,8 +170,8 @@ class PoseOptimizer(object):
             if rospy.is_shutdown():
                 break
 
-            poses_corr_Ts = xyz_axis_angle_to_matrix(poses_corr)
-            poses = torch.matmul(Ts, poses_corr_Ts)
+            pose_deltas_mat = xyz_axis_angle_to_matrix(pose_deltas)
+            poses = torch.matmul(Ts, pose_deltas_mat)
             dc_opt_global = self.global_cloud(clouds, poses)
             if self.train_neighbors is None:
                 dc_opt_global.update_all(r=self.r_nn)
@@ -194,7 +189,7 @@ class PoseOptimizer(object):
 
             # publish poses and clouds
             stamp = rospy.Time.now()
-            pc_opt_msg = dc_to_ros_msg(dc_opt_global, frame_id=self.world_frame, stamp=stamp)
+            pc_opt_msg = cloud_to_ros_msg(dc_opt_global, frame_id=self.world_frame, stamp=stamp)
             path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses),
                                                       frame_id=self.world_frame, stamp=stamp)
             if i == 0:
@@ -208,13 +203,13 @@ class PoseOptimizer(object):
 
             # Tensorboard logging
             self.tb_writer.add_scalar("min_eigval_loss/train", train_loss, i)
-            self.tb_writer.add_scalar("pose_correction/dx", poses_corr.squeeze(0)[0], i)
-            self.tb_writer.add_scalar("pose_correction/dy", poses_corr.squeeze(0)[1], i)
-            self.tb_writer.add_scalar("pose_correction/dz", poses_corr.squeeze(0)[2], i)
+            self.tb_writer.add_scalar("pose_correction/dx", pose_deltas.squeeze(0)[0], i)
+            self.tb_writer.add_scalar("pose_correction/dy", pose_deltas.squeeze(0)[1], i)
+            self.tb_writer.add_scalar("pose_correction/dz", pose_deltas.squeeze(0)[2], i)
             # self.tb_writer.add_scalar("pose_correction/da", torch.linalg.norm(poses_corr.squeeze(0)[3:]), i)
-            self.tb_writer.add_scalar("pose_correction/dax", poses_corr.squeeze(0)[3], i)
-            self.tb_writer.add_scalar("pose_correction/day", poses_corr.squeeze(0)[4], i)
-            self.tb_writer.add_scalar("pose_correction/daz", poses_corr.squeeze(0)[5], i)
+            self.tb_writer.add_scalar("pose_correction/dax", pose_deltas.squeeze(0)[3], i)
+            self.tb_writer.add_scalar("pose_correction/day", pose_deltas.squeeze(0)[4], i)
+            self.tb_writer.add_scalar("pose_correction/daz", pose_deltas.squeeze(0)[5], i)
 
             # optimization step
             train_loss.backward()

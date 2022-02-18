@@ -7,7 +7,6 @@ from depth_correction.model import *
 from depth_correction.utils import timer, timing
 import importlib
 import numpy as np
-import sys
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from pytorch3d.transforms import (axis_angle_to_matrix,
@@ -19,11 +18,9 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
 from nav_msgs.msg import Path
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from ros_numpy import msgify, numpify
-from rospkg import RosPack
-pkg_dir = RosPack().get_path('depth_correction')
-# pkg_dir = '/home/petrito1/workspace/depth_correction'
-# pkg_dir = '/home/ruslan/DepthCorrection/depth_correction'
+from ros_numpy import msgify
+import os
+pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
 print(pkg_dir)
 
 # MODEL_TYPE = 'Linear'
@@ -37,7 +34,7 @@ LR = 1e-2
 # LR = 1e-3
 # LR = 1e-4
 # LR = 1e-6
-SHOW_RESULTS = True
+SHOW_RESULTS = False
 
 DATASET = 'asl_laser'
 # dataset = 'utias_3dmap'
@@ -393,7 +390,6 @@ def main():
         train_loss.backward()
         optimizer.step()
 
-    # del ds, datasets
     writer.flush()
     writer.close()
 

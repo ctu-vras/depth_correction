@@ -1,166 +1,283 @@
-#! /usr/bin/env python
-
+#!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-import sys
-sys.path.append('../src/')
-import torch
-from torch.utils.tensorboard import SummaryWriter
-from timeit import default_timer as timer
-import numpy as np
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
 from depth_correction.loss import min_eigval_loss
-from depth_correction.model import BaseModel, Linear, Polynomial, ScaledPolynomial
+from depth_correction.model import *
+from depth_correction.utils import timer, timing
+import importlib
+import numpy as np
+import sys
+import torch
+from torch.utils.tensorboard import SummaryWriter
 
+# from rospkg import RosPack
+# pkg_dir = RosPack().get_path('depth_correction')
+pkg_dir = '/home/petrito1/workspace/depth_correction'
+print(pkg_dir)
 
-MODEL_TYPE = 'ScaledPolynomial'  # 'Linear', 'Polynomial', 'ScaledPolynomial'
+# MODEL_TYPE = 'Linear'
+# MODEL_TYPE = 'Polynomial'
+MODEL_TYPE = 'ScaledPolynomial'
+# MODEL_TYPE = 'InvCos'
+# MODEL_TYPE = 'ScaledInvCos'
+
 N_OPT_ITERS = 100
-LR = 1e-3
+LR = 1e-2
+# LR = 1e-3
+# LR = 1e-4
+# LR = 1e-6
 SHOW_RESULTS = False
-DATASET = 'ASL_laser'  # 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine', 'ESA_robotics'
 
-if DATASET == 'ASL_laser':
-    from data.asl_laser import Dataset, dataset_names
-elif DATASET == 'UTIAS_3dmap':
-    from data.utias_3dmap import Dataset, dataset_names
-elif DATASET == 'Chilean_Mine':
-    from data.chilean_mine import Dataset, dataset_names
-elif DATASET == 'ESA_robotics':
-    from data.esa_robotics import Dataset, dataset_names
-else:
-    raise ValueError("Supported datasets: 'ASL_laser', 'UTIAS_3dmap', 'Chilean_Mine', 'ESA_robotics'")
+DATASET = 'asl_laser'
+# dataset = 'utias_3dmap'
+# dataset = 'chilean_mine'
+# dataset = 'esa_robotics'
+print(DATASET)
+
+dtype = np.float64
+# dtype = torch.float64
+device = torch.device('cpu')
+# device = torch.device('cuda')
+
+min_depth = 1.0
+max_depth = 15.0
+# grid_res = 0.05
+grid_res = 0.1
+
+k = None
+# r = 0.15
+r = 0.2
+# max_eig_0 = 0.005**2
+# max_eig_0 = 0.01**2
+max_eig_0 = 0.02**2
+min_eig_1 = 0.05**2
+step = 3
+log_filters = False
+plot_period = 10
+
+# from eval('data.%s' % dataset) import Dataset, dataset_names
+# eval('from data.%s import Dataset, dataset_names' % dataset)
+imported_module = importlib.import_module("data.%s" % DATASET)
+Dataset = getattr(imported_module, "Dataset")
+dataset_names = getattr(imported_module, "dataset_names")
+print('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
+
+# train_names = 'eth',
+train_names = 'apartment', 'eth',
+val_names = 'stairs', 'gazebo_winter',
+print('Training set: %s.' % ', '.join(train_names))
+print('Validation set: %s.' % ', '.join(val_names))
+
+@timing
+def filtered_cloud(cloud):
+    cloud = filter_depth(cloud, min=min_depth, max=max_depth, log=log_filters)
+    cloud = filter_grid(cloud, grid_res=grid_res, keep='random', log=log_filters)
+    return cloud
 
 
-def construct_corrected_global_map(ds: Dataset,
-                                   model: BaseModel,
-                                   k_nn=None, r_nn=None) -> DepthCloud:
-    assert k_nn or r_nn
-
-    # Cloud preprocessing params
-    min_depth = 1.0
-    max_depth = 15.0
-    grid_res = 0.05
-
+@timing
+def filtered_clouds(ds: Dataset):
     clouds = []
     poses = []
-    device = model.device
-    for cloud, pose in ds:
-        # t = timer()
-        dc = DepthCloud.from_points(cloud)
-        pose = torch.tensor(pose)
-        # print('%i points read from dataset %s, cloud %i (%.3f s).'
-        #       % (dc.size(), ds.name, id, timer() - t))  # ~0.06 sec for 180000 pts
-
-        # t = timer()
-        dc = filter_depth(dc, min=min_depth, max=max_depth, log=False)
-        # print('%i points kept by depth filter with min_depth %.2f, max_depth %.2f m (%.3f s).'
-        #       % (dc.size(), min_depth, max_depth, timer() - t))  # ~0.002 sec
-
-        # t = timer()
-        dc = filter_grid(dc, grid_res, keep='last')
-        # print('%i points kept by grid filter with res. %.2f m (%.3f s).'
-        #       % (dc.size(), grid_res, timer() - t))  # ~0.1 sec
-
-        # t = timer()
-        pose = pose.to(device)
-        dc = dc.to(device)
-        # print('moved poses and depth cloud to device (%.3f s).' % (timer() - t))  # ~0.001 sec
-
-        # t = timer()
-        dc = dc.transform(pose)
-        # print('transformed depth cloud to global frame (%.3f s).' % (timer() - t))  # ~0.001 sec
-
-        t = timer()
-        dc.update_all(k=k_nn, r=r_nn)
-        print('update_all took (%.3f s).' % (timer() - t))  # ~2.0 sec on CPU and ~7.5 sec on GPU (!)
-
-        t = timer()
-        keep = filter_eigenvalue(dc, 0, max=(grid_res / 5)**2, only_mask=True, log=False)
-        keep = keep & filter_eigenvalue(dc, 1, min=grid_res**2, only_mask=True, log=False)
-        dc = dc[keep]
-        dc.update_all(k=k_nn, r=r_nn)
-        print('filtering eigvals and update_all took (%.3f s).'
-              % (timer() - t))  # ~1.0 sec on CPU and 3.2 sec on GPU (!)
-
-        # t = timer()
-        dc = model(dc)
-        # print('model inference took (%.3f s).' % (timer() - t))  # ~0.001 sec
-
-        clouds.append(dc)
+    for i, (cloud, pose) in enumerate(ds):
+        cloud = filtered_cloud(cloud)
+        clouds.append(cloud)
         poses.append(pose)
+    return list(zip(clouds, poses))
 
-    combined = DepthCloud.concatenate(clouds, True)
-    return combined
+
+@timing
+def local_feature_cloud(cloud):
+    # Convert to depth cloud and transform.
+    cloud = DepthCloud.from_structured_array(cloud, dtype=dtype)
+    cloud = cloud.to(device=device)
+    # Find/update neighbors and estimate all features.
+    cloud.update_all(k=k, r=r)
+    # Select planar regions to correct as in prediction phase.
+    mask = filter_eigenvalue(cloud, 0, max=max_eig_0, only_mask=True, log=log_filters)
+    mask = mask & filter_eigenvalue(cloud, 1, min=min_eig_1, only_mask=True, log=log_filters)
+    cloud.mask = mask
+    return cloud
+
+
+@timing
+def local_feature_clouds(ds):
+    clouds = []
+    poses = []
+    for i, (cloud, pose) in enumerate(ds):
+        cloud = local_feature_cloud(cloud)
+        pose = torch.as_tensor(pose, device=device)
+        clouds.append(cloud)
+        poses.append(pose)
+    return list(zip(clouds, poses))
+
+
+def global_cloud(clouds: (list, tuple),
+                 model: BaseModel,
+                 poses: torch.Tensor):
+    """Create global cloud with corrected depth.
+
+    :param clouds: Filtered local features clouds.
+    :param model: Depth correction model, directly applicable to clouds.
+    :param poses: N-by-4-by-4 pose tensor to transform clouds to global frame.
+    :return: Global cloud with corrected depth.
+    """
+    transformed_clouds = []
+    for i, cloud in enumerate(clouds):
+        cloud = model(cloud)
+        cloud = cloud.transform(poses[i])
+        transformed_clouds.append(cloud)
+    cloud = DepthCloud.concatenate(transformed_clouds, True)
+    # cloud.visualize(colors='z')
+    # cloud.visualize(colors='inc_angles')
+    return cloud
+
+
+def global_clouds(clouds, model, poses):
+    ret = []
+    for c, p in zip(clouds, poses):
+        cloud = global_cloud(c, model, p)
+        ret.append(cloud)
+    return ret
 
 
 def main():
-    print('Loading the datasets...')
-    datasets = [Dataset(name) for name in ('eth', 'apartment', 'stairs', 'gazebo_winter')]
-    # datasets = [Dataset(name) for name in dataset_names]
-    # device = torch.device('cuda:0')
-    device = torch.device('cpu')
+    # Cloud needs to retain neighbors, weights, and mask from previous
+    # iterations.
+    # Depth correction is applied based on local cloud statistics.
+    # Loss is computed based on global cloud statistics.
 
-    if MODEL_TYPE == 'Polynomial':
-        model = Polynomial(p0=0.0, p1=0.0, device=device)
-    elif MODEL_TYPE == 'ScaledPolynomial':
-        model = ScaledPolynomial(p0=0.0, p1=0.0, device=device)
-    elif MODEL_TYPE == 'Linear':
-        model = Linear(w0=1.0, w1=0.0, b=0.0, device=device)
-    else:
-        raise ValueError('Model type is not supported')
+    train_clouds = []
+    train_poses = []
+    # Pose corrections :3 elements axis-angle, 3 translation.
+    train_pose_deltas = []
+    train_neighbors = [None] * len(train_names)
+    train_masks = [None] * len(train_names)
+    for name in train_names:
+        clouds = []
+        poses = []
+        for cloud, pose in Dataset(name)[::step]:
+            cloud = filtered_cloud(cloud)
+            cloud = local_feature_cloud(cloud)
+            # If poses are not optimized, depth can be corrected on global
+            # feature clouds.
+            # If poses are to be optimized, depth can be corrected on local
+            # clouds and these can then be transformed to global cloud.
+            clouds.append(cloud)
+            poses.append(pose)
+        train_clouds.append(clouds)
+        poses = np.stack(poses).astype(dtype=dtype)
+        poses = torch.as_tensor(poses, device=device)
+        train_poses.append(poses)
+        pose_deltas = torch.zeros((poses.shape[0], 6))
+        train_pose_deltas.append(pose_deltas)
+
+    val_clouds = []
+    val_poses = []
+    val_neighbors = [None] * len(val_names)
+    val_masks = [None] * len(val_names)
+    for name in val_names:
+        clouds = []
+        poses = []
+        for cloud, pose in Dataset(name)[::step]:
+            cloud = filtered_cloud(cloud)
+            cloud = local_feature_cloud(cloud)
+            clouds.append(cloud)
+            poses.append(pose)
+        val_clouds.append(clouds)
+        poses = np.stack(poses).astype(dtype=dtype)
+        poses = torch.as_tensor(poses, device=device)
+        val_poses.append(poses)
+
+    # Create model
+    model = eval(MODEL_TYPE)(device=device)
+    print(model)
 
     # Initialize optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, nesterov=True)
 
-    plot_period = 10
-    r_nn = 0.15
-    # k_nn = 10
-    k_nn = None
-
-    writer = SummaryWriter('../config/tb_runs/model_%s_lr_%f_%s_%f' % (MODEL_TYPE, LR, DATASET, timer()))
-    step = 5
+    writer = SummaryWriter('%s/config/tb_runs/model_%s_lr_%f_%s_%f'
+                           % (pkg_dir, MODEL_TYPE, LR, DATASET, timer()))
 
     min_loss = np.inf
-    optimizer.zero_grad()
-    for i in range(N_OPT_ITERS):
-        # ds = np.random.choice(datasets, 1)[0]
-        # dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)  # model is passed to correct local maps
-        # loss, dc_loss = min_eigval_loss(dc_combined, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
+    for it in range(N_OPT_ITERS):
+        optimizer.zero_grad()
 
-        dcs = []
-        for ds in datasets:
-            ds = ds[::step]
-            dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)
-            dcs.append(dc_combined)
-        train_loss, _ = min_eigval_loss(dcs, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
-        print('Train loss:', train_loss.item())
-        writer.add_scalar("min_eigval loss/train", train_loss, i)
+        # Training
 
-        dcs = []
-        for ds in datasets:
-            ds = ds[(step//2)::step]
-            dc_combined = construct_corrected_global_map(ds, model, k_nn, r_nn)
-            dcs.append(dc_combined)
-        val_loss, dc_loss = min_eigval_loss(dcs, r=r_nn, k=k_nn, offset=True, eigenvalue_bounds=(0.0, 0.05 ** 2))
-        print('Val loss:', val_loss.item())
-        writer.add_scalar("min_eigval loss/val", val_loss, i)
+        # TODO: Allow optimizing pose deltas.
+        # if train_pose_deltas is None:
+        #     poses = train_poses
+        # else:
+        #     # TODO: Convert pose deltas to matrices
+        #     pass
+        clouds = global_clouds(train_clouds, model, train_poses)
+        for i in range(len(clouds)):
+            cloud = clouds[i]
+            if train_neighbors[i] is None:
+                cloud.update_all(k=k, r=r)
+                train_neighbors[i] = cloud.neighbors, cloud.weights
+                mask = filter_eigenvalue(cloud, 0, max=max_eig_0, only_mask=True, log=log_filters)
+                mask = mask & filter_eigenvalue(cloud, 1, min=min_eig_1, only_mask=True, log=log_filters)
+                print('Training on %.3f = %i / %i points.'
+                      % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
+                train_masks[i] = mask
+            else:
+                cloud.neighbors, cloud.weights = train_neighbors[i]
+                cloud.update_all(k=k, r=r, keep_neighbors=True)
+            clouds[i] = cloud
 
-        if SHOW_RESULTS and i % plot_period == 0:
-            for dc in dcs:
-                dc.visualize(colors='inc_angles')
-                dc.visualize(colors='min_eigval')
-            dc_loss.visualize(colors='loss')
+        train_loss, _ = min_eigval_loss(clouds, mask=train_masks)
+        writer.add_scalar("min_eigval_loss/train", train_loss, it)
 
-        if min_loss > val_loss.item():
+        # Validation
+
+        clouds = global_clouds(val_clouds, model, val_poses)
+        for i in range(len(clouds)):
+            cloud = clouds[i]
+            if val_neighbors[i] is None:
+                cloud.update_all(k=k, r=r)
+                val_neighbors[i] = cloud.neighbors, cloud.weights
+                mask = filter_eigenvalue(cloud, 0, max=max_eig_0, only_mask=True, log=log_filters)
+                mask = mask & filter_eigenvalue(cloud, 1, min=min_eig_1, only_mask=True, log=log_filters)
+                print('Validating on %.3f = %i / %i points.'
+                      % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
+                val_masks[i] = mask
+            else:
+                cloud.neighbors, cloud.weights = val_neighbors[i]
+                cloud.update_all(k=k, r=r, keep_neighbors=True)
+            clouds[i] = cloud
+
+        val_loss, _ = min_eigval_loss(clouds, mask=val_masks)
+        writer.add_scalar("min_eigval_loss/val", val_loss, it)
+
+        # if SHOW_RESULTS and i % plot_period == 0:
+        #     for dc in clouds:
+        #         dc.visualize(colors='inc_angles')
+        #         dc.visualize(colors='min_eigval')
+        #     dc_loss.visualize(colors='loss')
+
+        if val_loss.item() < min_loss:
+            saved = True
             min_loss = val_loss.item()
-            torch.save(model.state_dict(), '../config/weights/%s_%s_min_eigval_loss_%g.pth' % (MODEL_TYPE, DATASET, val_loss.item()))
-            print('better %s model is saved, validation loss: %g' % (MODEL_TYPE, min_loss))
+            torch.save(model.state_dict(),
+                       '%s/config/weights/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
+                       % (pkg_dir, MODEL_TYPE, ','.join(train_names), ','.join(val_names),
+                          r, max_eig_0, min_eig_1, val_loss.item()))
+        else:
+            saved = False
+
+        print('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
+              % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else 'not saved'))
 
         # Optimization step
+        optimizer.zero_grad()
         train_loss.backward()
         optimizer.step()
 
-    del ds, datasets
+    # del ds, datasets
     writer.flush()
     writer.close()
 

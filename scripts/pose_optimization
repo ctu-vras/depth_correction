@@ -95,7 +95,11 @@ class PoseOptimizer(object):
         self.min_depth = rospy.get_param('~min_depth', 1.0)
         self.max_depth = rospy.get_param('~max_depth', 10.0)
         self.grid_res = rospy.get_param('~grid_res', 0.05)
-        self.eigenvalue_bounds = rospy.get_param('~eigenvalue_bounds', (0.0, 0.05 ** 2))
+        self.log_filters = rospy.get_param('~log_filters', False)
+        self.max_eig_0 = rospy.get_param('~max_eig_0', 0.02**2)
+        self.min_eig_1 = rospy.get_param('~max_eig_1', 0.05**2)
+        self.dtype = np.float64
+        self.train_neighbors = None
 
         self.world_frame = rospy.get_param('~world_frame', 'world')
         self.poses_pub = rospy.Publisher('poses', Path, queue_size=2)
@@ -108,71 +112,55 @@ class PoseOptimizer(object):
                                                     'config/tb_runs/poseopt_%s_lr_%g_%f' %
                                                     (self.dataset_name, self.lr, timer())))
 
+    def filtered_cloud(self, cloud):
+        cloud = filter_depth(cloud, min=self.min_depth, max=self.max_depth, log=self.log_filters)
+        cloud = filter_grid(cloud, grid_res=self.grid_res, keep='random', log=self.log_filters)
+        return cloud
+
+    def local_feature_cloud(self, cloud):
+        # Convert to depth cloud and transform.
+        cloud = DepthCloud.from_structured_array(cloud, dtype=self.dtype)
+        cloud = cloud.to(device=self.device)
+        # Find/update neighbors and estimate all features.
+        cloud.update_all(r=self.r_nn)
+        # Select planar regions to correct as in prediction phase.
+        mask = filter_eigenvalue(cloud, 0, max=self.max_eig_0, only_mask=True, log=self.log_filters)
+        mask = mask & filter_eigenvalue(cloud, 1, min=self.min_eig_1, only_mask=True, log=self.log_filters)
+        cloud.mask = mask
+        return cloud
+
     # @timing
-    def construct_global_map(self, ds: Dataset, poses: torch.Tensor) -> DepthCloud:
+    def global_cloud(self, clouds, poses: torch.Tensor) -> DepthCloud:
         assert poses.dim() == 3
         assert poses.shape[1:] == (4, 4)
-        clouds = []
-        for id in tqdm(self.ds.ids[::5]):
-            cloud = self.ds.local_cloud(id)
-            pose = poses[id]
-
-            t = timer()
-            dc = DepthCloud.from_points(cloud)
-            rospy.logdebug('%i points read from dataset %s, (%.3f s).'
-                           % (dc.size(), ds.name, timer() - t))  # ~0.06 sec for 180000 pts
-
-            # grid and depth filters
-            t = timer()
-            dc = filter_depth(dc, min=self.min_depth, max=self.max_depth, log=False)
-            rospy.logdebug('%i points kept by depth filter with min_depth %.2f, max_depth %.2f m (%.3f s).'
-                           % (dc.size(), self.min_depth, self.max_depth, timer() - t))  # ~0.002 sec
-
-            t = timer()
-            dc = filter_grid(dc, self.grid_res, keep='last')
-            rospy.logdebug('%i points kept by grid filter with res. %.2f m (%.3f s).'
-                           % (dc.size(), self.grid_res, timer() - t))  # ~0.1 sec
-
-            t = timer()
-            pose = pose.to(self.device)
-            dc = dc.to(self.device)
-            rospy.logdebug('moved poses and depth cloud to device (%.3f s).' % (timer() - t))  # ~0.001 sec
-
-            t = timer()
+        transformed_clouds = []
+        for i, dc in enumerate(clouds):
+            pose = poses[i]
             dc = dc.transform(pose)
-            rospy.logdebug('transformed depth cloud to global frame (%.3f s).' % (timer() - t))  # ~0.001 sec
-
-            # eigenvalues filter and depth correction with model
-            t = timer()
-            dc.update_all(r=self.r_nn)
-            rospy.logdebug('update_all took (%.3f s).' % (timer() - t))  # ~2.0 sec on CPU and ~7.5 sec on GPU (!)
-
-            t = timer()
-            keep = filter_eigenvalue(dc, 0, max=(self.grid_res / 5) ** 2, only_mask=True, log=False)
-            keep = keep & filter_eigenvalue(dc, 1, min=self.grid_res ** 2, only_mask=True, log=False)
-            dc = dc[keep]
-            dc.update_all(r=self.r_nn)
-            rospy.logdebug('filtering eigvals and update_all took (%.3f s).'
-                           % (timer() - t))  # ~1.0 sec on CPU and 3.2 sec on GPU (!)
-
-            clouds.append(dc)
-
-        dc_combined = DepthCloud.concatenate(clouds, True)
-        return dc_combined
+            transformed_clouds.append(dc)
+        cloud = DepthCloud.concatenate(transformed_clouds, True)
+        return cloud
 
     def run(self):
-        rospy.loginfo('Pose optimization started')
+        rospy.loginfo('pose optimization started')
 
+        clouds = []
         Ts = []
-        for _, pose in self.ds:
-            Ts.append(torch.as_tensor(pose[None]))
+        for cloud, T in Dataset(self.dataset_name)[::self.step]:
+            cloud = self.filtered_cloud(cloud)
+            cloud = self.local_feature_cloud(cloud)
+            # If poses are not optimized, depth can be corrected on global
+            # feature clouds.
+            # If poses are to be optimized, depth can be corrected on local
+            # clouds and these can then be transformed to global cloud.
+            clouds.append(cloud)
+            Ts.append(torch.as_tensor(T)[None])
         n_poses = len(Ts)
         Ts = torch.concat(Ts, dim=0)
         assert Ts.shape == (n_poses, 4, 4)
 
         # poses_corr = torch.zeros((n_poses, 6), dtype=Ts.dtype)  # x, y, z, *axis_angle
-        poses_corr = torch.zeros((1, 6), dtype=Ts.dtype)  # x, y, z, *axis_angle
-
+        poses_corr = torch.zeros((1, 6), dtype=Ts.dtype)  # same correction broadcasted to all poses x, y, z, *a
         poses_corr.requires_grad = True
 
         # Initialize optimizer
@@ -180,6 +168,7 @@ class PoseOptimizer(object):
 
         pc_msg = None
         path_msg = None
+        mask = None
         for i in range(self.n_iters):
             optimizer.zero_grad()
 
@@ -188,12 +177,19 @@ class PoseOptimizer(object):
 
             poses_corr_Ts = xyz_axis_angle_to_matrix(poses_corr)
             poses = torch.matmul(Ts, poses_corr_Ts)
-            dc_opt_global = self.construct_global_map(self.ds, poses)
+            dc_opt_global = self.global_cloud(clouds, poses)
+            if self.train_neighbors is None:
+                dc_opt_global.update_all(r=self.r_nn)
+                self.train_neighbors = dc_opt_global.neighbors, dc_opt_global.weights
+                mask = filter_eigenvalue(dc_opt_global, 0, max=self.max_eig_0, only_mask=True, log=self.log_filters)
+                mask = mask & filter_eigenvalue(dc_opt_global, 1, min=self.min_eig_1, only_mask=True, log=self.log_filters)
+                rospy.loginfo('Optimizing on %.3f = %i / %i points.'
+                              % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
+            else:
+                dc_opt_global.neighbors, dc_opt_global.weights = self.train_neighbors
+                dc_opt_global.update_all(r=self.r_nn, keep_neighbors=True)
 
-            # dc_opt_global.visualize()
-
-            train_loss, _ = min_eigval_loss(dc_opt_global, r=self.r_nn, offset=True,
-                                            eigenvalue_bounds=self.eigenvalue_bounds)
+            train_loss, _ = min_eigval_loss(dc_opt_global, mask=mask)
             rospy.loginfo('iter N %d, train loss: %g' % (i, train_loss.item()))
 
             # publish poses and clouds
@@ -215,7 +211,10 @@ class PoseOptimizer(object):
             self.tb_writer.add_scalar("pose_correction/dx", poses_corr.squeeze(0)[0], i)
             self.tb_writer.add_scalar("pose_correction/dy", poses_corr.squeeze(0)[1], i)
             self.tb_writer.add_scalar("pose_correction/dz", poses_corr.squeeze(0)[2], i)
-            self.tb_writer.add_scalar("pose_correction/da", torch.linalg.norm(poses_corr.squeeze(0)[3:]), i)
+            # self.tb_writer.add_scalar("pose_correction/da", torch.linalg.norm(poses_corr.squeeze(0)[3:]), i)
+            self.tb_writer.add_scalar("pose_correction/dax", poses_corr.squeeze(0)[3], i)
+            self.tb_writer.add_scalar("pose_correction/day", poses_corr.squeeze(0)[4], i)
+            self.tb_writer.add_scalar("pose_correction/daz", poses_corr.squeeze(0)[5], i)
 
             # optimization step
             train_loss.backward()

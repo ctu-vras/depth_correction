@@ -207,10 +207,24 @@ def matrix_to_xyz_axis_angle(T):
     return poses
 
 
+@timing
+def publish_data(clouds: list, poses: list, frame_id='world'):
+    assert isinstance(clouds[0], DepthCloud)
+    assert isinstance(poses[0], torch.Tensor)
+
+    stamp = rospy.Time.now()
+    for i, cloud in enumerate(clouds):
+        poses_pub = rospy.Publisher('poses_%s' % val_names[i], Path, queue_size=2)
+        dc_pub = rospy.Publisher('global_cloud_%s' % val_names[i], PointCloud2, queue_size=2)
+        pc_opt_msg = cloud_to_ros_msg(cloud, frame_id=frame_id, stamp=stamp)
+        path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses[i]),
+                                                  frame_id=frame_id, stamp=stamp)
+        dc_pub.publish(pc_opt_msg)
+        poses_pub.publish(path_opt_msg)
+
+
 def main():
     rospy.init_node('depth_correction', log_level=rospy.INFO)
-    poses_pub = rospy.Publisher('poses', Path, queue_size=2)
-    dc_pub = rospy.Publisher('global_cloud', PointCloud2, queue_size=2)
 
     # Cloud needs to retain neighbors, weights, and mask from previous
     # iterations.
@@ -312,7 +326,6 @@ def main():
             clouds[i] = cloud
 
         train_loss, _ = min_eigval_loss(clouds, mask=train_masks)
-        writer.add_scalar("min_eigval_loss/train", train_loss, it)
 
         # Validation
 
@@ -342,7 +355,6 @@ def main():
             clouds[i] = cloud
 
         val_loss, _ = min_eigval_loss(clouds, mask=val_masks)
-        writer.add_scalar("min_eigval_loss/val", val_loss, it)
 
         # if SHOW_RESULTS and it % plot_period == 0:
         #     for dc in clouds:
@@ -362,13 +374,19 @@ def main():
         print('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
               % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else 'not saved'))
 
-        # publish poses and clouds
-        stamp = rospy.Time.now()
-        for i, cloud in enumerate(clouds[0:1]):
-            pc_opt_msg = cloud_to_ros_msg(cloud, frame_id='world', stamp=stamp)
-            path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(val_poses_upd[i]), frame_id='world', stamp=stamp)
-            dc_pub.publish(pc_opt_msg)
-            poses_pub.publish(path_opt_msg)
+        # publish (validation) poses and clouds
+        publish_data(clouds, val_poses_upd, frame_id='world')
+
+        writer.add_scalar("min_eigval_loss/train", train_loss, it)
+        writer.add_scalar("min_eigval_loss/val", val_loss, it)
+        for i in range(len(val_names)):
+            pose_deltas = train_pose_deltas[i].squeeze(0)
+            writer.add_scalar("pose_correction_%s/dx" % val_names[i], pose_deltas[0], it)
+            writer.add_scalar("pose_correction_%s/dy" % val_names[i], pose_deltas[1], it)
+            writer.add_scalar("pose_correction_%s/dz" % val_names[i], pose_deltas[2], it)
+            writer.add_scalar("pose_correction_%s/dax" % val_names[i], pose_deltas[3], it)
+            writer.add_scalar("pose_correction_%s/day" % val_names[i], pose_deltas[4], it)
+            writer.add_scalar("pose_correction_%s/daz" % val_names[i], pose_deltas[5], it)
 
         # Optimization step
         optimizer.zero_grad()

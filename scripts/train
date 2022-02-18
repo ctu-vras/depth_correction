@@ -375,7 +375,7 @@ def main():
               % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else 'not saved'))
 
         # publish (validation) poses and clouds
-        publish_data(clouds, val_poses_upd, frame_id='world')
+        # publish_data(clouds, val_poses_upd, frame_id='world')
 
         writer.add_scalar("min_eigval_loss/train", train_loss, it)
         writer.add_scalar("min_eigval_loss/val", val_loss, it)

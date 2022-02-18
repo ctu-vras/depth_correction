@@ -11,9 +11,10 @@ import sys
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from rospkg import RosPack
-pkg_dir = RosPack().get_path('depth_correction')
-# pkg_dir = '/home/petrito1/workspace/depth_correction'
+# from rospkg import RosPack
+# pkg_dir = RosPack().get_path('depth_correction')
+pkg_dir = '/home/petrito1/workspace/depth_correction'
+# pkg_dir = '/home/ruslan/DepthCorrection/depth_correction'
 print(pkg_dir)
 
 # MODEL_TYPE = 'Linear'

@@ -3,7 +3,7 @@ from .nearest_neighbors import nearest_neighbors
 from .utils import map_colors, timing
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
-import rospy
+# import rospy
 import torch
 import open3d as o3d  # used for normals estimation and visualization
 
@@ -288,7 +288,7 @@ class DepthCloud(object):
     def neighbor_points(self):
         pts = self.get_points()
         nn = pts[self.neighbors]
-        rospy.loginfo('Expanded neighbors: %s', nn.shape)
+        # rospy.loginfo('Expanded neighbors: %s', nn.shape)
         return nn
 
     # @timing
@@ -472,7 +472,7 @@ class DepthCloud(object):
         if 'vp_x' in arr.dtype.names:
             vps = structured_to_unstructured(arr[['vp_%s' % f for f in 'xyz']], dtype=dtype)
         else:
-            rospy.logwarn('Viewpoints not provided.')
+            # rospy.logwarn('Viewpoints not provided.')
             vps = None
         # rospy.loginfo('Types: %s, %s', pts.dtype, vps.dtype)
         return DepthCloud.from_points(pts, vps)

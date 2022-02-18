@@ -10,10 +10,13 @@ import numpy as np
 import sys
 import torch
 from torch.utils.tensorboard import SummaryWriter
-
-# from rospkg import RosPack
-# pkg_dir = RosPack().get_path('depth_correction')
-pkg_dir = '/home/petrito1/workspace/depth_correction'
+from pytorch3d.transforms import (axis_angle_to_matrix,
+                                  matrix_to_quaternion,
+                                  quaternion_to_axis_angle,
+                                  axis_angle_to_quaternion)
+from rospkg import RosPack
+pkg_dir = RosPack().get_path('depth_correction')
+# pkg_dir = '/home/petrito1/workspace/depth_correction'
 # pkg_dir = '/home/ruslan/DepthCorrection/depth_correction'
 print(pkg_dir)
 
@@ -28,7 +31,7 @@ LR = 1e-2
 # LR = 1e-3
 # LR = 1e-4
 # LR = 1e-6
-SHOW_RESULTS = False
+SHOW_RESULTS = True
 
 DATASET = 'asl_laser'
 # dataset = 'utias_3dmap'
@@ -70,14 +73,15 @@ val_names = 'stairs', 'gazebo_winter',
 print('Training set: %s.' % ', '.join(train_names))
 print('Validation set: %s.' % ', '.join(val_names))
 
-@timing
+
+# @timing
 def filtered_cloud(cloud):
     cloud = filter_depth(cloud, min=min_depth, max=max_depth, log=log_filters)
     cloud = filter_grid(cloud, grid_res=grid_res, keep='random', log=log_filters)
     return cloud
 
 
-@timing
+# @timing
 def filtered_clouds(ds: Dataset):
     clouds = []
     poses = []
@@ -88,7 +92,7 @@ def filtered_clouds(ds: Dataset):
     return list(zip(clouds, poses))
 
 
-@timing
+# @timing
 def local_feature_cloud(cloud):
     # Convert to depth cloud and transform.
     cloud = DepthCloud.from_structured_array(cloud, dtype=dtype)
@@ -102,7 +106,7 @@ def local_feature_cloud(cloud):
     return cloud
 
 
-@timing
+# @timing
 def local_feature_clouds(ds):
     clouds = []
     poses = []
@@ -143,6 +147,32 @@ def global_clouds(clouds, model, poses):
     return ret
 
 
+def xyz_axis_angle_to_matrix(xyz_axis_angle):
+    assert isinstance(xyz_axis_angle, torch.Tensor)
+    assert xyz_axis_angle.shape[-1] == 6
+
+    mat = torch.zeros(xyz_axis_angle.shape[:-1] + (4, 4), dtype=xyz_axis_angle.dtype, device=xyz_axis_angle.device)
+    mat[..., :3, :3] = axis_angle_to_matrix(xyz_axis_angle[..., 3:])
+    mat[..., :3, 3] = xyz_axis_angle[..., :3]
+    mat[..., 3, 3] = 1.
+    assert mat.shape == xyz_axis_angle.shape[:-1] + (4, 4)
+    # assert mat.shape[-2:] == (4, 4)
+    return mat
+
+
+def matrix_to_xyz_axis_angle(T):
+    assert isinstance(T, torch.Tensor)
+    assert T.dim() == 3
+    assert T.shape[1:] == (4, 4)
+    n_poses = len(T)
+    q = matrix_to_quaternion(T[:, :3, :3])
+    axis_angle = quaternion_to_axis_angle(q)
+    xyz = T[:, :3, 3]
+    poses = torch.concat([xyz, axis_angle], dim=1)
+    assert poses.shape == (n_poses, 6)
+    return poses
+
+
 def main():
     # Cloud needs to retain neighbors, weights, and mask from previous
     # iterations.
@@ -151,7 +181,7 @@ def main():
 
     train_clouds = []
     train_poses = []
-    # Pose corrections :3 elements axis-angle, 3 translation.
+    # Pose corrections 3 translation, 3 elements axis-angle,.
     train_pose_deltas = []
     train_neighbors = [None] * len(train_names)
     train_masks = [None] * len(train_names)
@@ -171,7 +201,9 @@ def main():
         poses = np.stack(poses).astype(dtype=dtype)
         poses = torch.as_tensor(poses, device=device)
         train_poses.append(poses)
-        pose_deltas = torch.zeros((poses.shape[0], 6))
+        # pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+        pose_deltas = torch.zeros((1, 6), dtype=poses.dtype)
+        pose_deltas.requires_grad = True
         train_pose_deltas.append(pose_deltas)
 
     val_clouds = []
@@ -197,7 +229,10 @@ def main():
 
     # Initialize optimizer
     # optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, nesterov=True)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, nesterov=True)
+    # optimizer = torch.optim.SGD(train_pose_deltas, lr=LR, momentum=0.9, nesterov=True)
+    optimizer = torch.optim.SGD([{'params': model.parameters(), 'lr': LR},
+                                 {'params': train_pose_deltas, 'lr': LR}], momentum=0.9, nesterov=True)
 
     writer = SummaryWriter('%s/config/tb_runs/model_%s_lr_%f_%s_%f'
                            % (pkg_dir, MODEL_TYPE, LR, DATASET, timer()))
@@ -208,13 +243,18 @@ def main():
 
         # Training
 
-        # TODO: Allow optimizing pose deltas.
-        # if train_pose_deltas is None:
-        #     poses = train_poses
-        # else:
-        #     # TODO: Convert pose deltas to matrices
-        #     pass
-        clouds = global_clouds(train_clouds, model, train_poses)
+        # Allow optimizing pose deltas.
+        if train_pose_deltas is None:
+            train_poses_upd = train_poses
+        else:
+            # Convert pose deltas to matrices
+            train_poses_upd = []
+            for i in range(len(train_poses)):
+                pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
+                train_poses_upd.append(torch.matmul(train_poses[i], pose_deltas_mat))
+
+        clouds = global_clouds(train_clouds, model, train_poses_upd)
+
         for i in range(len(clouds)):
             cloud = clouds[i]
             if train_neighbors[i] is None:
@@ -235,7 +275,16 @@ def main():
 
         # Validation
 
-        clouds = global_clouds(val_clouds, model, val_poses)
+        if train_pose_deltas is None:
+            val_poses_upd = val_poses
+        else:
+            # Convert pose deltas to matrices
+            val_poses_upd = []
+            for i in range(len(train_poses)):
+                pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
+                val_poses_upd.append(torch.matmul(val_poses[i], pose_deltas_mat))
+
+        clouds = global_clouds(val_clouds, model, val_poses_upd)
         for i in range(len(clouds)):
             cloud = clouds[i]
             if val_neighbors[i] is None:
@@ -254,11 +303,10 @@ def main():
         val_loss, _ = min_eigval_loss(clouds, mask=val_masks)
         writer.add_scalar("min_eigval_loss/val", val_loss, it)
 
-        # if SHOW_RESULTS and i % plot_period == 0:
+        # if SHOW_RESULTS and it % plot_period == 0:
         #     for dc in clouds:
         #         dc.visualize(colors='inc_angles')
         #         dc.visualize(colors='min_eigval')
-        #     dc_loss.visualize(colors='loss')
 
         if val_loss.item() < min_loss:
             saved = True

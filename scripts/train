@@ -14,6 +14,12 @@ from pytorch3d.transforms import (axis_angle_to_matrix,
                                   matrix_to_quaternion,
                                   quaternion_to_axis_angle,
                                   axis_angle_to_quaternion)
+import rospy
+from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import Header
+from nav_msgs.msg import Path
+from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
+from ros_numpy import msgify, numpify
 from rospkg import RosPack
 pkg_dir = RosPack().get_path('depth_correction')
 # pkg_dir = '/home/petrito1/workspace/depth_correction'
@@ -147,6 +153,34 @@ def global_clouds(clouds, model, poses):
     return ret
 
 
+def cloud_to_ros_msg(dc, frame_id, stamp):
+    pc_msg = msgify(PointCloud2, dc.to_structured_array())
+    pc_msg.header.frame_id = frame_id
+    pc_msg.header.stamp = stamp
+    return pc_msg
+
+
+def xyz_axis_angle_to_pose_msg(xyz_axis_angle):
+    # assert isinstance(xyz_axis_angle, torch.Tensor)
+    # assert isinstance(xyz_axis_angle, list)
+    q = axis_angle_to_quaternion(xyz_axis_angle[3:])
+    msg = Pose(Point(*xyz_axis_angle[:3]), Quaternion(w=q[0], x=q[1], y=q[2], z=q[3]))
+    return msg
+
+
+# @timing
+def xyz_axis_angle_to_path_msg(xyz_axis_angle, frame_id, stamp):
+    assert isinstance(xyz_axis_angle, torch.Tensor)
+    assert xyz_axis_angle.dim() == 2
+    assert xyz_axis_angle.shape[-1] == 6
+    xyz_axis_angle = xyz_axis_angle.detach()
+    msg = Path()
+    msg.poses = [PoseStamped(Header(), xyz_axis_angle_to_pose_msg(p)) for p in xyz_axis_angle]
+    msg.header.frame_id = frame_id
+    msg.header.stamp = stamp
+    return msg
+
+
 def xyz_axis_angle_to_matrix(xyz_axis_angle):
     assert isinstance(xyz_axis_angle, torch.Tensor)
     assert xyz_axis_angle.shape[-1] == 6
@@ -174,6 +208,10 @@ def matrix_to_xyz_axis_angle(T):
 
 
 def main():
+    rospy.init_node('depth_correction', log_level=rospy.INFO)
+    poses_pub = rospy.Publisher('poses', Path, queue_size=2)
+    dc_pub = rospy.Publisher('global_cloud', PointCloud2, queue_size=2)
+
     # Cloud needs to retain neighbors, weights, and mask from previous
     # iterations.
     # Depth correction is applied based on local cloud statistics.
@@ -239,6 +277,9 @@ def main():
 
     min_loss = np.inf
     for it in range(N_OPT_ITERS):
+        if rospy.is_shutdown():
+            break
+
         optimizer.zero_grad()
 
         # Training
@@ -320,6 +361,14 @@ def main():
 
         print('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
               % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else 'not saved'))
+
+        # publish poses and clouds
+        stamp = rospy.Time.now()
+        for i, cloud in enumerate(clouds[0:1]):
+            pc_opt_msg = cloud_to_ros_msg(cloud, frame_id='world', stamp=stamp)
+            path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(val_poses_upd[i]), frame_id='world', stamp=stamp)
+            dc_pub.publish(pc_opt_msg)
+            poses_pub.publish(path_opt_msg)
 
         # Optimization step
         optimizer.zero_grad()

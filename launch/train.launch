@@ -8,7 +8,7 @@
     <arg name="val_seqs" default="['stairs', 'gazebo_winter']"/>
     <arg name="rviz" default="false"/>
 
-    <node name="depth_correction_trainer" pkg="depth_correction" type="train_ros" output="screen">
+    <node name="depth_correction_trainer" pkg="depth_correction" type="train" output="screen">
         <rosparam subst_value="true">
             model:
                 class: $(arg model_class)

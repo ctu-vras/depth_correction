@@ -103,6 +103,11 @@ class PoseOptimizer(object):
         self.dc_pub = rospy.Publisher('global_cloud', PointCloud2, queue_size=2)
         self.dc_opt_pub = rospy.Publisher('global_cloud_opt', PointCloud2, queue_size=2)
 
+        self.path = RosPack().get_path('depth_correction')
+        self.tb_writer = SummaryWriter(os.path.join(self.path,
+                                                    'config/tb_runs/poseopt_%s_lr_%g_%f' %
+                                                    (self.dataset_name, self.lr, timer())))
+
     # @timing
     def construct_global_map(self, ds: Dataset, poses: torch.Tensor) -> DepthCloud:
         assert poses.dim() == 3
@@ -165,8 +170,8 @@ class PoseOptimizer(object):
         Ts = torch.concat(Ts, dim=0)
         assert Ts.shape == (n_poses, 4, 4)
 
-        poses_corr = torch.zeros((n_poses, 6), dtype=Ts.dtype)  # x, y, z, *axis_angle
-        assert poses_corr.shape == (n_poses, 6)
+        # poses_corr = torch.zeros((n_poses, 6), dtype=Ts.dtype)  # x, y, z, *axis_angle
+        poses_corr = torch.zeros((1, 6), dtype=Ts.dtype)  # x, y, z, *axis_angle
 
         poses_corr.requires_grad = True
 
@@ -204,6 +209,13 @@ class PoseOptimizer(object):
 
             self.poses_pub.publish(path_msg)
             self.poses_opt_pub.publish(path_opt_msg)
+
+            # Tensorboard logging
+            self.tb_writer.add_scalar("min_eigval_loss/train", train_loss, i)
+            self.tb_writer.add_scalar("pose_correction/dx", poses_corr.squeeze(0)[0], i)
+            self.tb_writer.add_scalar("pose_correction/dy", poses_corr.squeeze(0)[1], i)
+            self.tb_writer.add_scalar("pose_correction/dz", poses_corr.squeeze(0)[2], i)
+            self.tb_writer.add_scalar("pose_correction/da", torch.linalg.norm(poses_corr.squeeze(0)[3:]), i)
 
             # optimization step
             train_loss.backward()

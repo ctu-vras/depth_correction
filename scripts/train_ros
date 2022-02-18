@@ -156,7 +156,7 @@ class Trainer(object):
 
             train_loss, _ = min_eigval_loss(dcs, r=self.r_nn, offset=True, eigenvalue_bounds=self.eigenvalue_bounds)
             rospy.loginfo('iter N %d, train loss: %g' % (i, train_loss.item()))
-            self.tb_writer.add_scalar("min_eigval loss/train", train_loss, i)
+            self.tb_writer.add_scalar("min_eigval_loss/train", train_loss, i)
 
             # optimization step
             train_loss.backward()

@@ -137,7 +137,6 @@ data
 # Large files
 *.simg
 *img
-singularity/
 
 # Tensorboard logs
 tb_runs/

@@ -313,14 +313,14 @@ def train(cfg: Config):
 
         writer.add_scalar("min_eigval_loss/train", train_loss, it)
         writer.add_scalar("min_eigval_loss/val", val_loss, it)
-        for i in range(len(cfg.val_names)):
-            pose_deltas = train_pose_deltas[i].squeeze(0)
-            writer.add_scalar("pose_correction_%s/dx" % cfg.val_names[i], pose_deltas[0], it)
-            writer.add_scalar("pose_correction_%s/dy" % cfg.val_names[i], pose_deltas[1], it)
-            writer.add_scalar("pose_correction_%s/dz" % cfg.val_names[i], pose_deltas[2], it)
-            writer.add_scalar("pose_correction_%s/dax" % cfg.val_names[i], pose_deltas[3], it)
-            writer.add_scalar("pose_correction_%s/day" % cfg.val_names[i], pose_deltas[4], it)
-            writer.add_scalar("pose_correction_%s/daz" % cfg.val_names[i], pose_deltas[5], it)
+        if train_pose_deltas:
+            for i in range(len(cfg.train_names)):
+                writer.add_histogram("pose_correction/train/%s/dx" % cfg.train_names[i], train_pose_deltas[i][:, 0], it)
+                writer.add_histogram("pose_correction/train/%s/dy" % cfg.train_names[i], train_pose_deltas[i][:, 1], it)
+                writer.add_histogram("pose_correction/train/%s/dz" % cfg.train_names[i], train_pose_deltas[i][:, 2], it)
+                writer.add_histogram("pose_correction/train/%s/dax" % cfg.train_names[i], train_pose_deltas[i][:, 3], it)
+                writer.add_histogram("pose_correction/train/%s/day" % cfg.train_names[i], train_pose_deltas[i][:, 4], it)
+                writer.add_histogram("pose_correction/train/%s/daz" % cfg.train_names[i], train_pose_deltas[i][:, 5], it)
 
         # Optimization step
         optimizer.zero_grad()

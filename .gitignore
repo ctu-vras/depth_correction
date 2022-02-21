@@ -136,9 +136,11 @@ data
 
 # Large files
 *.simg
-*img
+*.img
+*.sif
 
 # Tensorboard logs
 tb_runs/
+
 # Pytorch models weights
 *.pth

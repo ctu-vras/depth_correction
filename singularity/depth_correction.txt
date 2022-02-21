@@ -1,0 +1,62 @@
+Bootstrap: docker
+From: pytorch/pytorch:1.10.0-cuda11.3-cudnn8-runtime
+
+%post
+    export XDG_CACHE_HOME=/tmp/singularity-cache # pip cache
+
+    # Install Apt packages
+    packages="
+    gcc
+    g++
+    bridge-utils
+    build-essential
+    htop
+    net-tools
+    python-scipy
+    screen
+    sshpass
+    tmux
+    vim
+    wget
+    curl
+    git
+    "
+    apt-get update
+    apt-get install -y ${packages}
+
+    # Install Python packages
+    python_pkgs="
+    iopath
+    fvcore
+    open3d
+    scikit-image
+    matplotlib
+    imageio
+    plotly
+    opencv-python
+    catkin_pkg
+    empy
+    rospkg
+    pycryptodomex
+    tensorboard
+    "
+    pip install ${python_pkgs}
+    conda install -c bottler nvidiacub
+    #conda install pytorch3d -c pytorch3d
+    pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+
+    # Install ROS
+    ws=/opt/ros/depthcorr_ws
+    mkdir -p "${ws}/src"
+    cd "${ws}/src"
+    git clone https://github.com/tpet/data.git
+    git clone https://github.com/RuslanAgishev/depth_correction.git
+    sh "${ws}/src"/depth_correction/singularity/install_ros.sh
+
+    # Build ROS workspace
+    cd "${ws}"
+    njobs=`grep ^cpu\\\\scores /proc/cpuinfo | uniq | awk '{print $4}'`
+    catkin init
+    catkin config --extend /opt/ros/melodic
+    catkin config -DPYTHON_EXECUTABLE=/opt/conda/bin/python
+    catkin build -c -j $njobs

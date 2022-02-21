@@ -23,6 +23,7 @@ apt-get update && apt-get install --no-install-recommends -y \
     python-rosdep \
     python-rosinstall \
     python-vcstools \
+    python-catkin-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # setup environment
@@ -38,4 +39,3 @@ apt-get update && apt-get install -y \
     ros-$ROS_DISTRO-desktop \
     ros-$ROS_DISTRO-ros-numpy \
     && rm -rf /var/lib/apt/lists/*
-

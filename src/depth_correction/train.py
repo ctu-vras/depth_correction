@@ -240,13 +240,6 @@ def train(cfg: Config):
             if train_neighbors[i] is None:
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
                 train_neighbors[i] = cloud.neighbors, cloud.weights
-                # mask = filter_eigenvalue(cloud, 0, max=max_eig_0, only_mask=True, log=log_filters)
-                # mask = mask & filter_eigenvalue(cloud, 1, min=min_eig_1, only_mask=True, log=log_filters)
-                # mask = None
-                # for eig, min, max in cfg.eig_bounds:
-                #     eig_mask = filter_eigenvalue(cloud, eig, min=min, max=max, only_mask=True, log=cfg.log_filters)
-                #     mask = eig_mask if mask is None else mask & eig_mask
-                # train_masks[i] = mask
                 train_masks[i] = filter_eigenvalues(cloud, eig_bounds=cfg.eig_bounds, only_mask=True,
                                                     log=cfg.log_filters)
                 print('Training on %.3f = %i / %i points.'
@@ -276,9 +269,6 @@ def train(cfg: Config):
             if val_neighbors[i] is None:
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
                 val_neighbors[i] = cloud.neighbors, cloud.weights
-                # mask = filter_eigenvalue(cloud, 0, max=max_eig_0, only_mask=True, log=log_filters)
-                # mask = mask & filter_eigenvalue(cloud, 1, min=min_eig_1, only_mask=True, log=log_filters)
-                # val_masks[i] = mask
                 val_masks[i] = filter_eigenvalues(cloud, cfg.eig_bounds, only_mask=True, log=cfg.log_filters)
                 print('Validating on %.3f = %i / %i points.'
                       % (val_masks[i].float().mean().item(),
@@ -290,7 +280,7 @@ def train(cfg: Config):
 
         val_loss, _ = min_eigval_loss(clouds, mask=val_masks)
 
-        # if SHOW_RESULTS and it % plot_period == 0:
+        # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:
         #         dc.visualize(colors='inc_angles')
         #         dc.visualize(colors='min_eigval')

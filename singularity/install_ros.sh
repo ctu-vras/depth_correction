@@ -1,10 +1,9 @@
 #!/bin/bash
 
 # setup timezone
-#echo 'Etc/UTC' > /etc/timezone && \
-#    ln -s /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
-#    apt-get update && apt-get install -q -y tzdata && rm -rf /var/lib/apt/lists/*
-
+echo 'Europe/Prague' > /etc/timezone && \
+    ln -s /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
+    apt-get update && apt-get install -q -y tzdata && rm -rf /var/lib/apt/lists/*
 
 # install packages
 apt-get update && apt-get install -q -y \
@@ -21,14 +20,15 @@ echo "deb http://packages.ros.org/ros/ubuntu `lsb_release -sc` main" > /etc/apt/
 
 # install bootstrap tools
 apt-get update && apt-get install --no-install-recommends -y \
-    python3-rosdep \
-    python3-rosinstall \
-    python3-vcstools \
+    python-rosdep \
+    python-rosinstall \
+    python-vcstools \
     && rm -rf /var/lib/apt/lists/*
 
 # setup environment
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
+TZ=Europe/Prague
 
 ROS_DISTRO=melodic
 rosdep init && rosdep update --rosdistro $ROS_DISTRO
@@ -39,4 +39,3 @@ apt-get update && apt-get install -y \
     ros-$ROS_DISTRO-ros-numpy \
     && rm -rf /var/lib/apt/lists/*
 
-source /opt/ros/${ROS_DISTRO}/setup.bash

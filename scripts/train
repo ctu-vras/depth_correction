@@ -20,7 +20,9 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from ros_numpy import msgify
 import os
-pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
+# pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
+from rospkg import RosPack
+pkg_dir = RosPack().get_path('depth_correction')
 print(pkg_dir)
 
 # MODEL_TYPE = 'Linear'
@@ -68,14 +70,14 @@ plot_period = 10
 imported_module = importlib.import_module("data.%s" % DATASET)
 Dataset = getattr(imported_module, "Dataset")
 dataset_names = getattr(imported_module, "dataset_names")
-print('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
+rospy.loginfo('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
 
-train_names = 'eth',
-val_names = 'stairs',
-# train_names = 'apartment', 'eth',
-# val_names = 'stairs', 'gazebo_winter',
-print('Training set: %s.' % ', '.join(train_names))
-print('Validation set: %s.' % ', '.join(val_names))
+# train_names = 'eth',
+# val_names = 'stairs',
+train_names = 'apartment', 'eth',
+val_names = 'stairs', 'gazebo_winter',
+rospy.loginfo('Training set: %s.' % ', '.join(train_names))
+rospy.loginfo('Validation set: %s.' % ', '.join(val_names))
 
 
 # @timing
@@ -282,7 +284,7 @@ def main():
     # optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, nesterov=True)
     # optimizer = torch.optim.SGD(train_pose_deltas, lr=LR, momentum=0.9, nesterov=True)
     optimizer = torch.optim.SGD([{'params': model.parameters(), 'lr': LR},
-                                 {'params': train_pose_deltas, 'lr': LR}], momentum=0.9, nesterov=True)
+                                 {'params': train_pose_deltas, 'lr': 5*LR}], momentum=0.9, nesterov=True)
 
     writer = SummaryWriter('%s/config/tb_runs/model_%s_lr_%f_%s_%f'
                            % (pkg_dir, MODEL_TYPE, LR, DATASET, timer()))
@@ -315,8 +317,8 @@ def main():
                 train_neighbors[i] = cloud.neighbors, cloud.weights
                 mask = filter_eigenvalue(cloud, 0, max=max_eig_0, only_mask=True, log=log_filters)
                 mask = mask & filter_eigenvalue(cloud, 1, min=min_eig_1, only_mask=True, log=log_filters)
-                print('Training on %.3f = %i / %i points.'
-                      % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
+                rospy.loginfo('Training on %.3f = %i / %i points.'
+                              % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
                 train_masks[i] = mask
             else:
                 cloud.neighbors, cloud.weights = train_neighbors[i]
@@ -344,8 +346,8 @@ def main():
                 val_neighbors[i] = cloud.neighbors, cloud.weights
                 mask = filter_eigenvalue(cloud, 0, max=max_eig_0, only_mask=True, log=log_filters)
                 mask = mask & filter_eigenvalue(cloud, 1, min=min_eig_1, only_mask=True, log=log_filters)
-                print('Validating on %.3f = %i / %i points.'
-                      % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
+                rospy.loginfo('Validating on %.3f = %i / %i points.'
+                              % (mask.float().mean().item(), mask.sum().item(), mask.numel()))
                 val_masks[i] = mask
             else:
                 cloud.neighbors, cloud.weights = val_neighbors[i]
@@ -369,11 +371,12 @@ def main():
         else:
             saved = False
 
-        print('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
-              % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else 'not saved'))
+        rospy.loginfo('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
+                      % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else 'not saved'))
 
         # publish (validation) poses and clouds
-        # publish_data(clouds, val_poses_upd, frame_id='world')
+        if rospy.get_param('~publish_data', False):
+            publish_data(clouds, val_poses_upd, frame_id='world')
 
         writer.add_scalar("min_eigval_loss/train", train_loss, it)
         writer.add_scalar("min_eigval_loss/val", val_loss, it)

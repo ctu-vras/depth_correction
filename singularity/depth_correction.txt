@@ -47,6 +47,7 @@ From: ros:noetic-perception
     "
     pip install ${python_pkgs}
     pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+    ln -s /usr/bin/python3 /usr/bin/python
 
     # Install ROS
     ws=/opt/ros/depthcorr_ws

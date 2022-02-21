@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="publish_data" default="true"/>
+    <arg name="rviz_config" default="$(dirname)/../config/train.rviz"/>
+
+    <node name="train" pkg="depth_correction" type="train" output="screen">
+        <rosparam subst_value="true">
+            publish_data: $(arg publish_data)
+        </rosparam>
+    </node>
+
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rviz_config)"/>
+</launch>

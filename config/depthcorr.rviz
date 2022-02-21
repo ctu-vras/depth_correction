@@ -78,6 +78,10 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
+        gt/lidar:
+          Value: true
+        gt/map:
+          Value: true
         lidar:
           Value: true
         odom:
@@ -114,7 +118,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: AxisColor
       Decay Time: 5
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
@@ -129,7 +133,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 0.10000000149011612
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:

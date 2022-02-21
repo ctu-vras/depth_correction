@@ -70,9 +70,10 @@ Dataset = getattr(imported_module, "Dataset")
 dataset_names = getattr(imported_module, "dataset_names")
 print('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
 
-# train_names = 'eth',
-train_names = 'apartment', 'eth',
-val_names = 'stairs', 'gazebo_winter',
+train_names = 'eth',
+val_names = 'stairs',
+# train_names = 'apartment', 'eth',
+# val_names = 'stairs', 'gazebo_winter',
 print('Training set: %s.' % ', '.join(train_names))
 print('Validation set: %s.' % ', '.join(val_names))
 

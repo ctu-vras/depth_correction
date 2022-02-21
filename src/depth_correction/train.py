@@ -1,26 +1,28 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from .config import Config
+from .config import Config, PoseCorrection
 from .depth_cloud import DepthCloud
 from .filters import filter_depth, filter_eigenvalue, filter_eigenvalues, filter_grid
 from .loss import min_eigval_loss
 from .model import *
 from .utils import initialize_ros, timer, timing
+from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 import importlib
+from nav_msgs.msg import Path
 import numpy as np
-import torch
-from torch.utils.tensorboard import SummaryWriter
+import os
 from pytorch3d.transforms import (axis_angle_to_matrix,
                                   matrix_to_quaternion,
                                   quaternion_to_axis_angle,
                                   axis_angle_to_quaternion)
+from ros_numpy import msgify
 import rospy
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
-from nav_msgs.msg import Path
-from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from ros_numpy import msgify
-import os
+import torch
+from torch.utils.tensorboard import SummaryWriter
+
+
 pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
 print(pkg_dir)
 
@@ -34,7 +36,9 @@ def filtered_cloud(cloud, cfg: Config):
 # @timing
 def local_feature_cloud(cloud, cfg: Config):
     # Convert to depth cloud and transform.
-    cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.dtype)
+    # dtype = eval('torch.%s' % cfg.float_type)
+    # dtype = eval('np.%s' % cfg.float_type)
+    cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
     cloud = cloud.to(device=cfg.device)
     # Find/update neighbors and estimate all features.
     cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
@@ -147,6 +151,13 @@ def publish_data(clouds: list, poses: list, cfg: Config):
 
 
 def train(cfg: Config):
+    """Train and return the depth correction model model.
+    Validation datasets are used to select the best model.
+
+    :param cfg:
+    :return: Trained and validated model.
+    """
+    print(cfg.to_yaml())
 
     if cfg.enable_ros:
         initialize_ros()
@@ -155,6 +166,10 @@ def train(cfg: Config):
     # iterations.
     # Depth correction is applied based on local cloud statistics.
     # Loss is computed based on global cloud statistics.
+
+    if cfg.dataset == 'asl_laser':
+        from data.asl_laser import Dataset
+    # Dataset = eval(cfg.dataset)
 
     train_clouds = []
     train_poses = []
@@ -165,7 +180,8 @@ def train(cfg: Config):
     for name in cfg.train_names:
         clouds = []
         poses = []
-        for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
+        # for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
+        for cloud, pose in Dataset(name)[::cfg.data_step]:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             # If poses are not optimized, depth can be corrected on global
@@ -175,12 +191,26 @@ def train(cfg: Config):
             clouds.append(cloud)
             poses.append(pose)
         train_clouds.append(clouds)
-        poses = np.stack(poses).astype(dtype=cfg.dtype)
+        # poses = np.stack(poses).astype(dtype=cfg.dtype)
+        poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
         train_poses.append(poses)
-        # pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
-        pose_deltas = torch.zeros((1, 6), dtype=poses.dtype)
-        pose_deltas.requires_grad = True
+        pose_deltas = None
+        if cfg.pose_correction == PoseCorrection.none:
+            # pose_deltas = None
+            continue
+        elif cfg.pose_correction == PoseCorrection.common:
+            # Use same tensor if possible.
+            if train_pose_deltas:
+                pose_deltas = train_pose_deltas[0]
+            else:
+                pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
+        elif cfg.pose_correction == PoseCorrection.sequence:
+            pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
+        elif cfg.pose_correction == PoseCorrection.pose:
+            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+        # pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
+        # pose_deltas.requires_grad = True
         train_pose_deltas.append(pose_deltas)
 
     val_clouds = []
@@ -190,41 +220,46 @@ def train(cfg: Config):
     for name in cfg.val_names:
         clouds = []
         poses = []
-        for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
+        # for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
+        for cloud, pose in Dataset(name)[::cfg.data_step]:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             clouds.append(cloud)
             poses.append(pose)
         val_clouds.append(clouds)
-        poses = np.stack(poses).astype(dtype=cfg.dtype)
+        poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
         val_poses.append(poses)
 
-    # Create model
-    model = eval(cfg.model_class)(device=cfg.device)
+    model = load_model(cfg=cfg, eval_mode=False)
     print(model)
 
     # Initialize optimizer
     # optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     # optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, nesterov=True)
     # optimizer = torch.optim.SGD(train_pose_deltas, lr=LR, momentum=0.9, nesterov=True)
-    optimizer = torch.optim.SGD([{'params': model.parameters(), 'lr': cfg.lr},
-                                 {'params': train_pose_deltas, 'lr': cfg.lr}], momentum=0.9, nesterov=True)
+    params = [{'params': model.parameters(), 'lr': cfg.lr}]
+    if cfg.pose_correction != PoseCorrection.none:
+        params.append({'params': train_pose_deltas, 'lr': cfg.lr})
+    optimizer = torch.optim.SGD(params, momentum=0.9, nesterov=True)
 
-    writer = SummaryWriter('%s/config/tb_runs/model_%s_lr_%f_%s_%f'
-                           % (pkg_dir, cfg.model_class, cfg.lr, cfg.Dataset, timer()))
+    # writer = SummaryWriter('%s/config/tb_runs/model_%s_lr_%f_%s_%f'
+    #                        % (pkg_dir, cfg.model_class, cfg.lr, cfg.Dataset, timer()))
+    writer = SummaryWriter(cfg.log_dir)
 
     min_loss = np.inf
+    # best_model = None
+    # best_pose_deltas = None
+    best_cfg = None
     for it in range(cfg.n_opt_iters):
         if rospy.is_shutdown():
             break
 
-        optimizer.zero_grad()
-
         # Training
 
         # Allow optimizing pose deltas.
-        if train_pose_deltas is None:
+        # if train_pose_deltas is None:
+        if cfg.pose_correction == PoseCorrection.none:
             train_poses_upd = train_poses
         else:
             # Convert pose deltas to matrices
@@ -253,8 +288,8 @@ def train(cfg: Config):
         train_loss, _ = min_eigval_loss(clouds, mask=train_masks)
 
         # Validation
-
-        if train_pose_deltas is None:
+        # if train_pose_deltas is None:
+        if cfg.pose_correction == PoseCorrection.none:
             val_poses_upd = val_poses
         else:
             # Convert pose deltas to matrices
@@ -288,14 +323,25 @@ def train(cfg: Config):
         if val_loss.item() < min_loss:
             saved = True
             min_loss = val_loss.item()
-            torch.save(model.state_dict(),
-                       '%s/config/weights/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
-                       % (pkg_dir, cfg.model_class, ','.join(cfg.train_names), ','.join(cfg.val_names),
-                          cfg.nn_r, cfg.eig_bounds[0][2], cfg.eig_bounds[1][1], val_loss.item()))
+            # torch.save(model.state_dict(),
+            #            '%s/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_it_%03i_loss_%.6g.pth'
+            #            % (cfg.log_dir, cfg.model_class, ','.join(cfg.train_names), ','.join(cfg.val_names),
+            #               cfg.nn_r, cfg.eig_bounds[0][2], cfg.eig_bounds[1][1], it, val_loss.item()))
+            state_dict_path = '%s/%03i_%.6g_state_dict.pth' % (cfg.log_dir, it, min_loss)
+            torch.save(model.state_dict(), state_dict_path)
+            # best_model = model.detach().clone()
+            pose_deltas = [p.detach().clone() for p in train_pose_deltas if p is not None]
+            pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_loss)
+            torch.save(pose_deltas, pose_deltas_path)
+
+            best_cfg = cfg.copy()
+            best_cfg.model_state_dict = state_dict_path
+            best_cfg.train_pose_deltas = pose_deltas_path
+
         else:
             saved = False
 
-        print('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
+        print('It. %03i: train loss: %.9f, val.: %.9f. Model %s %s.'
               % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else 'not saved'))
 
         # publish (validation) poses and clouds
@@ -304,6 +350,7 @@ def train(cfg: Config):
         writer.add_scalar("min_eigval_loss/train", train_loss, it)
         writer.add_scalar("min_eigval_loss/val", val_loss, it)
         if train_pose_deltas:
+            # TODO: Add summary histogram for all sequences.
             for i in range(len(cfg.train_names)):
                 writer.add_histogram("pose_correction/train/%s/dx" % cfg.train_names[i], train_pose_deltas[i][:, 0], it)
                 writer.add_histogram("pose_correction/train/%s/dy" % cfg.train_names[i], train_pose_deltas[i][:, 1], it)
@@ -320,6 +367,9 @@ def train(cfg: Config):
     writer.flush()
     writer.close()
 
+    # return best_model, best_pose_deltas
+    return best_cfg
+
 
 def main():
     cfg = Config()
@@ -328,6 +378,7 @@ def main():
     cfg.max_depth = 10.0
     cfg.grid_res = 0.1
     cfg.nn_r = .2
+    cfg.pose_correction = PoseCorrection.sequence
     train(cfg)
 
 

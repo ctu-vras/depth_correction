@@ -9,7 +9,8 @@ import open3d as o3d  # used for normals estimation and visualization
 
 
 __all__ = [
-    'DepthCloud'
+    'covs',
+    'DepthCloud',
 ]
 
 

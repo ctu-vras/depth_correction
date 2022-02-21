@@ -38,4 +38,5 @@ rosdep init && rosdep update --rosdistro $ROS_DISTRO
 apt-get update && apt-get install -y \
     ros-$ROS_DISTRO-desktop \
     ros-$ROS_DISTRO-ros-numpy \
+    ros-$ROS_DISTRO-tf2-bullet \
     && rm -rf /var/lib/apt/lists/*

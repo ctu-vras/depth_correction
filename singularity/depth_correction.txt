@@ -42,16 +42,18 @@ From: pytorch/pytorch:1.10.0-cuda11.3-cudnn8-runtime
     "
     pip install ${python_pkgs}
     conda install -c bottler nvidiacub
-    #conda install pytorch3d -c pytorch3d
     pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
 
     # Install ROS
     ws=/opt/ros/depthcorr_ws
-    mkdir -p "${ws}/src"
+    mkdir -p "${ws}/src/thirdparty/"
     cd "${ws}/src"
     git clone https://github.com/tpet/data.git
     git clone https://github.com/RuslanAgishev/depth_correction.git
-    sh "${ws}/src"/depth_correction/singularity/install_ros.sh
+    cd "${ws}/src/thirdparty/"
+    git clone -b melodic-devel https://github.com/ros/geometry2
+	git clone -b melodic-devel https://github.com/ros/geometry
+    sh "${ws}/src/depth_correction/singularity/install_ros.sh"
 
     # Build ROS workspace
     cd "${ws}"

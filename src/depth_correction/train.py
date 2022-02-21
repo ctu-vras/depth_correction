@@ -104,34 +104,6 @@ def xyz_axis_angle_to_path_msg(xyz_axis_angle, frame_id, stamp):
     return msg
 
 
-# def skew_matrix(x: torch.Tensor, dim=-1):
-#     assert isinstance(x, torch.Tensor)
-#     assert x.shape[-1] == 3
-#
-#     # [0, x[..., 2], x[..., 1]]
-#     # torch.index_select(x, )
-#     # x.index_select(dim=-1)
-#     # torch.linalg.skw
-#     shape = list(x.shape)
-#     shape[dim] = 9
-#     m = torch.zeros(shape, dtype=x.dtype, device=x.device)
-#     # y.index_select(dim=dim, [1, 2, 3, 5, 6, 7]) = x.index_select(dim=dim, )
-#     i = x.index_select(dim=dim, 0)
-#     j = x.index_select(dim=dim, 1)
-#     k = x.index_select(dim=dim, 2)
-#     y.index_select(dim=dim, 1) = -x.index_select(dim=dim, 2)
-#     y = y.reshape(shape[:dim] + [3, 3] + shape[dim + 1:])
-#     return y
-#
-#
-#
-# def axis_angle_xyz_to_matrix(x: torch.Tensor):
-#     assert isinstance(x, torch.Tensor)
-#     assert x.shape[-1] == 3
-#     angle = torch.linalg.norm(x, dim=-1, keepdim=True)
-#     return y
-
-
 def xyz_axis_angle_to_matrix(xyz_axis_angle):
     assert isinstance(xyz_axis_angle, torch.Tensor)
     assert xyz_axis_angle.shape[-1] == 6

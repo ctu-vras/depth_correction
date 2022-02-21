@@ -129,3 +129,14 @@ def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False, 
         return keep
     filtered = cloud[keep]
     return filtered
+
+
+def filter_eigenvalues(cloud, eig_bounds, only_mask=False, log=False):
+    mask = None
+    for eig, min, max in eig_bounds:
+        eig_mask = filter_eigenvalue(cloud, eig, min=min, max=max, only_mask=True, log=log)
+        mask = eig_mask if mask is None else mask & eig_mask
+    if only_mask:
+        return mask
+    cloud = cloud[mask]
+    return cloud

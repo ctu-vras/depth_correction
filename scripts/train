@@ -65,6 +65,8 @@ step = 3
 log_filters = False
 plot_period = 10
 
+gt_poses = False
+
 # from eval('data.%s' % dataset) import Dataset, dataset_names
 # eval('from data.%s import Dataset, dataset_names' % dataset)
 imported_module = importlib.import_module("data.%s" % DATASET)
@@ -72,10 +74,10 @@ Dataset = getattr(imported_module, "Dataset")
 dataset_names = getattr(imported_module, "dataset_names")
 rospy.loginfo('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
 
-# train_names = 'eth',
-# val_names = 'stairs',
-train_names = 'apartment', 'eth',
-val_names = 'stairs', 'gazebo_winter',
+train_names = 'eth',
+val_names = 'stairs',
+# train_names = 'apartment', 'eth',
+# val_names = 'stairs', 'gazebo_winter',
 rospy.loginfo('Training set: %s.' % ', '.join(train_names))
 rospy.loginfo('Validation set: %s.' % ', '.join(val_names))
 
@@ -240,7 +242,7 @@ def main():
     for name in train_names:
         clouds = []
         poses = []
-        for cloud, pose in Dataset(name)[::step]:
+        for cloud, pose in Dataset(name, gt_poses=gt_poses)[::step]:
             cloud = filtered_cloud(cloud)
             cloud = local_feature_cloud(cloud)
             # If poses are not optimized, depth can be corrected on global
@@ -265,7 +267,7 @@ def main():
     for name in val_names:
         clouds = []
         poses = []
-        for cloud, pose in Dataset(name)[::step]:
+        for cloud, pose in Dataset(name, gt_poses=gt_poses)[::step]:
             cloud = filtered_cloud(cloud)
             cloud = local_feature_cloud(cloud)
             clouds.append(cloud)
@@ -365,8 +367,8 @@ def main():
             saved = True
             min_loss = val_loss.item()
             torch.save(model.state_dict(),
-                       '%s/config/weights/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
-                       % (pkg_dir, MODEL_TYPE, ','.join(train_names), ','.join(val_names),
+                       '%s/config/weights/%s_train_%s_val_%s_gt_poses_%r_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
+                       % (pkg_dir, MODEL_TYPE, ','.join(train_names), ','.join(val_names), gt_poses,
                           r, max_eig_0, min_eig_1, val_loss.item()))
         else:
             saved = False

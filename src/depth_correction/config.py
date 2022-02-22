@@ -2,11 +2,10 @@ from __future__ import absolute_import, division, print_function
 from copy import deepcopy
 from datetime import datetime
 # from enum import Enum
-# import importlib
-import numpy
+import numpy  # needed in eval
 import os
 from rospkg import RosPack
-import torch
+import torch  # needed in eval
 import yaml
 
 __all__ = [
@@ -58,28 +57,28 @@ class Config(object):
         self.grid_res = 0.1
         # Neighborhood
         self.nn_k = None
-        self.nn_r = 0.1
+        self.nn_r = 0.2
 
         # Depth correction
-        # self.max_eig_0 = 0.02**2
-        # self.min_eig_1 = 0.05**2
         self.eig_bounds = [[0,    None, 0.02**2],
                            [1, 0.05**2,    None]]
 
         # Data
         self.dataset = 'asl_laser'
-        self.train_names = ['apartment', 'eth']
-        self.val_names = ['stairs', 'gazebo_winter']
-        self.test_names = None
-        print('Training set: %s.' % ', '.join(self.train_names))
-        print('Validation set: %s.' % ', '.join(self.val_names))
-        self.data_step = 3
+        self.train_names = ['eth']
+        self.val_names = ['stairs']
+        self.test_names = ['gazebo_winter']
+        # print('Training set: %s.' % ', '.join(self.train_names))
+        # print('Validation set: %s.' % ', '.join(self.val_names))
+        # print('Test set: %s.' % ', '.join(self.val_names))
+        self.data_step = 5
         self.world_frame = 'world'
 
         # Training
         self.loss = 'min_eigval_loss'
-        self.n_opt_iters = 100
-        self.lr = 1e-3
+        # self.n_opt_iters = 100
+        self.n_opt_iters = 10
+        self.lr = 1e-2
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
         self.log_dir = os.path.join(self.pkg_dir, 'gen',
@@ -90,27 +89,8 @@ class Config(object):
         self.plot_period = 10
         self.plot_size = 6.4, 6.4
 
-        # Evaluation and testing
-
-
         # Override from kwargs
         self.from_dict(kwargs)
-
-        # Post process params
-        # self.model_class = eval(self.model_class)
-
-        # from eval('data.%s' % dataset) import Dataset, dataset_names
-        # eval('from data.%s import Dataset, dataset_names' % dataset)
-
-        # imported_module = importlib.import_module("data.%s" % self.dataset)
-        # self.Dataset = getattr(imported_module, "Dataset")
-        # self.dataset_names = getattr(imported_module, "dataset_names")
-        # print('Using %s datasets %s.' % (self.dataset, ', '.join(self.dataset_names)))
-
-    # def update_log_dir(self):
-    #     self.log_dir = ('%s/config/weights/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_it_%i_loss_%.9f.pth'
-    #                     % (self.pkg_dir, self.model_class, ','.join(self.train_names), ','.join(self.val_names),
-    #                        self.nn_r, self.eig_bounds[0][2], self.eig_bounds[1][1], it, val_loss.item()))
 
     def __getitem__(self, name):
         return getattr(name)
@@ -135,7 +115,7 @@ class Config(object):
         if path is None:
             return yaml.safe_dump(self.to_dict())
         with open(path, 'w') as f:
-            yaml.safe_dump(self, f)
+            yaml.safe_dump(self.to_dict(), f)
 
     def numpy_float_type(self):
         return eval('numpy.%s' % self.float_type)

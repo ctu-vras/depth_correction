@@ -1,31 +1,15 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.filters import *
-from depth_correction.model import *
+from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
+from depth_correction.model import BaseModel, load_model
 from depth_correction.utils import timing
+import numpy as np
 from ros_numpy import msgify, numpify
 import rospy
 from sensor_msgs.msg import PointCloud2
 import torch
 from timeit import default_timer as timer
-
-
-def load_model(class_name, state_dict, device=torch.device('cpu')):
-    if isinstance(device, str):
-        device = torch.device(device)
-    Class = eval(class_name)
-    model = Class()
-    assert isinstance(model, BaseModel)
-    if state_dict:
-        rospy.loginfo('Using %s model on %s device with state %s.', class_name, device, state_dict)
-        model.load_state_dict(torch.load(state_dict))
-    else:
-        rospy.logwarn('Using %s model on %s device with initial state.', class_name, device)
-    model.eval()
-    model.to(device)
-    rospy.loginfo('Model: %s', model)
-    return model
 
 
 class DepthCorrection(object):

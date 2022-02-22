@@ -1,10 +1,13 @@
 from __future__ import absolute_import, division, print_function
 from matplotlib import cm
-import rospy
 from timeit import default_timer as timer
 import torch
 
-_ros_initialized = False
+__all__ = [
+    'map_colors',
+    'timer',
+    'timing',
+]
 
 
 # def map_colors(values, colormap=cm.nipy_spectral, min_value=None, max_value=None):
@@ -47,11 +50,3 @@ def timing(f):
         print('%s %.6f s' % (f.__name__, t1 - t0))
         return ret
     return timing_wrapper
-
-
-def initialize_ros():
-    global _ros_initialized
-    if not _ros_initialized:
-        rospy.init_node('depth_correction', log_level=rospy.INFO)
-        _ros_initialized = True
-

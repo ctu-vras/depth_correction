@@ -6,12 +6,11 @@ from .utils import timing
 from enum import Enum
 import numpy as np
 from numpy.polynomial import Polynomial
-from random import shuffle
 import torch
-from timeit import default_timer as timer
 
 
 __all__ = [
+    'batch_loss',
     'min_eigval_loss',
     'neighbor_cov',
     'neighbor_fun',
@@ -24,6 +23,11 @@ class Reduction(Enum):
     NONE = 'none'
     MEAN = 'mean'
     SUM = 'sum'
+
+
+def trace(x, dim1=-2, dim2=-1):
+    tr = x.diagonal(dim1=dim1, dim2=dim2).sum(dim=-1)
+    return tr
 
 
 def reduce(x, reduction=Reduction.MEAN, weights=None, only_finite=False, skip_nans=False):
@@ -82,14 +86,37 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def min_eigval_loss(cloud,  # k=None, r=None,
-                    # max_angle=None,
-                    # eigenvalue_bounds=None,
-                    mask=None,
-                    # offset=False,
-                    offset=None,
-                    # reduction='mean'):
-                    reduction=Reduction.MEAN):
+def batch_loss(loss_fun, clouds, mask=None, offset=None, reduction=Reduction.MEAN):
+    """General batch loss of a sequence of clouds.
+
+    :param loss_fun: Loss function.
+    :param clouds: Sequence of clouds, optional.
+    :param mask: Sequence of masks, optional.
+    :param offset: Source cloud to offset point-wise loss values, optional.
+    :param reduction: Loss reduction mode.
+    :return: Reduced loss and loss clouds.
+    """
+    assert callable(loss_fun)
+    assert isinstance(clouds, (list, tuple))
+    assert mask is None or isinstance(mask, (list, tuple))
+    assert offset is None or isinstance(offset, (list, tuple))
+
+    losses, loss_clouds = [], []
+    for i in range(len(clouds)):
+        c = clouds[i]
+        m = None if mask is None else mask[i]
+        o = None if offset is None else offset[i]
+        loss, loss_cloud = loss_fun(c, mask=m, offset=o, reduction=Reduction.NONE)
+        losses.append(loss)
+        loss_clouds.append(loss_cloud)
+    # Double reduction (average of averages)
+    # loss = reduce(torch.cat(losses), reduction=reduction)
+    # Single point-wise reduction (average)
+    loss = reduce(torch.cat(losses), reduction=reduction)
+    return loss, loss_clouds
+
+
+def min_eigval_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -97,108 +124,41 @@ def min_eigval_loss(cloud,  # k=None, r=None,
     reliably estimated should be selected, typically planar regions.
 
     :param cloud:
-    :param k:
-    :param r:
-    :param max_angle:
-    :param eigenvalue_bounds:
+    :param mask:
     :param offset: Source cloud to offset point-wise loss values, optional.
     :param reduction:
     :return:
     """
-    assert isinstance(cloud, (DepthCloud, list, tuple))
-    # assert k is None or isinstance(k, int)
-    # assert r is None or isinstance(r, float)
-    assert mask is None or isinstance(mask, (torch.Tensor, list, tuple))
-    assert offset is None or isinstance(offset, (DepthCloud, list, tuple))
-    # assert eigenvalue_bounds is None or len(eigenvalue_bounds) == 2
-
-    # If a batch of clouds are provided (as a list), process them separately,
-    # and reduce point-wise loss in the end.
+    # If a batch of clouds is (as a list), process them separately,
+    # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        assert mask is None or isinstance(mask, (list, tuple))
-        assert offset is None or isinstance(offset, (list, tuple))
-        losses, dcs = [], []
-        for i in range(len(cloud)):
-            c = cloud[i]
-            m = None if mask is None else mask[i]
-            o = None if offset is None else offset[i]
-            loss, dc = min_eigval_loss(c,  # k=k, r=r,
-                                       # max_angle=max_angle,
-                                       # eigenvalue_bounds=eigenvalue_bounds,
-                                       mask=m,
-                                       offset=o,
-                                       # reduction='mean')
-                                       # reduction=Reduction.MEAN)
-                                       # reduction='none')
-                                       reduction=Reduction.NONE)
+        return batch_loss(min_eigval_loss, cloud, mask=mask, offset=offset, reduction=reduction)
 
-            losses.append(loss)
-            dcs.append(dc)
-        # Double reduction (average of averages)
-        # loss = reduce(torch.cat(losses), reduction=reduction)
-        # Single point-wise reduction (average)
-        loss = reduce(torch.cat(losses), reduction=reduction)
-        return loss, dcs
+    assert isinstance(cloud, (DepthCloud, list, tuple))
+
+    assert offset is None or isinstance(offset, DepthCloud)
+    # assert eigenvalue_bounds is None or len(eigenvalue_bounds) == 2
 
     assert isinstance(cloud, DepthCloud)
     assert cloud.eigvals is not None
-    # dc = cloud.copy()
-    # dc.update_all(k=k, r=r)
-    # if max_angle is not None:
-    #     dc.filter_neighbors_normal_angle(max_angle)
-    #     dc.update_all(k=k, r=r)
-    # cloud = cloud.copy()
-    # cloud.loss = cloud.eigvals[:, 0]
 
-    # mask = torch.ones((cloud.size()), dtype=cloud.vps.dtype)
-    # mask = torch.ones((cloud.size()), dtype=torch.bool)
-    # if cloud.mask is not None:
-    #     with torch.no_grad():
-    #         mask = mask & cloud.mask
-    # mask = cloud.mask
     if mask is None:
         loss = cloud.eigvals
     else:
+        assert isinstance(mask, torch.Tensor)
         loss = cloud.eigvals[mask, 0]
-    # if mask is None:
-    #     loss = cloud.eigvals[mask, 0]
-    # else:
-    #     loss = cloud.eigvals[mask, 0]
 
-    # mask = None
     if offset is not None:
-        # assert cloud.eigvals is not None
+        assert isinstance(offset, DepthCloud)
         assert offset.eigvals is not None
-        if isinstance(offset, DepthCloud):
-            # Offset the loss using eigenvalues from original cloud.
-            # cloud.loss = cloud.loss - offset.loss
-            if mask is None:
-                loss = loss - offset.eigvals
-            else:
-                loss = loss - offset.eigvals[mask, 0]
-            # if mask is None:
-            #     mask = offset.mask
-            # elif offset.mask is not None:
-            #     mask = mask.minimum(offset.mask)
-            # if offset.mask is not None:
-            #     # mask = mask.minimum(offset.mask)
-            #     mask = mask & offset.mask
+        # Offset the loss using trace from the offset cloud.
+        if mask is None:
+            loss = loss - offset.eigvals
         else:
-            # cloud.loss = cloud.loss - cloud.eigvals[:, 0]
-            raise ValueError('Offset must be depth cloud with eigenvalues.')
+            loss = loss - offset.eigvals[mask, 0]
+        # Ensure positive loss.
         loss = torch.relu(loss)
 
-    # if eigenvalue_bounds is not None:
-    #     # dc = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1], log=False)
-    #
-    #     tmp_mask = filter_eigenvalue(dc, 0, min=eigenvalue_bounds[0], max=eigenvalue_bounds[1],
-    #                                  only_mask=True, log=False)
-    #     mask = mask.minimum(tmp_mask)
-
-    # cloud.loss = torch.relu(cloud.loss)
-    # loss = reduce(cloud.loss[mask], reduction=reduction, weights=mask)
-    # cloud.loss = torch.relu(cloud.loss)
-    # loss = reduce(cloud.loss[mask], reduction=reduction, weights=mask)
     if mask is None:
         cloud = cloud.copy()
     else:
@@ -206,18 +166,55 @@ def min_eigval_loss(cloud,  # k=None, r=None,
     cloud.loss = loss
 
     loss = reduce(loss, reduction=reduction)
-    # Output only the points used in loss computation?
-    # dc = dc[mask > 0]
     return loss, cloud
 
 
-def trace_loss(points, query=None, k=None, r=None, reduction='mean', invalid=0.):
-    invalid = torch.tensor(invalid)
-    fun = lambda p, q: torch.cov(p.transpose(-1, -2)).trace() if p.shape[0] >= 3 else invalid
-    loss = neighbor_fun(points, fun, query=query, k=k, r=r)
-    loss = torch.stack(loss)
+def trace_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
+    """Map consistency loss based on the trace of covariance matrix.
+
+    Pre-filter cloud before, or set the mask to select points to be used in
+    loss reduction. In general, surfaces for which incidence angles can be
+    reliably estimated should be selected, typically planar regions.
+
+    :param cloud:
+    :param mask:
+    :param offset: Source cloud to offset point-wise loss values, optional.
+    :param reduction:
+    :return:
+    """
+    # If a batch of clouds is (as a list), process them separately,
+    # and reduce point-wise loss in the end by delegating to batch_loss.
+    if isinstance(cloud, (list, tuple)):
+        return batch_loss(trace_loss, cloud, mask=mask, offset=offset, reduction=reduction)
+
+    assert isinstance(cloud, DepthCloud)
+    assert cloud.cov is not None
+
+    if mask is None:
+        loss = trace(cloud.cov)
+    else:
+        assert isinstance(mask, torch.Tensor)
+        loss = trace(cloud.cov[mask])
+
+    if offset is not None:
+        assert isinstance(offset, DepthCloud)
+        assert offset.cov is not None
+        # Offset the loss using trace from the offset cloud.
+        if mask is None:
+            loss = loss - trace(offset.cov)
+        else:
+            loss = loss - trace(offset.cov[mask])
+        # Ensure positive loss.
+        loss = torch.relu(loss)
+
+    if mask is None:
+        cloud = cloud.copy()
+    else:
+        cloud = cloud[mask]
+    cloud.loss = loss
+
     loss = reduce(loss, reduction=reduction)
-    return loss
+    return loss, cloud
 
 
 def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):

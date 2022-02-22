@@ -134,5 +134,11 @@ class Config(object):
     def torch_float_type(self):
         return eval('torch.%s' % self.float_type)
 
+    def get_log_dir(self):
+        name = ('depth_%.1f-%.1f_grid_%.2f_r%.2f'
+                % (self.min_depth, self.max_depth, self.grid_res, self.nn_r))
+        dir = os.path.join(self.pkg_dir, 'gen', name)
+        return dir
+
     def copy(self):
         return deepcopy(self)

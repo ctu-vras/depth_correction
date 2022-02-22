@@ -76,9 +76,8 @@ class Config(object):
 
         # Training
         self.loss = 'min_eigval_loss'
-        # self.n_opt_iters = 100
-        self.n_opt_iters = 10
-        self.lr = 1e-2
+        # self.loss = 'trace_loss'
+        self.n_opt_iters = 100
 
         # self.optimizer = 'Adam'
         # self.optimizer_args = []

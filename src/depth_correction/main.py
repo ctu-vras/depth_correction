@@ -37,18 +37,19 @@ for i in range(num_splits):
 #     print(split)
 
 # splits = [[['asl_laser/eth'], ['asl_laser/stairs'], ['asl_laser/gazebo_winter']]]
-splits = [[['asl_laser/apartment', 'asl_laser/eth'], ['asl_laser/stairs'], ['asl_laser/gazebo_winter']]]
 models = ['Polynomial', 'ScaledPolynomial']
-models = ['ScaledPolynomial']
+# models = ['ScaledPolynomial']
 # losses = ['min_eigval_loss']
-losses = ['trace_loss']
+losses = ['min_eigval_loss', 'trace_loss']
 slams = ['ethzasl_icp_mapper']
 
 
 def eval_slam(cfg: Config=None):
     # TODO: Actually use slam id if multiple slam pipelines are to be tested.
     assert cfg.slam == 'ethzasl_icp_mapper'
-    slam_eval_csv = os.path.join(cfg.log_dir, 'slam_eval.csv')
+    # csv = os.path.join(cfg.log_dir, 'slam_eval.csv')
+    csv = cfg.slam_eval_csv
+    assert csv
 
     # TODO: Run slam for each sequence in split.
     uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
@@ -57,7 +58,7 @@ def eval_slam(cfg: Config=None):
         print('SLAM evaluation on %s started.' % name)
         cli_args = [slam_eval_launch, 'dataset:=%s' % name, 'odom:=true', 'depth_correction:=true', 'rviz:=true',
                     'model_class:=%s' % cfg.model_class, 'model_state_dict:=%s' % cfg.model_state_dict,
-                    'slam_eval_csv:=%s' % slam_eval_csv]
+                    'slam_eval_csv:=%s' % csv]
         roslaunch_args = cli_args[1:]
         roslaunch_file = [(roslaunch.rlutil.resolve_launch_arguments(cli_args)[0], roslaunch_args)]
         parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, force_log=True)
@@ -66,10 +67,36 @@ def eval_slam(cfg: Config=None):
         print('SLAM evaluation on %s finished.' % name)
 
 
+def run_baselines():
+    # evaluate consistency loss on all sequences
+    cfg = Config()
+    # Adjust default config...
+    # cfg.nn_r = 0.2
+    cfg.model_class = 'BaseModel'
+    cfg.model_state_dict = ''
+    cfg.log_dir = cfg.get_log_dir()
+    os.makedirs(cfg.log_dir, exist_ok=True)
+
+    for test_loss in losses:
+        eval_cfg = cfg.copy()
+        eval_cfg.test_names = ds
+        eval_cfg.loss = test_loss
+        eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir, '%s_baseline.csv' % test_loss)
+        eval_loss(cfg=eval_cfg)
+
+    for slam in slams:
+        eval_cfg = cfg.copy()
+        eval_cfg.test_names = ds
+        eval_cfg.slam = slam
+        eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir, '%s_baseline.csv' % slam)
+        eval_slam(cfg=eval_cfg)
+
+
 def run_model_from_ground_truth():
     base_cfg = Config()
+    base_cfg.log_dir = base_cfg.get_log_dir()
     for model in models:
-        for i_split, (train_names, val_names, test_names) in enumerate(splits):  # train, val, test dataset split (cross validation)
+        for i_fold, (train_names, val_names, test_names) in enumerate(splits):  # train, val, test dataset split (cross validation)
             for loss in losses:
                 # learn depth correction model using ground truth poses using the loss
                 #     get best model from validation set using the loss
@@ -81,23 +108,30 @@ def run_model_from_ground_truth():
                 cfg.val_names = val_names
                 cfg.test_names = test_names
                 cfg.loss = loss
-                desc = '%s_%s_split_%i' % (cfg.model_class.lower(), cfg.loss.lower(), i_split)
-                cfg.log_dir = os.path.join(base_cfg.log_dir, desc)
+                # desc = '%s_%s_split_%i' % (cfg.model_class.lower(), cfg.loss.lower(), i_split)
+                cfg.log_dir = os.path.join(base_cfg.log_dir,
+                                           '%s_%s' % (cfg.model_class.lower(), cfg.loss.lower()),
+                                           'fold_%i' % i_fold)
                 os.makedirs(cfg.log_dir, exist_ok=True)
                 print(cfg.log_dir)
                 best_cfg = train(cfg)
-                # evaluate consistency on test (train, validation) set
-                # for test_loss in losses:
-                for split in [train_names, val_names, test_names]:
-                    eval_cfg = best_cfg.copy()
-                    eval_cfg.test_names = split
-                    eval_loss(cfg=eval_cfg)
-                # evaluate slam localization on test (train, validation) set
-                for split in [train_names, val_names, test_names]:
-                    eval_cfg = best_cfg.copy()
-                    eval_cfg.test_names = split
+                # evaluate consistency loss on test (train, validation) set
+                for split, suffix in zip([train_names, val_names, test_names],
+                                         ['train', 'val', 'test']):
+                    for test_loss in losses:
+                        eval_cfg = best_cfg.copy()
+                        eval_cfg.test_names = split
+                        eval_cfg.loss = test_loss
+                        eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir,
+                                                              'loss_eval_%s_%s.csv' % (test_loss, suffix))
+                        eval_loss(cfg=eval_cfg)
+                    # evaluate slam localization on test (train, validation) set
                     for slam in slams:
+                        eval_cfg = best_cfg.copy()
+                        eval_cfg.test_names = split
                         eval_cfg.slam = slam
+                        eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir,
+                                                              'slam_eval_%s_%s.csv' % (slam, suffix))
                         eval_slam(cfg=eval_cfg)
 
 
@@ -128,7 +162,7 @@ def run_calibration():
 
 
 def run_experiments():
-    # eval_slam(BaseModel(), splits[0][0], slams[0])
+    run_baselines()
     run_model_from_ground_truth()
     # run_model_from_slam()
     # run_calibration()

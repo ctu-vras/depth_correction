@@ -13,16 +13,18 @@
                 class: $(arg model_class)
                 state_dict: '$(arg model_state_dict)'
             device: cpu
-<!--            device: cuda-->
-<!--            float_type: float64-->
+            float_type: float64
             max_age: 1.0
             min_depth: ''
             max_depth: ''
             grid_res: ''
             publish_filtered: $(arg publish_filtered)
-
+            <!--
             r_nn: 0.15
             eigenvalue_bounds: [[0, -.inf, 0.0001], [1, 0.0025, .inf]]
+            -->
+            r_nn: 0.2
+            eigenvalue_bounds: [[0, -.inf, 0.0004], [1, 0.0025, .inf]]
         </rosparam>
         <remap from="cloud" to="$(arg cloud)"/>
         <remap if="$(arg publish_filtered)" from="filtered_cloud" to="$(arg filtered_cloud)"/>

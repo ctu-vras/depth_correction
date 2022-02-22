@@ -43,7 +43,7 @@
 <!--        <arg name="model_state_dict" value=""/>-->
     </include>
     <include file="$(dirname)/slam.launch">
-        <arg name="cloud" value="$(eval 'corrected_cloud' if depth_correction else 'cloud')"/>
+        <arg name="cloud" value="$(eval 'corrected_cloud' if depth_correction else 'filtered_cloud')"/>
         <arg name="odom_frame" value="$(eval 'odom' if odom else 'lidar')"/>
     </include>
     <include if="$(arg rviz)" file="$(dirname)/rviz.launch">

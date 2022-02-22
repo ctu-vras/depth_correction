@@ -38,9 +38,6 @@
         <arg name="corrected_cloud" value="corrected_cloud"/>
         <arg name="model_class" value="$(arg model_class)"/>
         <arg name="model_state_dict" value="$(arg model_state_dict)"/>
-
-<!--        <arg name="model_class" value="BaseModel"/>-->
-<!--        <arg name="model_state_dict" value=""/>-->
     </include>
     <include file="$(dirname)/slam.launch">
         <arg name="cloud" value="$(eval 'corrected_cloud' if depth_correction else 'filtered_cloud')"/>

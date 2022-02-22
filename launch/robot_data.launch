@@ -13,6 +13,7 @@
 <!--    <arg name="odom_cov" default="[0.05, 0.05, 0.05, 0.01, 0.01, 0.01]"/>-->
     <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"/>
     <arg name="slam_eval_csv" default="slam_eval.csv"/>
+    <arg name="slam_poses_csv" default="slam_poses.csv"/>
     <arg name="required" default="true"/>
     <arg name="rviz" default="false"/>
 
@@ -33,6 +34,7 @@
             gt_frames: ["gt/map", "gt/$(arg lidar_frame)"]
             eval_frames: ["map", "$(arg lidar_frame)"]
             slam_eval_csv: $(arg slam_eval_csv)
+            slam_poses_csv: $(arg slam_poses_csv)
         </rosparam>
         <remap from="cloud" to="$(arg cloud)"/>
     </node>

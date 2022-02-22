@@ -10,12 +10,13 @@
 <!--    <arg name="model_class" default="ScaledPolynomial"/>-->
 <!--    <arg name="model_state_dict" value="$(dirname)/../config/weights/ScaledPolynomial.pth"/>-->
     <arg name="slam_eval_csv" default="slam_eval.csv"/>
+    <arg name="slam_poses_csv" default="slam_poses.csv"/>
 
     <!-- Publish data from selected dataset, play bag files etc. -->
     <include file="$(dirname)/robot_data.launch">
         <arg name="dataset" value="$(arg dataset)"/>
         <arg name="start" value="0"/>
-        <arg name="stop" value="5"/>
+        <arg name="stop" value="36"/>
         <arg name="step" value="1"/>
         <arg name="period" value="3.0"/>
         <arg name="delay_start" value="3.0"/>
@@ -24,6 +25,7 @@
         <arg name="odom_frame" value="$(eval 'odom' if odom else '')"/>
         <arg name="rviz" value="false"/>
         <arg name="slam_eval_csv" value="$(arg slam_eval_csv)"/>
+        <arg name="slam_poses_csv" value="$(arg slam_poses_csv)"/>
     </include>
     <include file="$(dirname)/cloud_filter.launch">
         <arg name="input" value="cloud"/>

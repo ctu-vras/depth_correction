@@ -44,6 +44,7 @@ class RobotData(object):
         self.gt_frames = tuple(rospy.get_param('~gt_frames', ['gt/map', 'gt/lidar']))
         self.eval_frames = tuple(rospy.get_param('~eval_frames', ['map', self.lidar_frame]))
         self.slam_eval_csv = rospy.get_param('~slam_eval_csv', 'slam_eval.csv')
+        self.slam_poses_csv = rospy.get_param('~slam_poses_csv', 'slam_poses.csv')
 
         self.dataset = None
         self.position = None
@@ -76,6 +77,7 @@ class RobotData(object):
         # timeout = rospy.Duration.from_sec(3.0)
         r_angles = []
         t_norms = []
+        poses = []
         for stamp in self.eval_stamps:
             timeout = timeout_until - rospy.Time.now()
             time = (stamp - self.eval_stamps[0]).to_sec()
@@ -88,6 +90,7 @@ class RobotData(object):
             except TransformException as ex:
                 rospy.logerr('Could not evaluate transform at time %.1f s: %s', time, ex)
                 continue
+            poses.append(tf)
             delta = np.linalg.solve(tf, gt)
             # print(delta)
             r = delta[:3, :3]
@@ -107,6 +110,13 @@ class RobotData(object):
                       np.degrees(r_angle), t_norm)
         append(self.slam_eval_csv, '%s %.9f %.9f\n' % (self.dataset_name, r_angle, t_norm))
         rospy.loginfo('Results written into %s.', self.slam_eval_csv)
+
+        # write SLAM poses and timestamps to csv file
+        append(self.slam_poses_csv,
+               'poseId, timestamp, T00, T01, T02, T03, T10, T11, T12, T13, T20, T21, T22, T23, T30, T31, T32, T33\n')
+        for i, t, T in zip(self.ids, self.eval_stamps, poses):
+            assert T.shape == (4, 4)
+            append(self.slam_poses_csv, '%d, %.6f, %s\n' % (i, t.to_sec(), ', '.join([str(i) for i in T.flatten()])))
 
     def start_timer(self, evt):
         self.timer = rospy.Timer(rospy.Duration(self.period), self.publish_and_move)

@@ -92,6 +92,8 @@ class Config(object):
         self.train_pose_deltas = None
         self.log_dir = os.path.join(self.pkg_dir, 'gen',
                                     datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        self.loss_eval_csv = None
+        self.slam_eval_csv = None
 
         self.log_filters = False
         self.show_results = False

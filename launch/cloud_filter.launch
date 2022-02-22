@@ -8,7 +8,7 @@
             max_age: 1.0
             min_depth: 1.0
             max_depth: 15.0
-            grid_res: 0.05
+            grid_res: 0.1
         </rosparam>
         <remap from="input" to="$(arg input)"/>
         <remap from="output" to="$(arg output)"/>

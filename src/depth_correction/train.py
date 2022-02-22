@@ -11,6 +11,7 @@ import os
 import rospy
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim import Adam, SGD
 
 
 def train(cfg: Config):
@@ -103,8 +104,10 @@ def train(cfg: Config):
     if cfg.pose_correction != PoseCorrection.none:
         params.append({'params': train_pose_deltas, 'lr': cfg.lr})
     # Initialize optimizer.
-    # optimizer = torch.optim.Adam(params)
-    optimizer = torch.optim.SGD(params, momentum=0.9, nesterov=True)
+    args = cfg.optimizer_args if cfg.optimizer_args else []
+    kwargs = cfg.optimizer_kwargs if cfg.optimizer_kwargs else {}
+    optimizer = eval(cfg.optimizer)(params, *args, **kwargs)
+    print('Optimizer: %s' % optimizer)
 
     writer = SummaryWriter(cfg.log_dir)
 

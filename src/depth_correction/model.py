@@ -27,11 +27,11 @@ def load_model(class_name: str=None,
         if device is None:
             device = cfg.device
 
-    if isinstance(state_dict, str):
+    if isinstance(state_dict, str) and state_dict:
         print('Loading model state from %s.' % state_dict)
         state_dict = torch.load(state_dict)
-    elif state_dict is not None:
-        print('Using provided state.')
+    # elif state_dict:
+    #     print('Using provided state.')
 
     if isinstance(device, str):
         device = torch.device(device)
@@ -40,7 +40,8 @@ def load_model(class_name: str=None,
     model = Class()
     assert isinstance(model, BaseModel)
 
-    if state_dict is not None:
+    # if state_dict is not None:
+    if state_dict:
         model.load_state_dict(state_dict)
     print('Using model: %s.' % model)
 
@@ -72,24 +73,10 @@ class BaseModel(torch.nn.Module):
         return type(self)(*args, **kwargs)
 
     def detach(self):
-        # copy = type(self)()
-        # kwargs = {}
-        # for k, v in self.named_parameters():
-            # copy[k] = v.detach()
-            # setattr(self, k, v.detach())
-            # kwargs[k] = v.detach()
-        # return type(self)(**kwargs)
         kwargs = {k: v.detach() for k, v in self.named_parameters()}
         return self.construct(**kwargs)
 
     def clone(self):
-        # copy = type(self)()
-        # kwargs = {}
-        # for k, v in self.named_parameters():
-            # copy[k] = v.clone()
-            # setattr(self, k, v.clone())
-            # kwargs[k] = v.clone()
-        # return copy
         kwargs = {k: v.clone() for k, v in self.named_parameters()}
         return self.construct(**kwargs)
 

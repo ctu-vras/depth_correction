@@ -76,13 +76,24 @@ class Config(object):
 
         # Training
         self.loss = 'min_eigval_loss'
-        # self.n_opt_iters = 100
-        self.n_opt_iters = 10
-        self.lr = 1e-2
+        # self.loss = 'trace_loss'
+        self.n_opt_iters = 100
+
+        # self.optimizer = 'Adam'
+        # self.optimizer_args = []
+        # self.optimizer_kwargs = {}
+        # self.lr = 1e-4
+        self.optimizer = 'SGD'
+        self.optimizer_args = []
+        self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
+        self.lr = 1e-3
+
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
         self.log_dir = os.path.join(self.pkg_dir, 'gen',
                                     datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        self.loss_eval_csv = None
+        self.slam_eval_csv = None
 
         self.log_filters = False
         self.show_results = False
@@ -122,6 +133,12 @@ class Config(object):
 
     def torch_float_type(self):
         return eval('torch.%s' % self.float_type)
+
+    def get_log_dir(self):
+        name = ('depth_%.1f-%.1f_grid_%.2f_r%.2f'
+                % (self.min_depth, self.max_depth, self.grid_res, self.nn_r))
+        dir = os.path.join(self.pkg_dir, 'gen', name)
+        return dir
 
     def copy(self):
         return deepcopy(self)

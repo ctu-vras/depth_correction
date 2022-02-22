@@ -79,6 +79,16 @@ class Config(object):
         # self.n_opt_iters = 100
         self.n_opt_iters = 10
         self.lr = 1e-2
+
+        # self.optimizer = 'Adam'
+        # self.optimizer_args = []
+        # self.optimizer_kwargs = {}
+        # self.lr = 1e-4
+        self.optimizer = 'SGD'
+        self.optimizer_args = []
+        self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
+        self.lr = 1e-3
+
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
         self.log_dir = os.path.join(self.pkg_dir, 'gen',

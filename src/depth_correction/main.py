@@ -40,13 +40,15 @@ for i in range(num_splits):
 splits = [[['asl_laser/apartment', 'asl_laser/eth'], ['asl_laser/stairs'], ['asl_laser/gazebo_winter']]]
 models = ['Polynomial', 'ScaledPolynomial']
 models = ['ScaledPolynomial']
-losses = ['min_eigval_loss']
+# losses = ['min_eigval_loss']
+losses = ['trace_loss']
 slams = ['ethzasl_icp_mapper']
 
 
 def eval_slam(cfg: Config=None):
     # TODO: Actually use slam id if multiple slam pipelines are to be tested.
     assert cfg.slam == 'ethzasl_icp_mapper'
+    slam_eval_csv = os.path.join(cfg.log_dir, 'slam_eval.csv')
 
     # TODO: Run slam for each sequence in split.
     uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
@@ -54,7 +56,8 @@ def eval_slam(cfg: Config=None):
     for name in cfg.test_names:
         print('SLAM evaluation on %s started.' % name)
         cli_args = [slam_eval_launch, 'dataset:=%s' % name, 'odom:=true', 'depth_correction:=true', 'rviz:=true',
-                    'model_class:=%s' % cfg.model_class, 'model_state_dict:=%s' % cfg.model_state_dict]
+                    'model_class:=%s' % cfg.model_class, 'model_state_dict:=%s' % cfg.model_state_dict,
+                    'slam_eval_csv:=%s' % slam_eval_csv]
         roslaunch_args = cli_args[1:]
         roslaunch_file = [(roslaunch.rlutil.resolve_launch_arguments(cli_args)[0], roslaunch_args)]
         parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, force_log=True)
@@ -78,7 +81,7 @@ def run_model_from_ground_truth():
                 cfg.val_names = val_names
                 cfg.test_names = test_names
                 cfg.loss = loss
-                desc = '%s_%s_split_%i' % (cfg.model_class, cfg.loss, i_split)
+                desc = '%s_%s_split_%i' % (cfg.model_class.lower(), cfg.loss.lower(), i_split)
                 cfg.log_dir = os.path.join(base_cfg.log_dir, desc)
                 os.makedirs(cfg.log_dir, exist_ok=True)
                 print(cfg.log_dir)

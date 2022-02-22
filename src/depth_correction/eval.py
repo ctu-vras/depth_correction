@@ -51,8 +51,8 @@ def eval_loss(cfg: Config):
 
         test_loss, _ = min_eigval_loss(cloud, mask=mask)
         print('Test loss on %s: %.9f' % (name, test_loss.item()))
-        eval_csv = os.path.join(cfg.log_dir, 'eval_loss.csv')
-        append(eval_csv, '%s %.9f\n' % (name, test_loss))
+        csv = os.path.join(cfg.log_dir, 'loss_eval.csv')
+        append(csv, '%s %.9f\n' % (name, test_loss))
 
 
 def main():

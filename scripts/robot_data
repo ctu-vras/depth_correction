@@ -2,6 +2,7 @@
 """Node providing robot data from various datasets for SLAM evaluation."""
 from __future__ import absolute_import, division, print_function
 from data.asl_laser import Dataset
+from depth_correction.io import append
 from geometry_msgs.msg import Transform, TransformStamped
 import numpy as np
 from ros_numpy import msgify, numpify
@@ -10,15 +11,17 @@ from sensor_msgs.msg import PointCloud2
 from tf.transformations import euler_matrix
 from tf2_msgs.msg import TFMessage
 from tf2_ros import Buffer, TransformException, TransformListener
-from queue import Queue
 
 
 class RobotData(object):
     def __init__(self):
         self.dataset_name = rospy.get_param('~dataset', 'asl_laser/eth')
         self.start = rospy.get_param('~start', None)
+        assert self.start is None or isinstance(self.start, int)
         self.stop = rospy.get_param('~stop', None)
+        assert self.stop is None or isinstance(self.stop, int)
         self.step = rospy.get_param('~step', None)
+        assert self.step is None or isinstance(self.step, int)
         self.ids = rospy.get_param('~ids', None)
         self.period = rospy.get_param('~period', 1.0)
         self.delay_start = rospy.get_param('~delay_start', 1.0)
@@ -40,6 +43,7 @@ class RobotData(object):
         # self.gt_frame_prefix = rospy.get_param('~gt_frame_prefix', 'gt/')
         self.gt_frames = tuple(rospy.get_param('~gt_frames', ['gt/map', 'gt/lidar']))
         self.eval_frames = tuple(rospy.get_param('~eval_frames', ['map', self.lidar_frame]))
+        self.slam_eval_csv = rospy.get_param('~slam_eval_csv', 'slam_eval.csv')
 
         self.dataset = None
         self.position = None
@@ -68,10 +72,12 @@ class RobotData(object):
         self.timer = rospy.Timer(rospy.Duration(self.delay_start), self.start_timer, oneshot=True)
 
     def evaluate(self):
-        timeout = rospy.Duration.from_sec(3.0)
+        timeout_until = rospy.Time.now() + rospy.Duration.from_sec(3.0)
+        # timeout = rospy.Duration.from_sec(3.0)
         r_angles = []
         t_norms = []
         for stamp in self.eval_stamps:
+            timeout = timeout_until - rospy.Time.now()
             time = (stamp - self.eval_stamps[0]).to_sec()
             assert isinstance(stamp, rospy.Time)
             try:
@@ -99,6 +105,8 @@ class RobotData(object):
         t_norm = np.mean(t_norms).item()
         rospy.logwarn('Average error: rotation %.6f deg., translation %.6f m.',
                       np.degrees(r_angle), t_norm)
+        append(self.slam_eval_csv, '%s %.9f %.9f\n' % (self.dataset_name, r_angle, t_norm))
+        rospy.loginfo('Results written into %s.', self.slam_eval_csv)
 
     def start_timer(self, evt):
         self.timer = rospy.Timer(rospy.Duration(self.period), self.publish_and_move)

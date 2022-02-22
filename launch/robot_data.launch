@@ -2,6 +2,7 @@
 <launch>
     <arg name="dataset" default="asl_laser/eth"/>
     <arg name="start" default="0" doc="Start position within dataset."/>
+    <arg name="stop" default="1000"/>
     <arg name="step" default="1" doc="Position step, step=1 means no position is skipped."/>
     <arg name="period" default="1.0"/>
     <arg name="delay_start" default="1.0"/>
@@ -11,6 +12,7 @@
     <arg name="odom_frame" default="odom" doc="Odometry frame, leave empty for no odometry."/>
 <!--    <arg name="odom_cov" default="[0.05, 0.05, 0.05, 0.01, 0.01, 0.01]"/>-->
     <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"/>
+    <arg name="slam_eval_csv" default="slam_eval.csv"/>
     <arg name="required" default="true"/>
     <arg name="rviz" default="false"/>
 
@@ -19,6 +21,7 @@
         <rosparam subst_value="true">
             dataset: $(arg dataset)
             start: $(arg start)
+            stop: $(arg stop)
             step: $(arg step)
             period: $(arg period)
             delay_start: $(arg delay_start)
@@ -29,6 +32,7 @@
                 cov: $(arg odom_cov)
             gt_frames: ["gt/map", "gt/$(arg lidar_frame)"]
             eval_frames: ["map", "$(arg lidar_frame)"]
+            slam_eval_csv: $(arg slam_eval_csv)
         </rosparam>
         <remap from="cloud" to="$(arg cloud)"/>
     </node>

@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
 from .filters import filter_eigenvalues
-from .loss import min_eigval_loss
+from .loss import min_eigval_loss, trace_loss
 from .model import *
 from .preproc import *
 from .ros import *
@@ -22,8 +22,14 @@ def train(cfg: Config):
     cfg_path = os.path.join(cfg.log_dir, 'train.yaml')
     cfg.to_yaml(cfg_path)
 
+    assert cfg.dataset == 'asl_laser'
     if cfg.dataset == 'asl_laser':
         from data.asl_laser import Dataset
+    assert cfg.loss in ('min_eigval_loss', 'trace_loss')
+    # if cfg.loss == 'min_eigval_loss':
+    #     loss = min_eigval_loss
+    loss_fun = eval(cfg.loss)
+    print(cfg.loss, loss_fun.__name__)
 
     # Cloud needs to retain neighbors, weights, and mask from previous
     # iterations.
@@ -92,13 +98,12 @@ def train(cfg: Config):
     model = load_model(cfg=cfg, eval_mode=False)
     print(model)
 
-    # Initialize optimizer
-    # optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    # optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, nesterov=True)
-    # optimizer = torch.optim.SGD(train_pose_deltas, lr=LR, momentum=0.9, nesterov=True)
+    # Collect optimizable parameters.
     params = [{'params': model.parameters(), 'lr': cfg.lr}]
     if cfg.pose_correction != PoseCorrection.none:
         params.append({'params': train_pose_deltas, 'lr': cfg.lr})
+    # Initialize optimizer.
+    # optimizer = torch.optim.Adam(params)
     optimizer = torch.optim.SGD(params, momentum=0.9, nesterov=True)
 
     writer = SummaryWriter(cfg.log_dir)
@@ -139,7 +144,7 @@ def train(cfg: Config):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        train_loss, _ = min_eigval_loss(clouds, mask=train_masks)
+        train_loss, _ = loss_fun(clouds, mask=train_masks)
 
         # Validation
         # if train_pose_deltas is None:
@@ -167,7 +172,7 @@ def train(cfg: Config):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        val_loss, _ = min_eigval_loss(clouds, mask=val_masks)
+        val_loss, _ = loss_fun(clouds, mask=val_masks)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:
@@ -197,8 +202,8 @@ def train(cfg: Config):
         if cfg.enable_ros:
             publish_data(clouds, val_poses_upd, cfg.val_names, cfg=cfg)
 
-        writer.add_scalar("min_eigval_loss/train", train_loss, it)
-        writer.add_scalar("min_eigval_loss/val", val_loss, it)
+        writer.add_scalar("%s/train" % cfg.loss, train_loss, it)
+        writer.add_scalar("%s/val" % cfg.loss, val_loss, it)
         if train_pose_deltas:
             # TODO: Add summary histogram for all sequences.
             for i in range(len(cfg.train_names)):

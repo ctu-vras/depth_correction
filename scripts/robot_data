@@ -164,7 +164,10 @@ class RobotData(object):
 
         # Publish (perturbed) odometry?
         if self.odom_source == 'ground_truth':
-            pose = self.perturb_pose(pose)
+            # Don't perturb the first pose - that would transform map origin
+            # as odom-to-map is initialized to identity.
+            if self.position > 0:
+                pose = self.perturb_pose(pose)
             tf = TransformStamped()
             tf.header.stamp = now
             tf.header.frame_id = self.odom_frame

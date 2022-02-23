@@ -94,6 +94,7 @@ class Config(object):
                                     datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         self.loss_eval_csv = None
         self.slam_eval_csv = None
+        self.slam_poses_csv = None
 
         self.log_filters = False
         self.show_results = False

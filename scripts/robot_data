@@ -78,18 +78,28 @@ class RobotData(object):
         r_angles = []
         t_norms = []
         poses = []
+        last_tf = np.eye(4)
         for stamp in self.eval_stamps:
             timeout = timeout_until - rospy.Time.now()
             time = (stamp - self.eval_stamps[0]).to_sec()
             assert isinstance(stamp, rospy.Time)
+
             try:
                 gt = self.tf.lookup_transform(*self.gt_frames, stamp, timeout)
                 gt = numpify(gt.transform)
+            except TransformException as ex:
+                rospy.logerr('Ground truth not available at time %.1f s: %s', time, ex)
+                poses.append(np.eye(4))
+                continue
+
+            try:
                 tf = self.tf.lookup_transform(*self.eval_frames, stamp, timeout)
                 tf = numpify(tf.transform)
             except TransformException as ex:
-                rospy.logerr('Could not evaluate transform at time %.1f s: %s', time, ex)
-                continue
+                rospy.logwarn('Could not find transforms at time %.1f s: %s', time, ex)
+                rospy.logwarn('Using last transform or identity for evaluation.')
+                tf = last_tf
+
             poses.append(tf)
             delta = np.linalg.solve(tf, gt)
             # print(delta)

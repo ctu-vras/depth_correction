@@ -38,13 +38,13 @@ class DepthCorrection(object):
                                 self.device)
 
         self.max_age = rospy.get_param('~max_age', 1.0)
-        self.k_nn = rospy.get_param('~k_nn', None)
-        self.r_nn = rospy.get_param('~r_nn', 0.15)
+        self.nn_k = rospy.get_param('~nn_k', None)
+        self.nn_r = rospy.get_param('~nn_r', 0.15)
 
         # Point-wise and grid-based filtering.
-        self.min_depth = rospy.get_param('~min_depth', 1.0)
-        self.max_depth = rospy.get_param('~max_depth', 10.0)
-        self.grid_res = rospy.get_param('~grid_res', 0.05)
+        self.min_depth = rospy.get_param('~min_depth', None)
+        self.max_depth = rospy.get_param('~max_depth', None)
+        self.grid_res = rospy.get_param('~grid_res', None)
         publish_filtered = self.min_depth or self.max_depth or self.grid_res
         self.publish_filtered = rospy.get_param('~publish_filtered', publish_filtered)
 

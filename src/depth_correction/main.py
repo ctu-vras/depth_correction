@@ -1,5 +1,5 @@
 from __future__ import absolute_import, division, print_function
-from .config import Config
+from .config import Config, PoseCorrection
 from .eval import eval_loss
 from .model import *
 from .train import train
@@ -48,17 +48,27 @@ def eval_slam(cfg: Config=None):
     # TODO: Actually use slam id if multiple slam pipelines are to be tested.
     assert cfg.slam == 'ethzasl_icp_mapper'
     # csv = os.path.join(cfg.log_dir, 'slam_eval.csv')
-    csv = cfg.slam_eval_csv
-    assert csv
-
+    assert cfg.slam_eval_csv
+    assert cfg.slam_poses_csv
+    #
     # TODO: Run slam for each sequence in split.
     uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
     roslaunch.configure_logging(uuid)
     for name in cfg.test_names:
         print('SLAM evaluation on %s started.' % name)
-        cli_args = [slam_eval_launch, 'dataset:=%s' % name, 'odom:=true', 'depth_correction:=true', 'rviz:=true',
-                    'model_class:=%s' % cfg.model_class, 'model_state_dict:=%s' % cfg.model_state_dict,
-                    'slam_eval_csv:=%s' % csv]
+        cli_args = [slam_eval_launch, 'dataset:=%s' % name, 'odom:=true', 'rviz:=true',
+                    'slam_eval_csv:=%s' % cfg.slam_eval_csv,
+                    # TODO: Output poses to structure within log dir.
+                    # 'slam_poses_csv=%s' % cfg.slam_poses_csv,
+                    'min_depth:=%.1f' % cfg.min_depth, 'max_depth:=%.1f' % cfg.max_depth,
+                    'grid_res:=%.1f' % cfg.grid_res,
+                    # 'depth_correction:=%s' % ('true' if cfg.pose_correction != PoseCorrection.none else 'false'),
+                    'depth_correction:=%s' % ('true' if cfg.model_class else 'false'),
+                    'nn_r:=%.2f' % cfg.nn_r,
+                    # TODO: Pass eigenvalue bounds to launch.
+                    'eigenvalue_bounds:=[[0, -.inf, 0.0004], [1, 0.0025, .inf]]',
+                    'model_class:=%s' % cfg.model_class, 'model_state_dict:=%s' % cfg.model_state_dict]
+
         roslaunch_args = cli_args[1:]
         roslaunch_file = [(roslaunch.rlutil.resolve_launch_arguments(cli_args)[0], roslaunch_args)]
         parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, force_log=True)
@@ -71,7 +81,6 @@ def run_baselines():
     # evaluate consistency loss on all sequences
     cfg = Config()
     # Adjust default config...
-    # cfg.nn_r = 0.2
     cfg.model_class = 'BaseModel'
     cfg.model_state_dict = ''
     cfg.log_dir = cfg.get_log_dir()

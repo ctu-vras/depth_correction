@@ -27,7 +27,7 @@ def local_feature_cloud(cloud, cfg: Config):
     # Find/update neighbors and estimate all features.
     cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
     # Select planar regions to correct in prediction phase.
-    cloud.mask = filter_eigenvalues(cloud, cfg.eig_bounds, only_mask=True, log=cfg.log_filters)
+    cloud.mask = filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
     return cloud
 
 

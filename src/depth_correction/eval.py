@@ -43,7 +43,7 @@ def eval_loss(cfg: Config):
 
         cloud = global_cloud(clouds, model, poses)
         cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-        mask = filter_eigenvalues(cloud, eig_bounds=cfg.eig_bounds,
+        mask = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds,
                                   only_mask=True, log=cfg.log_filters)
         print('Testing on %.3f = %i / %i points from %s.'
               % (mask.float().mean().item(), mask.sum().item(), mask.numel(),

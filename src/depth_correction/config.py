@@ -60,8 +60,8 @@ class Config(object):
         self.nn_r = 0.2
 
         # Depth correction
-        self.eig_bounds = [[0,    None, 0.02**2],
-                           [1, 0.05**2,    None]]
+        self.eigenvalue_bounds = [[0, None, 0.02**2],
+                                  [1, 0.05**2,    None]]
 
         # Data
         self.dataset = 'asl_laser'

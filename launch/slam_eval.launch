@@ -1,18 +1,26 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
     <!-- Evaluation of SLAM pipelines with and without depth correction module. -->
-    <arg name="dataset" default="asl_laser/eth"/>
-    <arg name="depth_correction" default="false"/>
+    <arg name="dataset" default="asl_laser/eth" doc="Dataset and sequence name."/>
+    <arg name="odom" default="true" doc="Publish possibly perturbed odometry."/>
     <arg name="rviz" default="true"/>
-    <arg name="odom" default="true"/>
+    <!-- Robot data and evaluation -->
+    <arg name="slam_eval_csv" default="slam_eval.csv"/>
+    <arg name="slam_poses_csv" default="$(find data)/$(arg dataset)/csv_global/pose_scanner_slam.csv"/>
+    <!-- Cloud filter -->
+    <arg name="min_depth" default="1.0"/>
+    <arg name="max_depth" default="15.0"/>
+    <arg name="grid_res" default="0.2"/>
+    <!-- Depth correction -->
+    <arg name="depth_correction" default="false"/>
+    <arg name="nn_r" default="0.2"/>
+    <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"/>
     <arg name="model_class" default="BaseModel"/>
     <arg name="model_state_dict" default=""/>
-<!--    <arg name="model_class" default="ScaledPolynomial"/>-->
-<!--    <arg name="model_state_dict" value="$(dirname)/../config/weights/ScaledPolynomial.pth"/>-->
-    <arg name="slam_eval_csv" default="slam_eval.csv"/>
-<!--    <arg name="slam_poses_csv" default="slam_poses.csv"/>-->
-    <arg name="slam_poses_csv" default="$(find data)/$(arg dataset)/csv_global/pose_scanner_slam.csv"/>
-
+    <!--
+    <arg name="model_class" default="ScaledPolynomial"/>
+    <arg name="model_state_dict" value="$(dirname)/../config/weights/ScaledPolynomial.pth"/>
+    -->
     <!-- Publish data from selected dataset, play bag files etc. -->
     <include file="$(dirname)/robot_data.launch">
         <arg name="dataset" value="$(arg dataset)"/>
@@ -31,11 +39,15 @@
     <include file="$(dirname)/cloud_filter.launch">
         <arg name="input" value="cloud"/>
         <arg name="output" value="filtered_cloud"/>
+        <arg name="min_depth" value="$(arg min_depth)"/>
+        <arg name="max_depth" value="$(arg max_depth)"/>
+        <arg name="grid_res" value="$(arg grid_res)"/>
     </include>
     <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
-        <arg name="cloud" value="filtered_cloud"/>
-        <arg name="filtered_cloud" value=""/>
-        <arg name="corrected_cloud" value="corrected_cloud"/>
+        <arg name="input" value="filtered_cloud"/>
+        <arg name="output" value="corrected_cloud"/>
+        <arg name="nn_r" value="$(arg nn_r)"/>
+        <arg name="eigenvalue_bounds" value="$(arg eigenvalue_bounds)"/>
         <arg name="model_class" value="$(arg model_class)"/>
         <arg name="model_state_dict" value="$(arg model_state_dict)"/>
     </include>

@@ -103,6 +103,7 @@ class Config(object):
         self.show_results = False
         self.plot_period = 10
         self.plot_size = 6.4, 6.4
+        self.rviz = False
 
         # Override from kwargs
         self.from_dict(kwargs)

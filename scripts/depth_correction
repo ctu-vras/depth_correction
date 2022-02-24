@@ -86,7 +86,7 @@ class DepthCorrection(object):
                 filtered_msg.header = input_msg.header
                 self.filtered_pub.publish(filtered_msg)
 
-            dc.update_all(k=self.k_nn, r=self.r_nn)
+            dc.update_all(k=self.nn_k, r=self.nn_r)
             # Select points to correct with the mask.
             mask = None
             for eig, min, max in self.eigenvalue_bounds:

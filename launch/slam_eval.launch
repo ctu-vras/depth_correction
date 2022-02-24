@@ -10,7 +10,7 @@
     <!-- Cloud filter -->
     <arg name="min_depth" default="1.0"/>
     <arg name="max_depth" default="15.0"/>
-    <arg name="grid_res" default="0.2"/>
+    <arg name="grid_res" default="0.1"/>
     <!-- Depth correction -->
     <arg name="depth_correction" default="false"/>
     <arg name="nn_r" default="0.2"/>

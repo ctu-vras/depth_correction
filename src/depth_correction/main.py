@@ -125,6 +125,9 @@ def eval_baselines():
 def train_and_eval(pose_provider=None):
     base_cfg = Config()
     base_cfg.log_dir = base_cfg.get_log_dir()
+    # Allow correction of individual pose if poses are provided by SLAM.
+    if pose_provider:
+        base_cfg.pose_correction = PoseCorrection.pose
     for model in models:
         for i_fold, (train_names, val_names, test_names) in enumerate(splits):  # train, val, test dataset split (cross validation)
             for loss in losses:

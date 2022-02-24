@@ -1,7 +1,11 @@
 from __future__ import absolute_import, division, print_function
+
+import pandas as pd
 from matplotlib import cm
 from timeit import default_timer as timer
 import torch
+import tabulate
+
 
 __all__ = [
     'map_colors',
@@ -50,3 +54,58 @@ def timing(f):
         print('%s %.6f s' % (f.__name__, t1 - t0))
         return ret
     return timing_wrapper
+
+
+class Table:
+    def __init__(self, data=None):
+        assert isinstance(data, list) or isinstance(data, dict)
+        self.data = data
+        self.headers = ''
+        if isinstance(data, dict):
+            self.headers = 'keys'
+
+    def show(self):
+        table = tabulate.tabulate(self.data, headers=self.headers)
+        print(table)
+        return table
+
+    def to_latex(self):
+        table = tabulate.tabulate(self.data, headers=self.headers, tablefmt='latex')
+        print(table)
+        return table
+
+    def get_row(self):
+        pass
+
+    def get_column(self):
+        pass
+
+    def show_header(self):
+        pass
+
+    @staticmethod
+    def concatenate(tables: list, axis=0):
+        dfs = []
+        for i, tab in enumerate(tables):
+            assert isinstance(tab.data, dict)
+            dfs.append(pd.DataFrame(tab.data))
+        df = pd.concat(dfs, axis=axis)
+        table = Table(list(df.values))  # remove index column in pd Dataframe
+        return table
+
+
+def test():
+    from data.asl_laser import dataset_names
+
+    data1 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
+    data2 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
+    data3 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
+
+    # tab = Table(data1)
+    tab = Table.concatenate([Table(data1), Table(data2), Table(data3)])
+    tab.show()
+    # tab.to_latex()
+
+
+if __name__ == '__main__':
+    test()

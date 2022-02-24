@@ -55,8 +55,8 @@ class DepthCorrection(object):
 
         if self.publish_filtered:
             self.filtered_pub = rospy.Publisher('filtered_cloud', PointCloud2, queue_size=2)
-        self.corrected_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
-        self.cloud_sub = rospy.Subscriber('cloud', PointCloud2, self.process_cloud, queue_size=2)
+        self.corrected_pub = rospy.Publisher('output', PointCloud2, queue_size=2)
+        self.cloud_sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
 
     @timing
     def correct_depth(self, input_msg):

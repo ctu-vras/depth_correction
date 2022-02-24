@@ -8,13 +8,13 @@ import numpy as np
 from numpy.polynomial import Polynomial
 import torch
 
-
 __all__ = [
     'batch_loss',
     'min_eigval_loss',
     'neighbor_cov',
     'neighbor_fun',
     'reduce',
+    'trace',
     'trace_loss',
 ]
 

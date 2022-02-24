@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <arg name="dataset" default="asl_laser/eth"/>
+    <arg name="dataset" default="asl_laser/eth" doc="Dataset and sequence name."/>
+    <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
+    <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
     <arg name="start" default="0" doc="Start position within dataset."/>
     <arg name="stop" default="1000"/>
     <arg name="step" default="1" doc="Position step, step=1 means no position is skipped."/>
@@ -20,19 +22,21 @@
     <node name="robot_data" pkg="depth_correction" type="robot_data"
           output="screen" required="$(arg required)">
         <rosparam subst_value="true">
-            dataset: $(arg dataset)
+            dataset: '$(arg dataset)'
+            dataset_path: '$(arg dataset_path)'
+            dataset_poses_path: '$(arg dataset_poses_path)'
             start: $(arg start)
             stop: $(arg stop)
             step: $(arg step)
             period: $(arg period)
             delay_start: $(arg delay_start)
             delay_end: $(arg delay_end)
-            lidar_frame: "$(arg lidar_frame)"
-            odom_frame: "$(arg odom_frame)"
+            lidar_frame: '$(arg lidar_frame)'
+            odom_frame: '$(arg odom_frame)'
             odom:
                 cov: $(arg odom_cov)
-            gt_frames: ["gt/map", "gt/$(arg lidar_frame)"]
-            eval_frames: ["map", "$(arg lidar_frame)"]
+            gt_frames: ['gt/map', 'gt/$(arg lidar_frame)']
+            eval_frames: ['map', '$(arg lidar_frame)']
             slam_eval_csv: $(arg slam_eval_csv)
             slam_poses_csv: $(arg slam_poses_csv)
         </rosparam>

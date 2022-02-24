@@ -2,9 +2,10 @@
 """Node providing robot data from various datasets for SLAM evaluation."""
 from __future__ import absolute_import, division, print_function
 from data.asl_laser import Dataset
-from depth_correction.io import append
+from depth_correction.io import append, write
 from geometry_msgs.msg import Transform, TransformStamped
 import numpy as np
+import os
 from ros_numpy import msgify, numpify
 import rospy
 from sensor_msgs.msg import PointCloud2
@@ -15,7 +16,9 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 class RobotData(object):
     def __init__(self):
+        self.dataset_path = rospy.get_param('~dataset_path', None)
         self.dataset_name = rospy.get_param('~dataset', 'asl_laser/eth')
+        self.dataset_poses_path = rospy.get_param('~dataset_poses_path', None)
         self.start = rospy.get_param('~start', None)
         assert self.start is None or isinstance(self.start, int)
         self.stop = rospy.get_param('~stop', None)
@@ -48,17 +51,21 @@ class RobotData(object):
 
         self.dataset = None
         self.position = None
-        if 'asl_laser' in self.dataset_name:
-            name = self.dataset_name.split('/')[1]
-            self.dataset = Dataset(name)
-            if not self.ids:
-                self.ids = self.dataset.ids[slice(self.start, self.stop, self.step)]
-            rospy.loginfo('Using %s dataset, %i positions (%s%s).',
-                          self.dataset_name, len(self.ids),
-                          ', '.join([str(i) for i in self.ids[:5]]),
-                          ', ...' if len(self.ids) > 5 else '')
-            if self.ids:
-                self.position = 0
+        if self.dataset_path:
+            self.dataset = Dataset(path=self.dataset_path, poses_path=self.dataset_poses_path)
+        else:
+            self.dataset = Dataset(self.dataset_name, poses_path=self.dataset_poses_path)
+
+        if not self.ids:
+            self.ids = self.dataset.ids[slice(self.start, self.stop, self.step)]
+
+        rospy.loginfo('Using %s dataset, %i positions (%s%s).',
+                      self.dataset_name, len(self.ids),
+                      ', '.join([str(i) for i in self.ids[:5]]),
+                      ', ...' if len(self.ids) > 5 else '')
+
+        if self.ids:
+            self.position = 0
 
         # Timestamps to evaluate localization accuracy.
         self.eval_stamps = []
@@ -119,15 +126,19 @@ class RobotData(object):
         rospy.logwarn('Average error: rotation %.6f deg., translation %.6f m.',
                       np.degrees(r_angle), t_norm)
         append(self.slam_eval_csv, '%s %.9f %.9f\n' % (self.dataset_name, r_angle, t_norm))
-        rospy.loginfo('SLAM localization accuracy results written into %s.', self.slam_eval_csv)
+        rospy.loginfo('SLAM accuracy results written to %s.', self.slam_eval_csv)
 
         # write SLAM poses and timestamps to csv file
-        append(self.slam_poses_csv,
-               'poseId, timestamp, T00, T01, T02, T03, T10, T11, T12, T13, T20, T21, T22, T23, T30, T31, T32, T33\n')
-        for i, t, T in zip(self.ids, self.eval_stamps, poses):
-            assert T.shape == (4, 4)
-            append(self.slam_poses_csv, '%d, %.6f, %s\n' % (i, t.to_sec(), ', '.join([str(i) for i in T.flatten()])))
-        rospy.loginfo('Poses estimated in SLAM written to %s.', self.slam_poses_csv)
+        if self.slam_poses_csv:
+            if os.path.exists(self.slam_poses_csv):
+                rospy.logwarn('File with SLAM poses already exists: %s. It will be overwritten.', self.slam_poses_csv)
+            write(self.slam_poses_csv,
+                  'poseId, timestamp, T00, T01, T02, T03, T10, T11, T12, T13, T20, T21, T22, T23, T30, T31, T32, T33\n')
+            for i, t, T in zip(self.ids, self.eval_stamps, poses):
+                assert T.shape == (4, 4)
+                append(self.slam_poses_csv, '%d, %.6f, %s\n'
+                       % (i, t.to_sec(), ', '.join(['%.6f' % x for x in T.flatten()])))
+            rospy.loginfo('SLAM poses written to %s.', self.slam_poses_csv)
 
     def start_timer(self, evt):
         self.timer = rospy.Timer(rospy.Duration(self.period), self.publish_and_move)

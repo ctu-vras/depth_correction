@@ -71,6 +71,9 @@ class Config(object):
         # print('Training set: %s.' % ', '.join(self.train_names))
         # print('Validation set: %s.' % ', '.join(self.val_names))
         # print('Test set: %s.' % ', '.join(self.val_names))
+        self.train_poses_path = []
+        self.val_poses_path = []
+        self.test_poses_path = []
         self.data_step = 5
         self.world_frame = 'world'
 

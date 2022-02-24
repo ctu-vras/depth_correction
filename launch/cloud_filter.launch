@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
     <arg name="input" default="cloud" doc="Input cloud topic."/>
-    <arg name="output" default="filtered_cloud" doc="Output cloud topic."/>
+    <arg name="output" default="filtered_cloud" doc="Output filtered cloud topic."/>
     <arg name="min_depth" default="1.0" doc="Minimum depth to keep."/>
     <arg name="max_depth" default="15.0" doc="Maximum depth to keep."/>
     <arg name="grid_res" default="0.1" doc="Voxel grid bin size."/>

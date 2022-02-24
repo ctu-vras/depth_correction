@@ -21,7 +21,6 @@ class CloudFilter(object):
         self.pub = rospy.Publisher('output', PointCloud2, queue_size=2)
         self.sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
 
-    @timing
     def filter_cloud(self, input_msg):
         assert isinstance(input_msg, PointCloud2)
         cloud = numpify(input_msg)

@@ -2,6 +2,8 @@
 <launch>
     <!-- Evaluation of SLAM pipelines with and without depth correction module. -->
     <arg name="dataset" default="asl_laser/eth" doc="Dataset and sequence name."/>
+    <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
+    <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
     <arg name="odom" default="true" doc="Publish possibly perturbed odometry."/>
     <arg name="rviz" default="true"/>
     <!-- Robot data and evaluation -->
@@ -24,8 +26,9 @@
     <!-- Publish data from selected dataset, play bag files etc. -->
     <include file="$(dirname)/robot_data.launch">
         <arg name="dataset" value="$(arg dataset)"/>
+        <arg name="dataset_poses_path" value="$(arg dataset_poses_path)"/>
         <arg name="start" value="0"/>
-        <arg name="stop" value="100"/>
+        <arg name="stop" value="1000"/>
         <arg name="step" value="1"/>
         <arg name="period" value="3.0"/>
         <arg name="delay_start" value="3.0"/>

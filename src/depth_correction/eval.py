@@ -30,10 +30,12 @@ def eval_loss(cfg: Config):
     assert callable(loss_fun)
 
     # TODO: Process individual sequences separately.
-    for name in cfg.test_names:
+    for i, name in enumerate(cfg.test_names):
+        # Allow overriding poses paths, assume valid if non-empty.
+        poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
         clouds = []
         poses = []
-        for cloud, pose in Dataset(name)[::cfg.data_step]:
+        for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             clouds.append(cloud)

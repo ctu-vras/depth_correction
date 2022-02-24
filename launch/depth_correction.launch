@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
     <arg name="input" default="filtered_cloud" doc="Input cloud topic."/>
-    <arg name="output" default="corrected_cloud" doc="Output cloud topic."/>
-    <arg name="publish_filtered" default="$(eval bool(filtered_cloud))"/>
+    <arg name="output" default="corrected_cloud" doc="Output corrected cloud topic."/>
     <arg name="nn_r" default="0.2" doc="Nearest neighbor radius."/>
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"
          doc="Eigenvalue bounds for correcting depth."/>
@@ -18,11 +17,11 @@
             device: cpu
             float_type: float64
             max_age: 1.0
-            publish_filtered: $(arg publish_filtered)
+            publish_filtered: false
             nn_r: $(arg nn_r)
             eigenvalue_bounds: $(arg eigenvalue_bounds)
         </rosparam>
-        <remap from="cloud" to="$(arg cloud)"/>
-        <remap from="corrected_cloud" to="$(arg corrected_cloud)"/>
+        <remap from="input" to="$(arg input)"/>
+        <remap from="output" to="$(arg output)"/>
     </node>
 </launch>

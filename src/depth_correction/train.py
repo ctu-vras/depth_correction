@@ -42,11 +42,13 @@ def train(cfg: Config):
     train_pose_deltas = []
     train_neighbors = [None] * len(cfg.train_names)
     train_masks = [None] * len(cfg.train_names)
-    for name in cfg.train_names:
+    for i, name in enumerate(cfg.train_names):
+        # Allow overriding poses paths, assume valid if non-empty.
+        poses_path = cfg.train_poses_path[i] if cfg.train_poses_path else None
         clouds = []
         poses = []
         # for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
-        for cloud, pose in Dataset(name)[::cfg.data_step]:
+        for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             # If poses are not optimized, depth can be corrected on global
@@ -82,11 +84,13 @@ def train(cfg: Config):
     val_poses = []
     val_neighbors = [None] * len(cfg.val_names)
     val_masks = [None] * len(cfg.val_names)
-    for name in cfg.val_names:
+    for i, name in enumerate(cfg.val_names):
+        # Allow overriding poses paths, assume valid if non-empty.
+        poses_path = cfg.val_poses_path[i] if cfg.val_poses_path else None
         clouds = []
         poses = []
         # for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
-        for cloud, pose in Dataset(name)[::cfg.data_step]:
+        for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             clouds.append(cloud)

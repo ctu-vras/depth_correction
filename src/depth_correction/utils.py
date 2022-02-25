@@ -57,13 +57,14 @@ def timing(f):
 
 
 class Table:
+    # https://towardsdatascience.com/how-to-create-latex-tables-directly-from-python-code-5228c5cea09a
     def __init__(self, data=None):
         # assert isinstance(data, list) or isinstance(data, dict)
         self.headers = ''
-        if isinstance(data, dict):
-            self.headers = 'keys'
+        self.data = data
         if data is not None:
             self.data = pd.DataFrame(data)
+            self.headers = self.data.columns
 
     def show(self):
         table = tabulate.tabulate(self.data, headers=self.headers)
@@ -98,7 +99,7 @@ class Table:
 
 
 def tables_demo():
-    from data.asl_laser import dataset_names
+    # https://pandas.pydata.org/pandas-docs/stable/user_guide/10min.html
     import os
 
     # loss demo: average across sequences
@@ -112,22 +113,19 @@ def tables_demo():
     tab.show()
     tab.to_latex()
 
-    # concatenation and averaging demo
-    data1 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
-    data2 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
-
-    tab = Table()
-    tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Loss', 'Sequence', 'Loss'], axis=1)
-    tab.show()
-    tab.mean(axis=1, keep_names_series='Sequence')
-    tab.show()
-    tab.to_latex()
+    # # concatenation and averaging demo
+    # data1 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
+    # data2 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
+    #
+    # tab = Table()
+    # tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Loss', 'Sequence', 'Loss'], axis=1)
+    # tab.show()
+    # tab.mean(axis=1, keep_names_series='Sequence')
+    # tab.show()
+    # tab.to_latex()
 
     # different losses concatenation
-    data1 = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
-                                     'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_min_eigval_loss.csv'),
-                        delimiter=' ', names=['Sequence', 'Loss'])
-    data1 = data1.groupby("Sequence").mean()
+    data1 = data
     data2 = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
                                      'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_trace_loss.csv'),
                         delimiter=' ', names=['Sequence', 'Loss'])
@@ -135,6 +133,16 @@ def tables_demo():
 
     tab = Table()
     tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Min eigval loss', 'Trace loss'], axis=1)
+    tab.show()
+    tab.to_latex()
+
+    # SLAM accuracy data
+    data = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
+                                    'gen/depth_1.0-15.0_grid_0.10_r0.20/slam_eval_ethzasl_icp_mapper.csv'),
+                       delimiter=' ', names=['Sequence', 'Orient accuracy [rad]', 'Pose accuracy [m]'])
+    data = data.groupby("Sequence").mean()
+
+    tab = Table(data)
     tab.show()
     tab.to_latex()
 

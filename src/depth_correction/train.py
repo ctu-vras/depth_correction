@@ -6,6 +6,7 @@ from .model import *
 from .preproc import *
 from .ros import *
 from .transform import *
+from argparse import ArgumentParser
 import numpy as np
 import os
 import rospy
@@ -21,7 +22,10 @@ def train(cfg: Config):
     :return: Config of the best model.
     """
     cfg_path = os.path.join(cfg.log_dir, 'train.yaml')
-    cfg.to_yaml(cfg_path)
+    if os.path.exists(cfg_path):
+        print('Config %s already exists.' % cfg_path)
+    else:
+        cfg.to_yaml(cfg_path)
 
     assert cfg.dataset == 'asl_laser'
     if cfg.dataset == 'asl_laser':
@@ -229,18 +233,29 @@ def train(cfg: Config):
     writer.flush()
     writer.close()
 
+    best_cfg_path = os.path.join(cfg.log_dir, 'best.yaml')
+    best_cfg.to_yaml(best_cfg_path)
+
     return best_cfg
 
 
-def main():
+def run_from_cmdline():
+    parser = ArgumentParser()
+    parser.add_argument('--config', '-c', type=str, required=True)
+    args = parser.parse_args()
+    print('Arguments:')
+    print(args)
     cfg = Config()
-    # Debug
-    cfg.data_step = 10
-    cfg.max_depth = 10.0
-    cfg.grid_res = 0.1
-    cfg.nn_r = .2
-    cfg.pose_correction = PoseCorrection.sequence
+    cfg.from_yaml(args.config)
+    print('Config:')
+    print(cfg.to_yaml())
+    print('Training...')
     train(cfg)
+    print('Training finished.')
+
+
+def main():
+    run_from_cmdline()
 
 
 if __name__ == '__main__':

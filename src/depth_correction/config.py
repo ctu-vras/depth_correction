@@ -98,6 +98,9 @@ class Config(object):
         self.loss_eval_csv = None
         self.slam_eval_csv = None
         self.slam_poses_csv = None
+        # Testing
+        self.eval_losses = ['min_eigval_loss', 'trace_loss']
+        self.eval_slams = ['ethzasl_icp_mapper']
 
         self.log_filters = False
         self.show_results = False
@@ -115,12 +118,13 @@ class Config(object):
         for k, v in d.items():
             setattr(self, k, v)
 
-    def from_yaml(self, cfg):
-        if isinstance(cfg, str):
-            with open(cfg, 'r') as f:
+    def from_yaml(self, path):
+        if isinstance(path, str):
+            with open(path, 'r') as f:
                 try:
                     d = yaml.safe_load(f)
-                    self.from_dict(d)
+                    if d:  # Don't raise exception in case of empty yaml.
+                        self.from_dict(d)
                 except yaml.YAMLError as ex:
                     print(ex)
 

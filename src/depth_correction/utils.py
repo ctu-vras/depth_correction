@@ -58,54 +58,86 @@ def timing(f):
 
 class Table:
     def __init__(self, data=None):
-        assert isinstance(data, list) or isinstance(data, dict)
-        self.data = data
+        # assert isinstance(data, list) or isinstance(data, dict)
         self.headers = ''
         if isinstance(data, dict):
             self.headers = 'keys'
+        if data is not None:
+            self.data = pd.DataFrame(data)
 
     def show(self):
         table = tabulate.tabulate(self.data, headers=self.headers)
         print(table)
-        return table
 
     def to_latex(self):
         table = tabulate.tabulate(self.data, headers=self.headers, tablefmt='latex')
         print(table)
         return table
 
-    def get_row(self):
-        pass
-
-    def get_column(self):
-        pass
-
-    def show_header(self):
-        pass
-
-    @staticmethod
-    def concatenate(tables: list, axis=0):
+    def concatenate(self, tables: list, names=None, axis=0):
         dfs = []
         for i, tab in enumerate(tables):
-            assert isinstance(tab.data, dict)
-            dfs.append(pd.DataFrame(tab.data))
-        df = pd.concat(dfs, axis=axis)
-        table = Table(list(df.values))  # remove index column in pd Dataframe
-        return table
+            assert isinstance(tab.data, pd.DataFrame)
+            dfs.append(tab.data)
+        data = pd.concat(dfs, names=names, axis=axis)
+        self.headers = names
+        self.data = data
+
+    def mean(self, axis=1, keep_names_series=None):
+        assert axis == 0 or axis == 1
+        data = pd.DataFrame(self.data.mean(axis=axis))
+        if keep_names_series:
+            names = pd.DataFrame(self.data[keep_names_series])
+            # remove duplicates
+            if axis == 0:
+                names = names.loc[~names.columns.duplicated(), :]
+            elif axis == 1:
+                names = names.loc[:, ~names.columns.duplicated()]
+            data = pd.concat([names, data], axis=axis)
+        self.data = data
 
 
-def test():
+def tables_demo():
     from data.asl_laser import dataset_names
+    import os
 
+    # loss demo: average across sequences
+    data = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
+                                    'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_min_eigval_loss.csv'),
+                       delimiter=' ', names=['Sequence', 'Loss'])
+    # data = pd.DataFrame(data1['Loss'].values, index=data1['Sequence'])
+    data = data.groupby("Sequence").mean()
+
+    tab = Table(data)
+    tab.show()
+    tab.to_latex()
+
+    # concatenation and averaging demo
     data1 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
     data2 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
-    data3 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
 
-    # tab = Table(data1)
-    tab = Table.concatenate([Table(data1), Table(data2), Table(data3)])
+    tab = Table()
+    tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Loss', 'Sequence', 'Loss'], axis=1)
     tab.show()
-    # tab.to_latex()
+    tab.mean(axis=1, keep_names_series='Sequence')
+    tab.show()
+    tab.to_latex()
+
+    # different losses concatenation
+    data1 = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
+                                     'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_min_eigval_loss.csv'),
+                        delimiter=' ', names=['Sequence', 'Loss'])
+    data1 = data1.groupby("Sequence").mean()
+    data2 = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
+                                     'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_trace_loss.csv'),
+                        delimiter=' ', names=['Sequence', 'Loss'])
+    data2 = data2.groupby("Sequence").mean()
+
+    tab = Table()
+    tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Min eigval loss', 'Trace loss'], axis=1)
+    tab.show()
+    tab.to_latex()
 
 
 if __name__ == '__main__':
-    test()
+    tables_demo()

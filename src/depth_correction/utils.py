@@ -101,17 +101,18 @@ class Table:
 def tables_demo():
     # https://pandas.pydata.org/pandas-docs/stable/user_guide/10min.html
     import os
+    import glob
 
-    # loss demo: average across sequences
-    data = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
-                                    'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_min_eigval_loss.csv'),
-                       delimiter=' ', names=['Sequence', 'Loss'])
-    # data = pd.DataFrame(data1['Loss'].values, index=data1['Sequence'])
-    data = data.groupby("Sequence").mean()
-
-    tab = Table(data)
-    tab.show()
-    tab.to_latex()
+    # # loss demo: average across sequences
+    # data = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
+    #                                 'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_min_eigval_loss.csv'),
+    #                    delimiter=' ', names=['Sequence', 'Loss'])
+    # # data = pd.DataFrame(data1['Loss'].values, index=data1['Sequence'])
+    # data = data.groupby("Sequence").mean()
+    #
+    # tab = Table(data)
+    # tab.show()
+    # tab.to_latex()
 
     # # concatenation and averaging demo
     # data1 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
@@ -124,27 +125,66 @@ def tables_demo():
     # tab.show()
     # tab.to_latex()
 
-    # different losses concatenation
-    data1 = data
-    data2 = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
-                                     'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_trace_loss.csv'),
-                        delimiter=' ', names=['Sequence', 'Loss'])
-    data2 = data2.groupby("Sequence").mean()
+    # # different losses concatenation
+    # data1 = data
+    # data2 = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
+    #                                  'gen/depth_1.0-15.0_grid_0.10_r0.20/loss_eval_trace_loss.csv'),
+    #                     delimiter=' ', names=['Sequence', 'Loss'])
+    # data2 = data2.groupby("Sequence").mean()
+    #
+    # tab = Table()
+    # tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Min eigval loss', 'Trace loss'], axis=1)
+    # tab.show()
+    # tab.to_latex()
 
-    tab = Table()
-    tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Min eigval loss', 'Trace loss'], axis=1)
-    tab.show()
-    tab.to_latex()
+    # # SLAM accuracy data
+    # data = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
+    #                                 'gen/depth_1.0-15.0_grid_0.10_r0.20/slam_eval_ethzasl_icp_mapper.csv'),
+    #                    delimiter=' ', names=['Sequence', 'Orient accuracy [rad]', 'Pose accuracy [m]'])
+    # data = data.groupby("Sequence").mean()
+    #
+    # tab = Table(data)
+    # tab.show()
+    # tab.to_latex()
 
-    # SLAM accuracy data
-    data = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
-                                    'gen/depth_1.0-15.0_grid_0.10_r0.20/slam_eval_ethzasl_icp_mapper.csv'),
-                       delimiter=' ', names=['Sequence', 'Orient accuracy [rad]', 'Pose accuracy [m]'])
-    data = data.groupby("Sequence").mean()
+    poses_sources = ['gt', 'ethzasl_icp_mapper']
+    models = ['polynomial', 'scaledpolynomial']
+    losses = ['min_eigval_loss', 'trace_loss']
+    folds = range(4)
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
+    experiments = os.listdir(path)
 
-    tab = Table(data)
-    tab.show()
-    tab.to_latex()
+    # pose_src = 'gt'
+    # for fname in glob.glob(os.path.join(path, '*/%s_*/*/slam*.csv' % pose_src)):
+    #     print(fname)
+
+    def get_slam_accuracy(pose_src='gt', model='*', loss='*', split='train'):
+        dfs = None
+        for i, fname in enumerate(glob.glob(os.path.join(path,
+                                            '*/%s_%s_%s/fold_*/slam*%s.csv' % (pose_src, model, loss, split)))):
+            df = pd.read_csv(fname, delimiter=' ', header=None)
+            if i == 0:
+                dfs = df
+            dfs = pd.concat([dfs, df])
+        orient_acc_rad, trans_acc_m = dfs.mean(axis=0).values
+        return orient_acc_rad, trans_acc_m
+
+    table = []
+    for model in models:
+        table.append([model, ", ".join(["%.4f" % get_slam_accuracy(model=model, split='train')[0],
+                                        "%.4f" % get_slam_accuracy(model=model, split='val')[0],
+                                        "%.4f" % get_slam_accuracy(model=model, split='test')[0]]),
+                             ", ".join(["%.4f" % get_slam_accuracy(model=model, split='train')[1],
+                                        "%.4f" % get_slam_accuracy(model=model, split='val')[1],
+                                        "%.4f" % get_slam_accuracy(model=model, split='test')[1]])])
+
+    print(tabulate.tabulate(table,
+                            ["model", "orientation accuracy (train, val, test)",
+                             "translation accuracy (train, val, test)"], tablefmt="grid"))
+
+    print(tabulate.tabulate(table,
+                            ["model", "orientation accuracy (train, val, test)",
+                             "translation accuracy (train, val, test)"], tablefmt="latex"))
 
 
 if __name__ == '__main__':

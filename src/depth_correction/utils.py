@@ -6,7 +6,6 @@ from timeit import default_timer as timer
 import torch
 import tabulate
 
-
 __all__ = [
     'map_colors',
     'timer',
@@ -53,6 +52,7 @@ def timing(f):
         t1 = timer()
         print('%s %.6f s' % (f.__name__, t1 - t0))
         return ret
+
     return timing_wrapper
 
 
@@ -158,10 +158,13 @@ def tables_demo():
     # for fname in glob.glob(os.path.join(path, '*/%s_*/*/slam*.csv' % pose_src)):
     #     print(fname)
 
+    print("\n-------------------------------------------------------------------------------------------------------\n")
+    print(" SLAM accuracy table ")
+
     def get_slam_accuracy(pose_src='gt', model='*', loss='*', split='train'):
         dfs = None
         for i, fname in enumerate(glob.glob(os.path.join(path,
-                                            '*/%s_%s_%s/fold_*/slam*%s.csv' % (pose_src, model, loss, split)))):
+                                            '*/%s_%s_%s/fold_*/slam_eval*%s.csv' % (pose_src, model, loss, split)))):
             df = pd.read_csv(fname, delimiter=' ', header=None)
             if i == 0:
                 dfs = df
@@ -179,12 +182,54 @@ def tables_demo():
                                         "%.4f" % get_slam_accuracy(model=model, split='test')[1]])])
 
     print(tabulate.tabulate(table,
-                            ["model", "orientation accuracy (train, val, test)",
-                             "translation accuracy (train, val, test)"], tablefmt="grid"))
+                            ["model", "orientation accuracy (train, val, test), [rad]",
+                             "translation accuracy (train, val, test), [m]"], tablefmt="grid"))
 
     print(tabulate.tabulate(table,
-                            ["model", "orientation accuracy (train, val, test)",
-                             "translation accuracy (train, val, test)"], tablefmt="latex"))
+                            ["model", "orientation accuracy (train, val, test), [rad]",
+                             "translation accuracy (train, val, test), [m]"], tablefmt="latex"))
+    print("\n-------------------------------------------------------------------------------------------------------\n")
+
+    print(" Losses table ")
+
+    # for fname in glob.glob(os.path.join(path, '*/%s_*/*/loss*.csv' % pose_src)):
+    #     print(fname)
+    #     df = pd.read_csv(fname, delimiter=' ', header=None)
+    #     print(df)
+
+    def get_losses(pose_src='gt', model='*', loss='*', split='*'):
+        dfs = None
+        for i, fname in enumerate(glob.glob(os.path.join(path,
+                                                         '*/%s_%s_*/fold_*/loss_eval_%s_%s.csv' % (
+                                                                 pose_src, model, loss, split)))):
+            df = pd.read_csv(fname, delimiter=' ', header=None)
+            if i == 0:
+                dfs = df
+            dfs = pd.concat([dfs, df])
+        loss = dfs.mean(axis=0).values[0]
+        return loss
+
+    table = []
+    for model in models:
+        table.append(
+            [model, ", ".join(["%.6f" % get_losses(pose_src='gt', model=model, loss='min_eigval_loss',
+                                                   split='train'),
+                               "%.6f" % get_losses(pose_src='gt', model=model, loss='min_eigval_loss',
+                                                   split='val'),
+                               "%.6f" % get_losses(pose_src='gt', model=model, loss='min_eigval_loss',
+                                                   split='test')]),
+             ", ".join(["%.6f" % get_losses(pose_src='gt', model=model, loss='trace_loss', split='train'),
+                        "%.6f" % get_losses(pose_src='gt', model=model, loss='trace_loss', split='val'),
+                        "%.6f" % get_losses(pose_src='gt', model=model, loss='trace_loss', split='test')])
+             ])
+
+    print(tabulate.tabulate(table,
+                            ["model", "min eigval loss (train, val, test)",
+                             "trace loss (train, val, test)"], tablefmt="grid"))
+
+    print(tabulate.tabulate(table,
+                            ["model", "min eigval loss (train, val, test)",
+                             "trace loss (train, val, test)"], tablefmt="latex"))
 
 
 if __name__ == '__main__':

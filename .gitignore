@@ -139,8 +139,9 @@ data
 *.img
 *.sif
 
-# Tensorboard logs
+# Logs
 tb_runs/
+gen/
 
 # Pytorch models weights
 *.pth

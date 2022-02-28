@@ -266,7 +266,7 @@ def sequences_postprocess_demo():
     path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
 
     def get_mean_losses_for_sequences(pose_src='gt', model='*', split='*'):
-        mean_losses = {}
+        data = {}
         for loss in losses:
             dfs = None
             for i, fname in enumerate(glob.glob(os.path.join(path,
@@ -277,15 +277,18 @@ def sequences_postprocess_demo():
                     dfs = df
                 else:
                     dfs = pd.concat([dfs, df], axis=0)
-            df = dfs.groupby('sequence').mean()
-            mean_losses[loss] = df
-        return mean_losses
+            loss_mean, loss_std = dfs.groupby('sequence').mean(), dfs.groupby('sequence').std()
+            data[loss] = (loss_mean, loss_std)
+        return data
 
-    mean_losses = get_mean_losses_for_sequences()
+    data = get_mean_losses_for_sequences()
+
     for loss in losses:
-        table = mean_losses[loss]
-        # print(tabulate.tabulate(table, ['sequence', loss]))
-        print(tabulate.tabulate(table, ['sequence', loss], tablefmt='latex'))
+        loss_mean, loss_std = data[loss]
+        print(tabulate.tabulate(loss_mean, ['sequence', loss]))
+        # print(tabulate.tabulate(loss_std, ['sequence', loss + '_std']))
+        print(tabulate.tabulate(loss_mean, ['sequence', loss], tablefmt='latex'))
+        # print(tabulate.tabulate(loss_std, ['sequence', loss + '_std'], tablefmt='latex'))
 
 
 if __name__ == '__main__':

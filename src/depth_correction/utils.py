@@ -154,10 +154,6 @@ def tables_demo():
     path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
     experiments = os.listdir(path)
 
-    # pose_src = 'gt'
-    # for fname in glob.glob(os.path.join(path, '*/%s_*/*/slam*.csv' % pose_src)):
-    #     print(fname)
-
     print("\n-------------------------------------------------------------------------------------------------------\n")
     print(" SLAM accuracy table ")
 
@@ -172,7 +168,12 @@ def tables_demo():
         orient_acc_rad, trans_acc_m = dfs.mean(axis=0).values
         return orient_acc_rad, trans_acc_m
 
-    table = []
+    for fname in glob.glob(os.path.join(path, '*/slam_eval*.csv')):
+        print(fname)
+        df = pd.read_csv(fname, delimiter=' ', header=None)
+        orient_acc_rad_base, trans_acc_m_base = df.mean(axis=0).values
+
+    table = [["base model", "%.4f" % orient_acc_rad_base, "%.4f" % trans_acc_m_base]]
     for model in models:
         table.append([model, ", ".join(["%.4f" % get_slam_accuracy(model=model, split='train')[0],
                                         "%.4f" % get_slam_accuracy(model=model, split='val')[0],
@@ -192,11 +193,6 @@ def tables_demo():
 
     print(" Losses table ")
 
-    # for fname in glob.glob(os.path.join(path, '*/%s_*/*/loss*.csv' % pose_src)):
-    #     print(fname)
-    #     df = pd.read_csv(fname, delimiter=' ', header=None)
-    #     print(df)
-
     def get_losses(pose_src='gt', model='*', loss='*', split='*'):
         dfs = None
         for i, fname in enumerate(glob.glob(os.path.join(path,
@@ -209,7 +205,14 @@ def tables_demo():
         loss = dfs.mean(axis=0).values[0]
         return loss
 
-    table = []
+    base_loss_values = []
+    for loss in losses:
+        for fname in glob.glob(os.path.join(path, '*/loss_eval_%s.csv' % loss)):
+            df = pd.read_csv(fname, delimiter=' ', header=None)
+            base_loss_values.append(df.mean(axis=0).values[0])
+    assert len(base_loss_values) == len(losses)
+
+    table = [["base model"] + ["%.6f" % loss for loss in base_loss_values]]
     for model in models:
         table.append(
             [model, ", ".join(["%.6f" % get_losses(pose_src='gt', model=model, loss='min_eigval_loss',

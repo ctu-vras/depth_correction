@@ -1,11 +1,13 @@
 from __future__ import absolute_import, division, print_function
 
+import numpy as np
 import pandas as pd
 from matplotlib import cm
 from timeit import default_timer as timer
 import torch
 import tabulate
-
+import os
+import glob
 
 __all__ = [
     'map_colors',
@@ -53,6 +55,7 @@ def timing(f):
         t1 = timer()
         print('%s %.6f s' % (f.__name__, t1 - t0))
         return ret
+
     return timing_wrapper
 
 
@@ -99,8 +102,8 @@ class Table:
 
 
 def tables_demo():
+    from data.asl_laser import dataset_names
     # https://pandas.pydata.org/pandas-docs/stable/user_guide/10min.html
-    import os
 
     # loss demo: average across sequences
     data = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', '..',
@@ -113,16 +116,16 @@ def tables_demo():
     tab.show()
     tab.to_latex()
 
-    # # concatenation and averaging demo
-    # data1 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
-    # data2 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
-    #
-    # tab = Table()
-    # tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Loss', 'Sequence', 'Loss'], axis=1)
-    # tab.show()
-    # tab.mean(axis=1, keep_names_series='Sequence')
-    # tab.show()
-    # tab.to_latex()
+    # concatenation and averaging demo
+    data1 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
+    data2 = {'Sequence': dataset_names, 'Loss': torch.rand(len(dataset_names))}
+
+    tab = Table()
+    tab.concatenate([Table(data1), Table(data2)], names=['Sequence', 'Loss', 'Sequence', 'Loss'], axis=1)
+    tab.show()
+    tab.mean(axis=1, keep_names_series='Sequence')
+    tab.show()
+    tab.to_latex()
 
     # different losses concatenation
     data1 = data
@@ -147,5 +150,149 @@ def tables_demo():
     tab.to_latex()
 
 
+def slam_postprocess_demo():
+    # poses_sources = ['gt', 'ethzasl_icp_mapper']
+    models = ['polynomial', 'scaledpolynomial']
+    # folds = range(4)
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
+    # experiments = os.listdir(path)
+
+    print("\n-------------------------------------------------------------------------------------------------------\n")
+    print(" SLAM accuracy table ")
+
+    def get_slam_accuracy(pose_src='gt', model='*', loss='*', split='train'):
+        dfs = None
+        for i, fname in enumerate(glob.glob(os.path.join(path,
+                                            '*/%s_%s_%s/fold_*/slam_eval*%s.csv' % (pose_src, model, loss, split)))):
+            df = pd.read_csv(fname, delimiter=' ', header=None)
+            if i == 0:
+                dfs = df
+            else:
+                dfs = pd.concat([dfs, df])
+        orient_acc_rad, trans_acc_m = dfs.mean(axis=0).values
+        orient_acc_deg = np.rad2deg(orient_acc_rad)
+
+        orient_acc_rad_std, trans_acc_m_std = dfs.std(axis=0).values
+        orient_acc_deg_std = np.rad2deg(orient_acc_rad_std)
+        return (orient_acc_deg, orient_acc_deg_std), (trans_acc_m, trans_acc_m_std)
+
+    for fname in glob.glob(os.path.join(path, '*/slam_eval*.csv')):
+        print(fname)
+        df = pd.read_csv(fname, delimiter=' ', header=None)
+        orient_acc_rad_base, trans_acc_m_base = df.mean(axis=0).values
+        orient_acc_deg_base = np.rad2deg(orient_acc_rad_base)
+
+        orient_acc_rad_base_std, trans_acc_m_base_std = df.std(axis=0).values
+        orient_acc_deg_base_std = np.rad2deg(orient_acc_rad_base_std)
+
+    table = [["base model", u"%.6f (\u00B1 %.6f)" % (orient_acc_deg_base, orient_acc_deg_base_std),
+                            u"%.6f (\u00B1 %.6f)" % (trans_acc_m_base, trans_acc_m_base_std)]]
+    for model in models:
+        table.append([model, ", ".join([u"%.6f (\u00B1 %.6f)" % get_slam_accuracy(model=model, split='train')[0],
+                                        u"%.6f (\u00B1 %.6f)" % get_slam_accuracy(model=model, split='val')[0],
+                                        u"%.6f (\u00B1 %.6f)" % get_slam_accuracy(model=model, split='test')[0]]),
+                             ", ".join([u"%.6f (\u00B1 %.6f)" % get_slam_accuracy(model=model, split='train')[1],
+                                        u"%.6f (\u00B1 %.6f)" % get_slam_accuracy(model=model, split='val')[1],
+                                        u"%.6f (\u00B1 %.6f)" % get_slam_accuracy(model=model, split='test')[1]])])
+
+    print(tabulate.tabulate(table,
+                            ["model", "orientation accuracy (train, val, test), [deg]",
+                             "translation accuracy (train, val, test), [m]"], tablefmt="grid"))
+
+    print(tabulate.tabulate(table,
+                            ["model", "orientation accuracy (train, val, test), [rad]",
+                             "translation accuracy (train, val, test), [m]"], tablefmt="latex"))
+    print("\n-------------------------------------------------------------------------------------------------------\n")
+
+
+def loss_postprocess_demo():
+    # poses_sources = ['gt', 'ethzasl_icp_mapper']
+    models = ['polynomial', 'scaledpolynomial']
+    losses = ['min_eigval_loss', 'trace_loss']
+    # folds = range(4)
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
+    # experiments = os.listdir(path)
+
+    print(" Losses table ")
+
+    def get_losses(pose_src='gt', model='*', loss='*', split='*'):
+        dfs = None
+        for i, fname in enumerate(glob.glob(os.path.join(path,
+                                                         '*/%s_%s_*/fold_*/loss_eval_%s_%s.csv' % (
+                                                                 pose_src, model, loss, split)))):
+            df = pd.read_csv(fname, delimiter=' ', header=None)
+            if i == 0:
+                dfs = df
+            else:
+                dfs = pd.concat([dfs, df])
+        loss_mean, loss_std = dfs.mean(axis=0).values[0], dfs.std(axis=0).values[0]
+        return loss_mean, loss_std
+
+    base_loss_values = []
+    for loss in losses:
+        for fname in glob.glob(os.path.join(path, '*/loss_eval_%s.csv' % loss)):
+            df = pd.read_csv(fname, delimiter=' ', header=None)
+            base_loss_values.append([df.mean(axis=0).values[0], df.std(axis=0).values[0]])
+    assert len(base_loss_values) == len(losses)
+
+    table = [["base model"] + [u"%.6f (\u00B1 %.6f)" % (loss, std) for loss, std in base_loss_values]]
+    for model in models:
+        table.append(
+            [model, ", ".join([u"%.6f (\u00B1 %.6f)" % get_losses(pose_src='gt', model=model, loss='min_eigval_loss',
+                                                                  split='train'),
+                               u"%.6f (\u00B1 %.6f)" % get_losses(pose_src='gt', model=model, loss='min_eigval_loss',
+                                                                  split='val'),
+                               u"%.6f (\u00B1 %.6f)" % get_losses(pose_src='gt', model=model, loss='min_eigval_loss',
+                                                                  split='test')
+                               ]),
+             ", ".join([u"%.6f (\u00B1 %.6f)" % get_losses(pose_src='gt', model=model, loss='trace_loss',
+                                                           split='train'),
+                        u"%.6f (\u00B1 %.6f)" % get_losses(pose_src='gt', model=model, loss='trace_loss', split='val'),
+                        u"%.6f (\u00B1 %.6f)" % get_losses(pose_src='gt', model=model, loss='trace_loss', split='test')
+                        ])
+             ])
+
+    print(tabulate.tabulate(table,
+                            ["model", "min eigval loss (train, val, test)",
+                             "trace loss (train, val, test)"], tablefmt="grid"))
+
+    print(tabulate.tabulate(table,
+                            ["model", "min eigval loss (train, val, test)",
+                             "trace loss (train, val, test)"], tablefmt="latex"))
+
+
+def sequences_postprocess_demo():
+    losses = ['min_eigval_loss', 'trace_loss']
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
+
+    def get_mean_losses_for_sequences(pose_src='gt', model='*', split='*'):
+        data = {}
+        for loss in losses:
+            dfs = None
+            for i, fname in enumerate(glob.glob(os.path.join(path,
+                                                             '*/%s_%s_*/fold_*/loss_eval_%s_%s.csv' % (
+                                                                     pose_src, model, loss, split)))):
+                df = pd.read_csv(fname, delimiter=' ', header=None, names=['sequence', loss])
+                if i == 0:
+                    dfs = df
+                else:
+                    dfs = pd.concat([dfs, df], axis=0)
+            loss_mean, loss_std = dfs.groupby('sequence').mean(), dfs.groupby('sequence').std()
+            data[loss] = (loss_mean, loss_std)
+        return data
+
+    data = get_mean_losses_for_sequences()
+
+    for loss in losses:
+        loss_mean, loss_std = data[loss]
+        print(tabulate.tabulate(loss_mean, ['sequence', loss]))
+        # print(tabulate.tabulate(loss_std, ['sequence', loss + '_std']))
+        print(tabulate.tabulate(loss_mean, ['sequence', loss], tablefmt='latex'))
+        # print(tabulate.tabulate(loss_std, ['sequence', loss + '_std'], tablefmt='latex'))
+
+
 if __name__ == '__main__':
-    tables_demo()
+    # tables_demo()
+    # slam_postprocess_demo()
+    # loss_postprocess_demo()
+    sequences_postprocess_demo()

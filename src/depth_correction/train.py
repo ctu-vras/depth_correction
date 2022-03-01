@@ -194,6 +194,9 @@ def train(cfg: Config):
             pose_deltas = [p.detach().clone() for p in train_pose_deltas if p is not None]
             pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_loss)
             torch.save(pose_deltas, pose_deltas_path)
+            poses_upd = [p.detach().clone() for p in train_poses_upd if p is not None]
+            poses_upd_path = '%s/%03i_%.6g_poses_upd.pth' % (cfg.log_dir, it, min_loss)
+            torch.save(poses_upd, poses_upd_path)
 
             best_cfg = cfg.copy()
             best_cfg.model_state_dict = state_dict_path

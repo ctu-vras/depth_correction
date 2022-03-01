@@ -3,11 +3,9 @@ from .config import Config, PoseCorrection
 from argparse import ArgumentParser
 import os
 import roslaunch
-from rospkg import RosPack
 
 
-package_dir = RosPack().get_path('depth_correction')
-slam_eval_launch = os.path.join(package_dir, 'launch', 'slam_eval.launch')
+slam_eval_launch = os.path.join(Config().pkg_dir, 'launch', 'slam_eval.launch')
 
 
 def eval_slam(cfg: Config):

@@ -1,8 +1,5 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
-from .eval import eval_loss
-from .slam_eval import eval_slam
-from .train_and_eval import train_and_eval
 from argparse import ArgumentParser
 from collections import deque
 from data.asl_laser import Dataset, dataset_names
@@ -77,6 +74,9 @@ def slam_poses_csv(cfg: Config, name, slam):
 
 
 def eval_baselines(launch_prefix=None):
+    # Avoid using ROS in global namespace to allow using scheduler.
+    from .eval import eval_loss
+    from .slam_eval import eval_slam
     # TODO: launch prefix
     # evaluate consistency loss on all sequences
     cfg = Config()
@@ -176,6 +176,8 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
             print('Error:', err)
             print()
         else:
+            # Avoid using ROS in global namespace to allow using scheduler.
+            from .train_and_eval import train_and_eval
             train_and_eval(cfg)
 
 
@@ -197,6 +199,8 @@ def run_from_cmdline():
         eval_baselines()
     elif args.verb == 'train_and_eval_all':
         train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs)
+    elif args.verb == 'print_config':
+        print(Config().to_yaml())
 
 
 def main():

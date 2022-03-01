@@ -4,7 +4,6 @@ from datetime import datetime
 # from enum import Enum
 import numpy  # needed in eval
 import os
-from rospkg import RosPack
 import torch  # needed in eval
 import yaml
 
@@ -39,7 +38,7 @@ class Config(object):
 
     Only basic Python types should be used as values."""
     def __init__(self, **kwargs):
-        self.pkg_dir = RosPack().get_path('depth_correction')
+        self.pkg_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.enable_ros = False
         self.ros_master_port = 11513
 

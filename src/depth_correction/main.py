@@ -107,15 +107,20 @@ def eval_baselines(launch_prefix=None):
             eval_slam(cfg=eval_cfg)
 
 
-def train_and_eval_all(launch_prefix=None):
+def train_and_eval_all(launch_prefix=None, num_jobs=0):
 
     num_exp = len(list(product(pose_providers, models, losses, enumerate(splits))))
     print('Number of experiments: %i' % num_exp)
+    print('Maximum number of jobs: %i' % num_jobs)
     assert num_exp < 100
     base_port = 11311
 
     for i_exp, (pose_provider, model, loss, (i_fold, (train_names, val_names, test_names))) \
             in enumerate(product(pose_providers, models, losses, enumerate(splits))):
+        if launch_prefix and i_exp >= num_jobs:
+            print('Maximum number of jobs scheduled.')
+            print()
+            break
         port = base_port + i_exp
         print('Generating config:')
         print('pose provider: %s' % pose_provider)
@@ -166,7 +171,6 @@ def train_and_eval_all(launch_prefix=None):
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.train_and_eval', '-c', cfg_path]
             print('Command line:', cmd)
             print()
-            continue
             out, err = cmd_out(cmd)
             print('Output:', out)
             print('Error:', err)
@@ -181,10 +185,10 @@ def run_all():
 
 
 def run_from_cmdline():
-    print('cmd')
     parser = ArgumentParser()
     # parser.add_argument('--launch-prefix', type=str, nargs='+')
     parser.add_argument('--launch-prefix', type=str)
+    parser.add_argument('--num-jobs', type=int, default=0)  # allows debug with fewer jobs
     parser.add_argument('verb', type=str)
     args = parser.parse_args()
     print(args)
@@ -192,7 +196,7 @@ def run_from_cmdline():
     if args.verb == 'eval_baselines':
         eval_baselines()
     elif args.verb == 'train_and_eval_all':
-        train_and_eval_all(launch_prefix=args.launch_prefix)
+        train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs)
 
 
 def main():

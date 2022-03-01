@@ -41,6 +41,7 @@ class Config(object):
     def __init__(self, **kwargs):
         self.pkg_dir = RosPack().get_path('depth_correction')
         self.enable_ros = False
+        self.ros_master_port = 11311
 
         self.slam = 'ethzasl_icp_mapper'
         self.model = None

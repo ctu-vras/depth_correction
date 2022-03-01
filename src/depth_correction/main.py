@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
 from .eval import eval_loss
 from .slam_eval import eval_slam
-from .train import train
+from .train_and_eval import train_and_eval
 from argparse import ArgumentParser
 from collections import deque
 from data.asl_laser import Dataset, dataset_names
@@ -10,7 +10,6 @@ from itertools import product
 import os
 import random
 from subprocess import DEVNULL, PIPE, run
-
 """Launch all experiments.
 
 Generated files:
@@ -77,7 +76,8 @@ def slam_poses_csv(cfg: Config, name, slam):
     return path
 
 
-def eval_baselines():
+def eval_baselines(launch_prefix=None):
+    # TODO: launch prefix
     # evaluate consistency loss on all sequences
     cfg = Config()
     # Adjust default config...
@@ -107,48 +107,27 @@ def eval_baselines():
             eval_slam(cfg=eval_cfg)
 
 
-def train_and_eval(cfg: Config):
-    best_cfg = train(cfg)
-    # Evaluate consistency loss on all subsets.
-    # Use ground-truth poses for evaluation.
-    for split, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
-                             ['train', 'val', 'test']):
-        for loss in losses:
-            eval_cfg = best_cfg.copy()
-            eval_cfg.test_names = split
-            eval_cfg.train_poses_path = []
-            eval_cfg.val_poses_path = []
-            eval_cfg.test_poses_path = []
-            eval_cfg.loss = loss
-            eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir,
-                                                  'loss_eval_%s_%s.csv' % (loss, suffix))
-            eval_loss(cfg=eval_cfg)
+def train_and_eval_all(launch_prefix=None):
 
-        # evaluate slam localization on test (train, validation) set
-        for slam in slams:
-            eval_cfg = best_cfg.copy()
-            eval_cfg.test_names = split
-            eval_cfg.train_poses_path = []
-            eval_cfg.val_poses_path = []
-            eval_cfg.test_poses_path = []
-            eval_cfg.slam = slam
-            eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir,
-                                                  'slam_eval_%s_%s.csv' % (slam, suffix))
-            eval_slam(cfg=eval_cfg)
+    num_exp = len(list(product(pose_providers, models, losses, enumerate(splits))))
+    print('Number of experiments: %i' % num_exp)
+    assert num_exp < 100
+    base_port = 11311
 
-
-def train_and_eval_batch():
-    for pose_provider, model, loss, (i_fold, (train_names, val_names, test_names)) \
-            in product(pose_providers, models, losses, enumerate(splits)):
-        print('Generating config for')
-        print('    pose provider: %s' % pose_provider)
-        print('    model: %s' % model)
-        print('    loss: %s' % loss)
-        print('    fold: %i' % i_fold)
+    for i_exp, (pose_provider, model, loss, (i_fold, (train_names, val_names, test_names))) \
+            in enumerate(product(pose_providers, models, losses, enumerate(splits))):
+        port = base_port + i_exp
+        print('Generating config:')
+        print('pose provider: %s' % pose_provider)
+        print('model: %s' % model)
+        print('loss: %s' % loss)
+        print('fold: %i' % i_fold)
+        print('port: %i' % port)
 
         cfg = Config()
         # TODO: Configure preprocessing.
         cfg.log_dir = cfg.get_log_dir()
+        cfg.ros_master_port = port
 
         # Allow correction of individual pose if poses are provided by SLAM.
         if pose_provider:
@@ -168,28 +147,52 @@ def train_and_eval_batch():
                                    '%s_%s_%s' % (pose_provider if pose_provider else 'gt',
                                                  cfg.model_class.lower(), cfg.loss.lower()),
                                    'fold_%i' % i_fold)
+        print('Log dir: %s' % cfg.log_dir)
+        if os.path.exists(cfg.log_dir):
+            print('Log dir already exists. Skipping.')
+            print()
+            continue
         os.makedirs(cfg.log_dir, exist_ok=True)
-        print(cfg.log_dir)
+        print()
 
-        # Train
-        train_and_eval(cfg)
-
-        # TODO: Save config and schedule batch job.
+        if launch_prefix:
+            # Save config and schedule batch job (via launch_prefix).
+            cfg_path = os.path.join(cfg.log_dir, 'config.yaml')
+            if os.path.exists(cfg_path):
+                print('Skipping existing config %s.' % cfg_path)
+                continue
+            cfg.to_yaml(cfg_path)
+            launch_prefix_parts = launch_prefix.split(' ')
+            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.train_and_eval', '-c', cfg_path]
+            print('Command line:', cmd)
+            print()
+            continue
+            out, err = cmd_out(cmd)
+            print('Output:', out)
+            print('Error:', err)
+            print()
+        else:
+            train_and_eval(cfg)
 
 
 def run_all():
     eval_baselines()
-    train_and_eval_batch()
+    train_and_eval_all()
 
 
 def run_from_cmdline():
+    print('cmd')
     parser = ArgumentParser()
+    # parser.add_argument('--launch-prefix', type=str, nargs='+')
+    parser.add_argument('--launch-prefix', type=str)
     parser.add_argument('verb', type=str)
     args = parser.parse_args()
+    print(args)
+    # return
     if args.verb == 'eval_baselines':
         eval_baselines()
-    elif args.verb == 'train_and_eval_batch':
-        train_and_eval_batch()
+    elif args.verb == 'train_and_eval_all':
+        train_and_eval_all(launch_prefix=args.launch_prefix)
 
 
 def main():

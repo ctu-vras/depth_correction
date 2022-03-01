@@ -196,11 +196,11 @@ def slam_postprocess_demo():
                                         u"%.6f (\u00B1 %.6f)" % get_slam_accuracy(model=model, split='test')[1]])])
 
     print(tabulate.tabulate(table,
-                            ["model", "orientation accuracy (train, val, test), [deg]",
+                            ["model", "orientation error (train, val, test), [deg]",
                              "translation accuracy (train, val, test), [m]"], tablefmt="grid"))
 
     print(tabulate.tabulate(table,
-                            ["model", "orientation accuracy (train, val, test), [rad]",
+                            ["model", "orientation error (train, val, test), [rad]",
                              "translation accuracy (train, val, test), [m]"], tablefmt="latex"))
     print("\n-------------------------------------------------------------------------------------------------------\n")
 
@@ -278,21 +278,18 @@ def sequences_postprocess_demo():
                 else:
                     dfs = pd.concat([dfs, df], axis=0)
             loss_mean, loss_std = dfs.groupby('sequence').mean(), dfs.groupby('sequence').std()
-            data[loss] = (loss_mean, loss_std)
+            data[loss] = pd.concat([loss_mean, loss_std], axis=1, names=['sequence', loss, loss + '_std'])
         return data
 
     data = get_mean_losses_for_sequences()
 
     for loss in losses:
-        loss_mean, loss_std = data[loss]
-        print(tabulate.tabulate(loss_mean, ['sequence', loss]))
-        # print(tabulate.tabulate(loss_std, ['sequence', loss + '_std']))
-        print(tabulate.tabulate(loss_mean, ['sequence', loss], tablefmt='latex'))
-        # print(tabulate.tabulate(loss_std, ['sequence', loss + '_std'], tablefmt='latex'))
+        print(tabulate.tabulate(data[loss], ['sequence', loss, loss + '_std']))
+        print(tabulate.tabulate(data[loss], ['sequence', loss, loss + '_std'], tablefmt='latex'))
 
 
 if __name__ == '__main__':
     # tables_demo()
-    # slam_postprocess_demo()
-    # loss_postprocess_demo()
+    slam_postprocess_demo()
+    loss_postprocess_demo()
     sequences_postprocess_demo()

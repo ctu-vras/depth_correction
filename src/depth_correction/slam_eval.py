@@ -54,7 +54,11 @@ def eval_slam(cfg: Config):
         # print(cli_args)
         roslaunch_args = cli_args[1:]
         roslaunch_file = [(roslaunch.rlutil.resolve_launch_arguments(cli_args)[0], roslaunch_args)]
-        parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, force_log=True)
+        launch_kwargs = {}
+        launch_kwargs['force_log'] = True
+        if cfg.ros_master_port:
+            launch_kwargs['port'] = cfg.ros_master_port
+        parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, **launch_kwargs)
         # parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, verbose=True, force_log=True)
         parent.start()
         parent.spin()

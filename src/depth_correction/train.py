@@ -133,6 +133,7 @@ def train(cfg: Config):
             train_poses_upd = train_poses
         else:
             # Convert pose deltas to matrices
+            # TODO: Batch convert and multiply.
             train_poses_upd = []
             for i in range(len(train_poses)):
                 pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
@@ -163,8 +164,9 @@ def train(cfg: Config):
             val_poses_upd = val_poses
         else:
             # Convert pose deltas to matrices
+            # TODO: Batch convert and multiply.
             val_poses_upd = []
-            for i in range(len(train_poses)):
+            for i in range(len(val_poses)):
                 pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
                 val_poses_upd.append(torch.matmul(val_poses[i], pose_deltas_mat))
 

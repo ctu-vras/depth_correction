@@ -101,7 +101,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
     print('Number of experiments: %i' % num_exp)
     print('Maximum number of jobs: %i' % num_jobs)
     assert num_exp < 100
-    base_port = 11311
+    base_port = Config().ros_master_port
 
     for i_exp, (pose_provider, model, loss, (i_split, (train_names, val_names, test_names))) \
             in enumerate(product(PoseProvider, Model, Loss, enumerate(splits))):

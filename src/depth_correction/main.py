@@ -155,6 +155,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
                 print('Skipping existing config %s.' % cfg_path)
                 continue
             cfg.to_yaml(cfg_path)
+            launch_prefix.format(log_dir=cfg.log_dir)
             launch_prefix_parts = launch_prefix.split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.train_and_eval', '-c', cfg_path]
             print('Command line:', cmd)

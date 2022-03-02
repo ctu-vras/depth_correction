@@ -15,15 +15,15 @@ Generated files:
         gen/<preprocessing>/loss_eval_<loss>.csv
         gen/<preprocessing>/slam_eval_<slam>.csv
     train:
-        gen/<preprocessing>/<model>_<loss>/<fold>/train.yaml
-        gen/<preprocessing>/<model>_<loss>/<fold>/best.yaml
-        gen/<preprocessing>/<model>_<loss>/<fold>/<iter>_*_pose_deltas.pth
-        gen/<preprocessing>/<model>_<loss>/<fold>/<iter>_*_state_dict.pth
-        gen/<preprocessing>/<model>_<loss>/<fold>/events.out.tfevents.*
+        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/train.yaml
+        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/best.yaml
+        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/<iter>_*_pose_deltas.pth
+        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/<iter>_*_state_dict.pth
+        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/events.out.tfevents.*
     eval_loss:
-        gen/<preprocessing>/<model>_<loss>/<fold>/loss_eval_<loss>_<subset>.csv
+        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/loss_eval_<loss>_<subset>.csv
     eval_slam:
-        gen/<preprocessing>/<model>_<loss>/<fold>/slam_eval_<loss>_<subset>.csv
+        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/slam_eval_<loss>_<subset>.csv
 """
 
 # TODO: Generate multiple splits.

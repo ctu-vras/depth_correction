@@ -6,6 +6,7 @@ from .loss import min_eigval_loss, trace_loss
 from .model import *
 from .preproc import *
 from .ros import *
+from argparse import ArgumentParser
 import numpy as np
 import os
 import torch
@@ -17,6 +18,13 @@ def eval_loss(cfg: Config):
 
     :param cfg:
     """
+    cfg_path = os.path.join(cfg.log_dir, 'eval.yaml')
+    if os.path.exists(cfg_path):
+        print('Config %s already exists.' % cfg_path)
+    else:
+        cfg.to_yaml(cfg_path)
+
+
     assert cfg.dataset == 'asl_laser'
     if cfg.dataset == 'asl_laser':
         from data.asl_laser import Dataset
@@ -61,13 +69,32 @@ def eval_loss(cfg: Config):
         append(csv, '%s %.9f\n' % (name, test_loss))
 
 
-def main():
+def demo():
     cfg = Config()
     cfg.test_names = ['stairs']
     cfg.model_class = 'ScaledPolynomial'
     cfg.model_state_dict = '/home/petrito1/workspace/depth_correction/gen/2022-02-21_16-31-34/088_8.85347e-05_state_dict.pth'
     cfg.pose_correction = PoseCorrection.sequence
     eval_loss(cfg)
+
+
+def run_from_cmdline():
+    parser = ArgumentParser()
+    parser.add_argument('--config', '-c', type=str, required=True)
+    args = parser.parse_args()
+    print('Arguments:')
+    print(args)
+    cfg = Config()
+    cfg.from_yaml(args.config)
+    print('Config:')
+    print(cfg.to_yaml())
+    print('Evaluating loss...')
+    eval_loss(cfg)
+    print('Evaluating loss finished.')
+
+
+def main():
+    run_from_cmdline()
 
 
 if __name__ == '__main__':

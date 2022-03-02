@@ -4,34 +4,68 @@ from datetime import datetime
 # from enum import Enum
 import numpy  # needed in eval
 import os
-from rospkg import RosPack
 import torch  # needed in eval
 import yaml
 
 __all__ = [
     'Config',
     'PoseCorrection',
+    'PoseProvider',
+    'SLAM',
+    'ValueEnum',
 ]
 
 
-# class PoseCorrection(Enum):
-# class PoseCorrection(yaml.YAMLObject):
-class PoseCorrection(object):
-    """Pose correction of ground-truth or estimated poses."""
-    none = 'none'
-    # Common for all sequences
-    common = 'common'
-    # Common for all poses within sequence
-    sequence = 'sequence'
-    # Separate correction of each pose
-    pose = 'pose'
+# https://stackoverflow.com/a/10814662
+class ValueEnum(type):
+    """Simple enumeration type with plain user-defined values."""
+    def __iter__(self):
+        return iter((f for f in vars(self) if not f.startswith('_')))
 
-    # yaml_tag = u'!PoseCorrection'
-    # def __str__(self):
-    #     return self.value
-    #
-    # def __repr__(self):
-    #     return str(self)
+    def __contains__(self, item):
+        return item in iter(self)
+
+
+class Loss(metaclass=ValueEnum):
+    min_eigval_loss = 'min_eigval_loss'
+    trace_loss = 'trace_loss'
+
+
+class Model(metaclass=ValueEnum):
+    Polynomial = 'Polynomial'
+    ScaledPolynomial = 'ScaledPolynomial'
+
+
+class PoseCorrection(metaclass=ValueEnum):
+    """Pose correction of ground-truth or estimated poses."""
+
+    none = 'none'
+    """No pose correction."""
+
+    common = 'common'
+    """Common for all sequences, calibration of shared sensor rig.
+    Training update can be used in validation."""
+
+    sequence = 'sequence'
+    """Common for all poses within sequence, calibration of sensor rig per sequence.
+    Validation poses can be optimized separately (for given model)."""
+
+    pose = 'pose'
+    """Separate correction of each pose (adjusting localization from SLAM).
+    Validation poses can be optimized separately (for given model)."""
+
+
+class SLAM(metaclass=ValueEnum):
+    ethzasl_icp_mapper = 'ethzasl_icp_mapper'
+
+
+class PoseProvider(metaclass=ValueEnum):
+    ground_truth = 'ground_truth'
+
+
+# Add SLAM pipelines to possible pose providers.
+for slam in SLAM:
+    setattr(PoseProvider, slam, slam)
 
 
 class Config(object):
@@ -39,8 +73,9 @@ class Config(object):
 
     Only basic Python types should be used as values."""
     def __init__(self, **kwargs):
-        self.pkg_dir = RosPack().get_path('depth_correction')
+        self.pkg_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.enable_ros = False
+        self.ros_master_port = 11513
 
         self.slam = 'ethzasl_icp_mapper'
         self.model = None
@@ -82,14 +117,14 @@ class Config(object):
         # self.loss = 'trace_loss'
         self.n_opt_iters = 100
 
-        # self.optimizer = 'Adam'
-        # self.optimizer_args = []
-        # self.optimizer_kwargs = {}
-        # self.lr = 1e-4
-        self.optimizer = 'SGD'
+        self.optimizer = 'Adam'
         self.optimizer_args = []
-        self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
-        self.lr = 1e-3
+        self.optimizer_kwargs = {}
+        self.lr = 1e-4
+        # self.optimizer = 'SGD'
+        # self.optimizer_args = []
+        # self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
+        # self.lr = 5e-3
 
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
@@ -98,6 +133,9 @@ class Config(object):
         self.loss_eval_csv = None
         self.slam_eval_csv = None
         self.slam_poses_csv = None
+        # Testing
+        self.eval_losses = ['min_eigval_loss', 'trace_loss']
+        self.eval_slams = ['ethzasl_icp_mapper']
 
         self.log_filters = False
         self.show_results = False
@@ -115,12 +153,13 @@ class Config(object):
         for k, v in d.items():
             setattr(self, k, v)
 
-    def from_yaml(self, cfg):
-        if isinstance(cfg, str):
-            with open(cfg, 'r') as f:
+    def from_yaml(self, path):
+        if isinstance(path, str):
+            with open(path, 'r') as f:
                 try:
                     d = yaml.safe_load(f)
-                    self.from_dict(d)
+                    if d:  # Don't raise exception in case of empty yaml.
+                        self.from_dict(d)
                 except yaml.YAMLError as ex:
                     print(ex)
 

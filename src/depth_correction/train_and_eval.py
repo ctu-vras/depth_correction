@@ -11,11 +11,11 @@ def train_and_eval(cfg: Config):
     best_cfg = train(cfg)
     # Evaluate consistency loss and SLAM on all subsets.
     # Use ground-truth poses for evaluation.
-    for split, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
+    for names, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
                              ['train', 'val', 'test']):
         for loss in cfg.eval_losses:
             eval_cfg = best_cfg.copy()
-            eval_cfg.test_names = split
+            eval_cfg.test_names = names
             eval_cfg.train_poses_path = []
             eval_cfg.val_poses_path = []
             eval_cfg.test_poses_path = []
@@ -26,7 +26,7 @@ def train_and_eval(cfg: Config):
 
         for slam in cfg.eval_slams:
             eval_cfg = best_cfg.copy()
-            eval_cfg.test_names = split
+            eval_cfg.test_names = names
             eval_cfg.train_poses_path = []
             eval_cfg.val_poses_path = []
             eval_cfg.test_poses_path = []

@@ -1,5 +1,5 @@
 from __future__ import absolute_import, division, print_function
-from .config import Config, PoseCorrection
+from .config import Config, Loss, Model, PoseCorrection, PoseProvider, SLAM
 from argparse import ArgumentParser
 from collections import deque
 from data.asl_laser import Dataset, dataset_names
@@ -15,15 +15,15 @@ Generated files:
         gen/<preprocessing>/loss_eval_<loss>.csv
         gen/<preprocessing>/slam_eval_<slam>.csv
     train:
-        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/train.yaml
-        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/best.yaml
-        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/<iter>_*_pose_deltas.pth
-        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/<iter>_*_state_dict.pth
-        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/events.out.tfevents.*
+        gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/train.yaml
+        gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/best.yaml
+        gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/<iter>_*_pose_deltas.pth
+        gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/<iter>_*_state_dict.pth
+        gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/events.out.tfevents.*
     eval_loss:
-        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/loss_eval_<loss>_<subset>.csv
+        gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/loss_eval_<loss>_<subset>.csv
     eval_slam:
-        gen/<preprocessing>/<poses>_<model>_<loss>/<fold>/slam_eval_<loss>_<subset>.csv
+        gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/slam_eval_<loss>_<subset>.csv
 """
 
 # TODO: Generate multiple splits.
@@ -45,17 +45,6 @@ for i in range(num_splits):
     splits.append([ds_list[:4], ds_list[4:6], ds_list[6:]])
 # for split in splits:
 #     print(split)
-
-models = ['Polynomial', 'ScaledPolynomial']
-losses = ['min_eigval_loss', 'trace_loss']
-slams = ['ethzasl_icp_mapper']
-pose_providers = [None] + slams
-
-# Debug
-# splits = [[['asl_laser/eth'], ['asl_laser/stairs'], ['asl_laser/gazebo_winter']]]
-# models = ['ScaledPolynomial']
-# losses = ['min_eigval_loss']
-# slams = ['ethzasl_icp_mapper']
 
 
 def cmd_out(cmd):
@@ -86,7 +75,7 @@ def eval_baselines(launch_prefix=None):
     cfg.log_dir = cfg.get_log_dir()
     os.makedirs(cfg.log_dir, exist_ok=True)
 
-    for test_loss in losses:
+    for test_loss in Loss:
         eval_cfg = cfg.copy()
         eval_cfg.test_names = ds
         eval_cfg.loss = test_loss
@@ -94,14 +83,13 @@ def eval_baselines(launch_prefix=None):
         eval_loss(cfg=eval_cfg)
 
     # Generate SLAM poses as well.
-    for slam in slams:
+    for slam in SLAM:
         for name in ds:
             eval_cfg = cfg.copy()
             eval_cfg.test_names = [name]
             eval_cfg.slam = slam
             eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir, 'slam_eval_%s.csv' % slam)
             # Output SLAM poses to structure within log dir.
-            # eval_cfg.slam_poses_csv = os.path.join(cfg.log_dir, name, 'slam_poses_%s.csv' % slam)
             eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
             os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)
             eval_slam(cfg=eval_cfg)
@@ -109,14 +97,14 @@ def eval_baselines(launch_prefix=None):
 
 def train_and_eval_all(launch_prefix=None, num_jobs=0):
 
-    num_exp = len(list(product(pose_providers, models, losses, enumerate(splits))))
+    num_exp = len(list(product(PoseProvider, Model, Loss, enumerate(splits))))
     print('Number of experiments: %i' % num_exp)
     print('Maximum number of jobs: %i' % num_jobs)
     assert num_exp < 100
     base_port = 11311
 
-    for i_exp, (pose_provider, model, loss, (i_fold, (train_names, val_names, test_names))) \
-            in enumerate(product(pose_providers, models, losses, enumerate(splits))):
+    for i_exp, (pose_provider, model, loss, (i_split, (train_names, val_names, test_names))) \
+            in enumerate(product(PoseProvider, Model, Loss, enumerate(splits))):
         if launch_prefix and i_exp >= num_jobs:
             print('Maximum number of jobs scheduled.')
             print()
@@ -126,7 +114,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
         print('pose provider: %s' % pose_provider)
         print('model: %s' % model)
         print('loss: %s' % loss)
-        print('fold: %i' % i_fold)
+        print('split: %i' % i_split)
         print('port: %i' % port)
 
         cfg = Config()
@@ -135,7 +123,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
         cfg.ros_master_port = port
 
         # Allow correction of individual pose if poses are provided by SLAM.
-        if pose_provider:
+        if pose_provider != PoseProvider.ground_truth:
             cfg.train_poses_path = [slam_poses_csv(cfg, name, pose_provider) for name in train_names]
             cfg.val_poses_path = [slam_poses_csv(cfg, name, pose_provider) for name in val_names]
             cfg.test_poses_path = [slam_poses_csv(cfg, name, pose_provider) for name in test_names]
@@ -151,7 +139,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
         cfg.log_dir = os.path.join(cfg.log_dir,
                                    '%s_%s_%s' % (pose_provider if pose_provider else 'gt',
                                                  cfg.model_class.lower(), cfg.loss.lower()),
-                                   'fold_%i' % i_fold)
+                                   'split_%i' % i_split)
         print('Log dir: %s' % cfg.log_dir)
         if os.path.exists(cfg.log_dir):
             print('Log dir already exists. Skipping.')

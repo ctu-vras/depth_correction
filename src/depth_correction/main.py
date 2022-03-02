@@ -61,9 +61,9 @@ pose_providers = [None] + slams
 def cmd_out(cmd):
     # https://stackoverflow.com/questions/89228/calling-an-external-command-in-python
     # out = run(cmd, check=True, stdout=PIPE, stderr=DEVNULL).stdout.decode()
-    ret = run(cmd, check=True, stdout=PIPE, stderr=DEVNULL)
-    out = ret.stdout.decode()
-    err = ret.stderr.decode()
+    ret = run(cmd, capture_output=True, check=True)
+    out = ret.stdout.decode() if ret.stdout else ''
+    err = ret.stderr.decode() if ret.stderr else ''
     return out, err
 
 

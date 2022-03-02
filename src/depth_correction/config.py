@@ -117,14 +117,14 @@ class Config(object):
         # self.loss = 'trace_loss'
         self.n_opt_iters = 100
 
-        # self.optimizer = 'Adam'
-        # self.optimizer_args = []
-        # self.optimizer_kwargs = {}
-        # self.lr = 1e-4
-        self.optimizer = 'SGD'
+        self.optimizer = 'Adam'
         self.optimizer_args = []
-        self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
-        self.lr = 1e-3
+        self.optimizer_kwargs = {}
+        self.lr = 1e-4
+        # self.optimizer = 'SGD'
+        # self.optimizer_args = []
+        # self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
+        # self.lr = 5e-3
 
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None

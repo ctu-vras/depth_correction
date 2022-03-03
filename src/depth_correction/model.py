@@ -6,10 +6,12 @@ import torch
 
 __all__ = [
     'BaseModel',
+    'InvCos',
     'Linear',
     'load_model',
     'Polynomial',
     'ScaledPolynomial',
+    'ScaledInvCos',
 ]
 
 
@@ -178,3 +180,49 @@ class ScaledPolynomial(BaseModel):
         return 'ScaledPolynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
 
 
+class InvCos(BaseModel):
+
+    def __init__(self, p0=0.0, device=torch.device('cpu')):
+        super(InvCos, self).__init__(device=device)
+        p0 = torch.as_tensor(p0, device=device)
+        self.p0 = torch.nn.Parameter(p0)
+
+    def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        assert dc.inc_angles is not None
+        dc_corr = dc.copy()
+        if mask is None:
+            bias = self.p0 / torch.cos(dc.inc_angles)
+            dc_corr.depth = dc_corr.depth - bias
+        else:
+            bias = self.p0 / torch.cos(dc.inc_angles[mask])
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = dc_corr.depth[mask] - bias
+        return dc_corr
+
+    def __str__(self):
+        return 'InvCos(%.6g)' % (self.p0.item(),)
+
+
+class ScaledInvCos(BaseModel):
+
+    def __init__(self, p0=0.0, device=torch.device('cpu')):
+        super(ScaledInvCos, self).__init__(device=device)
+        p0 = torch.as_tensor(p0, device=device)
+        self.p0 = torch.nn.Parameter(p0)
+
+    def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        assert dc.inc_angles is not None
+        dc_corr = dc.copy()
+        if mask is None:
+            bias = self.p0 / torch.cos(dc.inc_angles)
+            dc_corr.depth = dc_corr.depth * (1. - bias)
+        else:
+            bias = self.p0 / torch.cos(dc.inc_angles[mask])
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = dc_corr.depth[mask] * (1. - bias)
+        return dc_corr
+
+    def __str__(self):
+        return 'ScaledInvCos(%.6g)' % (self.p0.item(),)

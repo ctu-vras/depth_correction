@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <arg name="data_path" default="/home/ruslan/data/data/python"
-         doc="Path do data pkg: https://github.com/tpet/data"/>
     <arg name="rviz" default="true"/>
+    <arg name="dataset" default="asl_laser/eth"/>
 
     <!-- Robot data: from ASL dataset -->
     <include file="$(dirname)/robot_data.launch">
-<!--        <env name="PYTHONPATH" value="$(optenv PYTHONPATH):$(arg data_path)"/>-->
-        <arg name="period" default="2.0"/>
+        <arg name="dataset" value="$(arg dataset)"/>
     </include>
 
     <!-- Depth correction -->
     <include file="$(dirname)/depth_correction.launch">
-        <arg name="cloud" value="cloud"/>
+        <arg name="input" value="cloud"/>
     </include>
 
     <!-- RVIZ -->

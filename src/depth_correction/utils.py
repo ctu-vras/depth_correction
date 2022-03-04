@@ -157,7 +157,6 @@ path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
 
 
 def slam_localization_error_demo():
-    print("\n-------------------------------------------------------------------------------------------------------\n")
     print(" SLAM error table ")
 
     def get_slam_error(pose_src='*', model='*', loss='*', split='train'):
@@ -186,31 +185,42 @@ def slam_localization_error_demo():
         orient_acc_rad_base_std, trans_acc_m_base_std = df.std(axis=0).values
         orient_acc_deg_base_std = np.rad2deg(orient_acc_rad_base_std)
 
-    for loss in losses + ["*"]:  # for each separate loss as well as averaged
-        print("\nLocalization error evaluation with loss: %s\n" % loss)
+    for pose_src in poses_sources:
 
-        table = [["Base model", u"%.3f (\u00B1 %.3f)" % (orient_acc_deg_base, orient_acc_deg_base_std),
-                  u"%.3f (\u00B1 %.3f)" % (trans_acc_m_base, trans_acc_m_base_std)]]
-        for model in models:
-            table.append(
-                [model.capitalize()] + [
-                    ", ".join([u"%.3f (\u00B1 %.3f)" % get_slam_error(model=model, loss=loss, split='train')[i],
-                               u"%.3f (\u00B1 %.3f)" % get_slam_error(model=model, loss=loss, split='val')[i],
-                               u"%.3f (\u00B1 %.3f)" % get_slam_error(model=model, loss=loss, split='test')[i]])
-                    for i in range(2)])
+        print('\nSLAM accuracy for initial localization source provider: %s\n' % pose_src)
 
-        print(tabulate.tabulate(table,
-                                ["model", "orientation error (train, val, test), [deg]",
-                                 "translation error (train, val, test), [m]"], tablefmt="grid"))
+        for loss in losses + ["*"]:  # for each separate loss as well as averaged
+            print("\nLocalization error evaluation with loss: %s\n" % loss)
 
-        print(tabulate.tabulate(table,
-                                ["model", "orientation error (train, val, test), [deg]",
-                                 "translation error (train, val, test), [m]"], tablefmt="latex"))
-    print("\n-------------------------------------------------------------------------------------------------------\n")
+            table = [["Base model", u"%.3f (\u00B1 %.3f)" % (orient_acc_deg_base, orient_acc_deg_base_std),
+                      u"%.3f (\u00B1 %.3f)" % (trans_acc_m_base, trans_acc_m_base_std)]]
+            for model in models:
+                table.append(
+                    [model.capitalize()] + [
+                        ", ".join([u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
+                                                                          model=model,
+                                                                          loss=loss,
+                                                                          split='train')[i],
+                                   u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
+                                                                          model=model,
+                                                                          loss=loss,
+                                                                          split='val')[i],
+                                   u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
+                                                                          model=model,
+                                                                          loss=loss,
+                                                                          split='test')[i]])
+                        for i in range(2)])
+
+            # print(tabulate.tabulate(table,
+            #                         ["model", "orientation error (train, val, test), [deg]",
+            #                          "translation error (train, val, test), [m]"], tablefmt="grid"))
+
+            print(tabulate.tabulate(table,
+                                    ["model", "orientation error (train, val, test), [deg]",
+                                     "translation error (train, val, test), [m]"], tablefmt="latex"))
 
 
 def mean_loss_over_sequences_and_data_splits_demo():
-    print(" Losses table ")
 
     def get_losses(pose_src='*', model='*', loss='*', split='*'):
         for i, fname in enumerate(glob.glob(os.path.join(path,
@@ -231,33 +241,37 @@ def mean_loss_over_sequences_and_data_splits_demo():
             base_loss_values.append([df.mean(axis=0).values[0], df.std(axis=0).values[0]])
     assert len(base_loss_values) == len(losses)
 
-    table = [["Base model"] + [u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray([loss, std])) for loss, std in
-                               base_loss_values]]
-    for model in models:
-        table.append(
-            [model.capitalize()] + [
-                ", ".join([u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src='*',
-                                                                                      model=model,
-                                                                                      loss=loss,
-                                                                                      split='train'))),
-                           u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src='*',
-                                                                                      model=model,
-                                                                                      loss=loss,
-                                                                                      split='val'))),
-                           u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src='*',
-                                                                                      model=model,
-                                                                                      loss=loss,
-                                                                                      split='test')))
-                           ]) for loss in losses]
-        )
+    for pose_src in poses_sources:
 
-    print(tabulate.tabulate(table,
-                            ["model", "min eigval loss (train, val, test) * 10e-3",
-                             "trace loss (train, val, test) * 10e-3"], tablefmt="grid"))
+        print('\nMean losses over sequences for localization source: %s\n' % pose_src)
 
-    print(tabulate.tabulate(table,
-                            ["model", "min eigval loss (train, val, test) * 10e-3",
-                             "trace loss (train, val, test) * 10e-3"], tablefmt="latex"))
+        table = [["Base model"] + [u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray([loss, std])) for loss, std in
+                                   base_loss_values]]
+        for model in models:
+            table.append(
+                [model.capitalize()] + [
+                    ", ".join([u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                                                                                          model=model,
+                                                                                          loss=loss,
+                                                                                          split='train'))),
+                               u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                                                                                          model=model,
+                                                                                          loss=loss,
+                                                                                          split='val'))),
+                               u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                                                                                          model=model,
+                                                                                          loss=loss,
+                                                                                          split='test')))
+                               ]) for loss in losses]
+            )
+
+        print(tabulate.tabulate(table,
+                                ["model", "min eigval loss (train, val, test) * 10e-3",
+                                 "trace loss (train, val, test) * 10e-3"], tablefmt="grid"))
+
+        print(tabulate.tabulate(table,
+                                ["model", "min eigval loss (train, val, test) * 10e-3",
+                                 "trace loss (train, val, test) * 10e-3"], tablefmt="latex"))
 
 
 def results_for_individual_sequences_demo(std=False):
@@ -306,7 +320,6 @@ def results_for_individual_sequences_demo(std=False):
 
     df0, names0 = get_data(optimized=False)
     df1, names1 = get_data(optimized=True, split='test')
-    # names = [loss for loss in losses] + [loss + '_0' for loss in losses]
     names = names1[1:] + names0[1:]
 
     df = pd.concat([df1, df0], axis=1).set_axis(names, axis=1)
@@ -318,7 +331,6 @@ def results_for_individual_sequences_demo(std=False):
 
 
 if __name__ == '__main__':
-    # slam_localization_error_demo()
-    # mean_loss_over_sequences_and_data_splits_demo()
+    slam_localization_error_demo()
+    mean_loss_over_sequences_and_data_splits_demo()
     results_for_individual_sequences_demo()
-    # TODO: create separate tables for SLAM and GT

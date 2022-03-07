@@ -491,14 +491,14 @@ class DepthCloud(object):
             return DepthCloud.from_structured_array(pts)
 
         if isinstance(pts, np.ndarray):
-            pts = torch.as_tensor(pts, dtype=dtype)
+            pts = torch.as_tensor(np.asarray(pts, dtype=dtype))
 
         assert isinstance(pts, torch.Tensor)
 
         if vps is None:
-            vps = torch.zeros((pts.shape[0], 3))
+            vps = torch.from_numpy(np.zeros([pts.shape[0], 3], dtype=dtype))
         elif isinstance(vps, np.ndarray):
-            vps = torch.as_tensor(vps, dtype=dtype)
+            vps = torch.as_tensor(np.asarray(vps, dtype=dtype))
         assert isinstance(vps, torch.Tensor)
         assert vps.shape == pts.shape
 
@@ -510,6 +510,7 @@ class DepthCloud(object):
 
         # TODO: Handle invalid points (zero depth).
         dirs = dirs / depth
+        assert dirs.dtype == vps.dtype
         depth_cloud = DepthCloud(vps, dirs, depth)
         return depth_cloud
 

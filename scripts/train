@@ -20,9 +20,9 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from ros_numpy import msgify
 import os
-# pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
-from rospkg import RosPack
-pkg_dir = RosPack().get_path('depth_correction')
+pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
+# from rospkg import RosPack
+# pkg_dir = RosPack().get_path('depth_correction')
 print(pkg_dir)
 
 # MODEL_TYPE = 'Linear'
@@ -39,9 +39,10 @@ LR = 1e-2
 SHOW_RESULTS = False
 
 DATASET = 'asl_laser'
-# dataset = 'utias_3dmap'
-# dataset = 'chilean_mine'
-# dataset = 'esa_robotics'
+# DATASET = 'utias_3dmap'
+# DATASET = 'chilean_mine'
+# DATASET = 'esa_robotics'
+# DATASET = 'semantic_kitti'
 print(DATASET)
 
 dtype = np.float64
@@ -61,11 +62,9 @@ r = 0.2
 # max_eig_0 = 0.01**2
 max_eig_0 = 0.02**2
 min_eig_1 = 0.05**2
-step = 3
+step = 100
 log_filters = False
 plot_period = 10
-
-gt_poses = False
 
 # from eval('data.%s' % dataset) import Dataset, dataset_names
 # eval('from data.%s import Dataset, dataset_names' % dataset)
@@ -74,8 +73,12 @@ Dataset = getattr(imported_module, "Dataset")
 dataset_names = getattr(imported_module, "dataset_names")
 rospy.loginfo('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
 
-train_names = 'eth',
-val_names = 'stairs',
+if DATASET == 'asl_laser':
+    train_names = 'eth',
+    val_names = 'stairs',
+elif DATASET == 'semantic_kitti':
+    train_names = '01',
+    val_names = '03',
 # train_names = 'apartment', 'eth',
 # val_names = 'stairs', 'gazebo_winter',
 rospy.loginfo('Training set: %s.' % ', '.join(train_names))
@@ -103,7 +106,10 @@ def filtered_clouds(ds: Dataset):
 # @timing
 def local_feature_cloud(cloud):
     # Convert to depth cloud and transform.
-    cloud = DepthCloud.from_structured_array(cloud, dtype=dtype)
+    if cloud.dtype.names:
+        cloud = DepthCloud.from_structured_array(cloud, dtype=dtype)
+    else:
+        cloud = DepthCloud.from_points(cloud, dtype=dtype)
     cloud = cloud.to(device=device)
     # Find/update neighbors and estimate all features.
     cloud.update_all(k=k, r=r)
@@ -242,7 +248,7 @@ def main():
     for name in train_names:
         clouds = []
         poses = []
-        for cloud, pose in Dataset(name, gt_poses=gt_poses)[::step]:
+        for cloud, pose in Dataset(name)[::step]:
             cloud = filtered_cloud(cloud)
             cloud = local_feature_cloud(cloud)
             # If poses are not optimized, depth can be corrected on global
@@ -267,7 +273,7 @@ def main():
     for name in val_names:
         clouds = []
         poses = []
-        for cloud, pose in Dataset(name, gt_poses=gt_poses)[::step]:
+        for cloud, pose in Dataset(name)[::step]:
             cloud = filtered_cloud(cloud)
             cloud = local_feature_cloud(cloud)
             clouds.append(cloud)
@@ -367,8 +373,8 @@ def main():
             saved = True
             min_loss = val_loss.item()
             torch.save(model.state_dict(),
-                       '%s/config/weights/%s_train_%s_val_%s_gt_poses_%r_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
-                       % (pkg_dir, MODEL_TYPE, ','.join(train_names), ','.join(val_names), gt_poses,
+                       '%s/config/weights/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
+                       % (pkg_dir, MODEL_TYPE, ','.join(train_names), ','.join(val_names),
                           r, max_eig_0, min_eig_1, val_loss.item()))
         else:
             saved = False

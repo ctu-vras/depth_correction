@@ -24,7 +24,6 @@ def eval_loss(cfg: Config):
     else:
         cfg.to_yaml(cfg_path)
 
-
     assert cfg.dataset == 'asl_laser'
     if cfg.dataset == 'asl_laser':
         from data.asl_laser import Dataset

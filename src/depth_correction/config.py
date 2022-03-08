@@ -95,7 +95,7 @@ class Config(object):
         self.nn_r = 0.2
 
         # Depth correction
-        self.eigenvalue_bounds = [[0, None, 0.02**2],
+        self.eigenvalue_bounds = [[0,    None, 0.02**2],
                                   [1, 0.05**2,    None]]
 
         # Data

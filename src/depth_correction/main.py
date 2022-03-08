@@ -3,6 +3,7 @@ from .config import Config, Loss, Model, PoseCorrection, PoseProvider, SLAM
 from argparse import ArgumentParser
 from collections import deque
 from data.asl_laser import Dataset, dataset_names
+from glob import glob
 from itertools import product
 import os
 import random
@@ -154,7 +155,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
                 print('Skipping existing config %s.' % cfg_path)
                 continue
             cfg.to_yaml(cfg_path)
-            launch_prefix.format(log_dir=cfg.log_dir)
+            launch_prefix = launch_prefix.format(log_dir=cfg.log_dir)
             launch_prefix_parts = launch_prefix.split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.train_and_eval', '-c', cfg_path]
             print('Command line:', cmd)
@@ -169,6 +170,70 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
             train_and_eval(cfg)
 
 
+def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg='all'):
+    """Evaluate selected configs.
+
+    Collect config paths using path template.
+    Adjust log directory for each config to produce outputs in a separate directory.
+    Evaluate SLAM pipelines using adjusted configs.
+
+    :param launch_prefix:
+    :param num_jobs:
+    :param config:
+    :param log_dir:
+    :return:
+    """
+    assert isinstance(config, str)
+    assert isinstance(log_dir, str)
+    configs = glob(config)
+    print(configs)
+    base_port = Config().ros_master_port
+
+    for i, config_path in enumerate(configs):
+
+        if launch_prefix and i >= num_jobs:
+            print('Maximum number of jobs scheduled.')
+            print()
+            break
+
+        cfg = Config()
+        cfg.from_yaml(config_path)
+        dirname, basename = os.path.split(config_path)
+        cfg.log_dir = log_dir.format(dirname=dirname, basename=basename)
+        os.makedirs(cfg.log_dir, exist_ok=True)
+        cfg.ros_master_port = base_port + i
+
+        if launch_prefix:
+            # Save config and schedule batch job (via launch_prefix).
+            new_path = os.path.join(cfg.log_dir, basename)
+            if os.path.exists(new_path):
+                print('Skipping existing config %s.' % new_path)
+                continue
+            cfg.to_yaml(new_path)
+            launch_args = launch_prefix.format(log_dir=cfg.log_dir).split(' ')
+            cmd = launch_args + ['python', '-m', 'depth_correction.eval', '-c', new_path, arg]
+            print('Command line:', cmd)
+            print()
+            continue
+            out, err = cmd_out(cmd)
+            print('Output:', out)
+            print('Error:', err)
+            print()
+        elif arg == 'all':
+            print('Eval all')
+            # Avoid using ROS in global namespace to allow using scheduler.
+            from .eval import eval_loss_all, eval_slam_all
+            # eval_all(cfg)
+            eval_loss_all(cfg)
+            eval_slam_all(cfg)
+        elif arg == 'loss':
+            from .eval import eval_loss_all
+            eval_loss_all(cfg)
+        elif arg == 'slam':
+            from .eval import eval_slam_all
+            eval_slam_all(cfg)
+
+
 def run_all():
     eval_baselines()
     train_and_eval_all()
@@ -176,18 +241,26 @@ def run_all():
 
 def run_from_cmdline():
     parser = ArgumentParser()
+    parser.add_argument('--config', type=str)
+    parser.add_argument('--log-dir', type=str)
     # parser.add_argument('--launch-prefix', type=str, nargs='+')
     parser.add_argument('--launch-prefix', type=str)
     parser.add_argument('--num-jobs', type=int, default=0)  # allows debug with fewer jobs
-    parser.add_argument('verb', type=str)
+    parser.add_argument('args', type=str, nargs='+')
+    # parser.add_argument('arg', type=str, required=False)
     args = parser.parse_args()
     print(args)
+    verb = args.args[0]
+    arg = args.args[1] if len(args.args) >= 2 else None
     # return
-    if args.verb == 'eval_baselines':
+    if verb == 'eval_baselines':
         eval_baselines()
-    elif args.verb == 'train_and_eval_all':
+    elif verb == 'train_and_eval_all':
         train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs)
-    elif args.verb == 'print_config':
+    elif verb == 'eval':
+        eval_configs(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs,
+                     config=args.config, log_dir=args.log_dir, arg=arg)
+    elif verb == 'print_config':
         print(Config().to_yaml())
 
 

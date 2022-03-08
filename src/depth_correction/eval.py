@@ -18,6 +18,7 @@ def eval_loss(cfg: Config):
 
     :param cfg:
     """
+    os.makedirs(cfg.log_dir, exist_ok=True)
     cfg_path = os.path.join(cfg.log_dir, 'eval.yaml')
     if os.path.exists(cfg_path):
         print('Config %s already exists.' % cfg_path)
@@ -68,6 +69,101 @@ def eval_loss(cfg: Config):
         append(csv, '%s %.9f\n' % (name, test_loss))
 
 
+def eval_loss_all(cfg: Config):
+    # Evaluate consistency loss and SLAM on all subsets.
+    # Use ground-truth poses for evaluation.
+    for names, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
+                             ['train', 'val', 'test']):
+        for loss in cfg.eval_losses:
+            eval_cfg = cfg.copy()
+            eval_cfg.test_names = names
+            eval_cfg.train_poses_path = []
+            eval_cfg.val_poses_path = []
+            eval_cfg.test_poses_path = []
+            eval_cfg.loss = loss
+            eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir,
+                                                  'loss_eval_%s_%s.csv' % (loss, suffix))
+            eval_loss(cfg=eval_cfg)
+
+
+def eval_slam(cfg: Config):
+    import roslaunch
+    slam_eval_launch = os.path.join(Config().pkg_dir, 'launch', 'slam_eval.launch')
+
+    cfg_path = os.path.join(cfg.log_dir, 'eval_slam.yaml')
+    if os.path.exists(cfg_path):
+        print('Config %s already exists.' % cfg_path)
+    else:
+        cfg.to_yaml(cfg_path)
+
+    # TODO: Actually use SLAM id if multiple pipelines are to be tested.
+    assert cfg.slam == 'ethzasl_icp_mapper'
+    # csv = os.path.join(cfg.log_dir, 'slam_eval.csv')
+    assert cfg.slam_eval_csv
+    assert not cfg.slam_poses_csv or len(cfg.test_names) == 1
+    uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
+    roslaunch.configure_logging(uuid)
+    for i, name in enumerate(cfg.test_names):
+        # Allow overriding poses paths, assume valid if non-empty.
+        poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
+        print('SLAM evaluation on %s started.' % name)
+        # print(cfg.to_yaml())
+
+        cli_args = [slam_eval_launch]
+        cli_args.append('dataset:=%s' % name)
+        if poses_path:
+            cli_args.append('dataset_poses_path:=%s' % poses_path)
+        cli_args.append('odom:=true')
+        cli_args.append('rviz:=true' if cfg.rviz else 'rviz:=false')
+        cli_args.append('slam_eval_csv:=%s' % cfg.slam_eval_csv)
+        if cfg.slam_poses_csv:
+            cli_args.append('slam_poses_csv:=%s' % cfg.slam_poses_csv)
+        cli_args.append('min_depth:=%.3f' % cfg.min_depth)
+        cli_args.append('max_depth:=%.3f' % cfg.max_depth)
+        cli_args.append('grid_res:=%.3f' % cfg.grid_res)
+        if cfg.pose_correction != PoseCorrection.none and cfg.model_class != 'BaseModel':
+            cli_args.append('depth_correction:=true')
+        else:
+            cli_args.append('depth_correction:=false')
+        cli_args.append('nn_r:=%.3f' % cfg.nn_r)
+        # TODO: Pass eigenvalue bounds to launch.
+        # cli_args.append('eigenvalue_bounds:=[[0, -.inf, 0.0004], [1, 0.0025, .inf]]')
+        print(cfg.eigenvalue_bounds)
+        cli_args.append('eigenvalue_bounds:=%s' % cfg.eigenvalue_bounds)
+        cli_args.append('model_class:=%s' % cfg.model_class)
+        cli_args.append('model_state_dict:=%s' % cfg.model_state_dict)
+        # print(cli_args)
+        roslaunch_args = cli_args[1:]
+        roslaunch_file = [(roslaunch.rlutil.resolve_launch_arguments(cli_args)[0], roslaunch_args)]
+        launch_kwargs = {}
+        launch_kwargs['force_log'] = True
+        if cfg.ros_master_port:
+            launch_kwargs['port'] = cfg.ros_master_port
+        parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, **launch_kwargs)
+        # parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, verbose=True, force_log=True)
+        parent.start()
+        parent.spin()
+        print('SLAM evaluation on %s finished.' % name)
+
+
+def eval_slam_all(cfg: Config):
+    # Evaluate consistency loss and SLAM on all subsets.
+    # Use ground-truth poses for evaluation.
+    for names, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
+                             ['train', 'val', 'test']):
+
+        for slam in cfg.eval_slams:
+            eval_cfg = cfg.copy()
+            eval_cfg.test_names = names
+            eval_cfg.train_poses_path = []
+            eval_cfg.val_poses_path = []
+            eval_cfg.test_poses_path = []
+            eval_cfg.slam = slam
+            eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir,
+                                                  'slam_eval_%s_%s.csv' % (slam, suffix))
+            eval_slam(cfg=eval_cfg)
+
+
 def demo():
     cfg = Config()
     cfg.test_names = ['stairs']
@@ -80,6 +176,7 @@ def demo():
 def run_from_cmdline():
     parser = ArgumentParser()
     parser.add_argument('--config', '-c', type=str, required=True)
+    parser.add_argument('arg', type=str, nargs='+', required=True)
     args = parser.parse_args()
     print('Arguments:')
     print(args)
@@ -88,7 +185,13 @@ def run_from_cmdline():
     print('Config:')
     print(cfg.to_yaml())
     print('Evaluating loss...')
-    eval_loss(cfg)
+    if args.arg == 'all':
+        eval_loss(cfg)
+        eval_slam(cfg)
+    elif args.arg == 'loss':
+        eval_loss(cfg)
+    elif args.arg == 'slam':
+        eval_slam(cfg)
     print('Evaluating loss finished.')
 
 

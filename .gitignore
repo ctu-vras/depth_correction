@@ -141,7 +141,7 @@ data
 
 # Logs
 tb_runs/
-gen/
+gen*/
 
 # Pytorch models weights
 *.pth

@@ -1,13 +1,14 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
-from .eval import eval_all
+from .eval import eval_loss_all, eval_slam_all
 from .train import train
 from argparse import ArgumentParser
 
 
 def train_and_eval(cfg: Config):
     best_cfg = train(cfg)
-    eval_all(best_cfg)
+    eval_loss_all(best_cfg)
+    eval_slam_all(best_cfg)
 
 
 def run_from_cmdline():

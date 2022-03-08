@@ -225,10 +225,10 @@ def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg=
             # eval_all(cfg)
             eval_loss_all(cfg)
             eval_slam_all(cfg)
-        elif arg == 'loss':
+        elif arg == 'loss_all':
             from .eval import eval_loss_all
             eval_loss_all(cfg)
-        elif arg == 'slam':
+        elif arg == 'slam_all':
             from .eval import eval_slam_all
             eval_slam_all(cfg)
 

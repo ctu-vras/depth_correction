@@ -190,8 +190,12 @@ def run_from_cmdline():
         eval_slam(cfg)
     elif args.arg == 'loss':
         eval_loss(cfg)
+    elif args.arg == 'loss_all':
+        eval_loss_all(cfg)
     elif args.arg == 'slam':
         eval_slam(cfg)
+    elif args.arg == 'slam_all':
+        eval_slam_all(cfg)
     print('Evaluating loss finished.')
 
 

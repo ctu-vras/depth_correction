@@ -128,7 +128,6 @@ def eval_slam(cfg: Config):
         cli_args.append('nn_r:=%.3f' % cfg.nn_r)
         # TODO: Pass eigenvalue bounds to launch.
         # cli_args.append('eigenvalue_bounds:=[[0, -.inf, 0.0004], [1, 0.0025, .inf]]')
-        print(cfg.eigenvalue_bounds)
         cli_args.append('eigenvalue_bounds:=%s' % cfg.eigenvalue_bounds)
         cli_args.append('model_class:=%s' % cfg.model_class)
         cli_args.append('model_state_dict:=%s' % cfg.model_state_dict)

@@ -170,7 +170,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
             train_and_eval(cfg)
 
 
-def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg='all'):
+def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg='all', eigenvalue_bounds=None):
     """Evaluate selected configs.
 
     Collect config paths using path template.
@@ -202,7 +202,8 @@ def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg=
         cfg.log_dir = log_dir.format(dirname=dirname, basename=basename)
         os.makedirs(cfg.log_dir, exist_ok=True)
         cfg.ros_master_port = base_port + i
-
+        if eigenvalue_bounds is not None:
+            cfg.eigenvalue_bounds = eigenvalue_bounds
         if launch_prefix:
             # Save config and schedule batch job (via launch_prefix).
             new_path = os.path.join(cfg.log_dir, basename)
@@ -245,6 +246,7 @@ def run_from_cmdline():
     # parser.add_argument('--launch-prefix', type=str, nargs='+')
     parser.add_argument('--launch-prefix', type=str)
     parser.add_argument('--num-jobs', type=int, default=0)  # allows debug with fewer jobs
+    parser.add_argument('--eigenvalue-bounds', type=str)
     parser.add_argument('args', type=str, nargs='+')
     # parser.add_argument('arg', type=str, required=False)
     args = parser.parse_args()
@@ -257,8 +259,12 @@ def run_from_cmdline():
     elif verb == 'train_and_eval_all':
         train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs)
     elif verb == 'eval':
+        print(verb, arg)
+        kwargs = {}
+        if args.eigenvalue_bounds:
+            kwargs['eigenvalue_bounds'] = args.eigenvalue_bounds
         eval_configs(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs,
-                     config=args.config, log_dir=args.log_dir, arg=arg)
+                     config=args.config, log_dir=args.log_dir, arg=arg, **kwargs)
     elif verb == 'print_config':
         print(Config().to_yaml())
 

@@ -214,7 +214,6 @@ def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg=
             cmd = launch_args + ['python', '-m', 'depth_correction.eval', '-c', new_path, arg]
             print('Command line:', cmd)
             print()
-            continue
             out, err = cmd_out(cmd)
             print('Output:', out)
             print('Error:', err)

@@ -137,7 +137,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
         cfg.test_names = test_names
 
         cfg.log_dir = os.path.join(cfg.log_dir,
-                                   '%s_%s_%s' % (pose_provider, cfg.model_class.lower(), cfg.loss.lower()),
+                                   '%s_%s_%s' % (pose_provider, cfg.model_class, cfg.loss),
                                    'split_%i' % i_split)
         print('Log dir: %s' % cfg.log_dir)
         if os.path.exists(cfg.log_dir):

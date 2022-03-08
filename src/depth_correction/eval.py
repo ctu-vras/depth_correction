@@ -121,7 +121,7 @@ def eval_slam(cfg: Config):
         cli_args.append('min_depth:=%.3f' % cfg.min_depth)
         cli_args.append('max_depth:=%.3f' % cfg.max_depth)
         cli_args.append('grid_res:=%.3f' % cfg.grid_res)
-        if cfg.pose_correction != PoseCorrection.none and cfg.model_class != 'BaseModel':
+        if cfg.model_class != 'BaseModel':
             cli_args.append('depth_correction:=true')
         else:
             cli_args.append('depth_correction:=false')

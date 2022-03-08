@@ -176,7 +176,7 @@ def demo():
 def run_from_cmdline():
     parser = ArgumentParser()
     parser.add_argument('--config', '-c', type=str, required=True)
-    parser.add_argument('arg', type=str, nargs='+', required=True)
+    parser.add_argument('arg', type=str)
     args = parser.parse_args()
     print('Arguments:')
     print(args)

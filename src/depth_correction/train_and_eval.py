@@ -14,7 +14,6 @@ def train_and_eval(cfg: Config):
 def run_from_cmdline():
     parser = ArgumentParser()
     parser.add_argument('--config', '-c', type=str, required=True)
-    parser.add_argument('verb')
     args = parser.parse_args()
     print('Arguments:')
     print(args)

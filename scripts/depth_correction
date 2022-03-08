@@ -54,7 +54,13 @@ class DepthCorrection(object):
         if not self.eigenvalue_bounds:
             self.eigenvalue_bounds = []
         if isinstance(self.eigenvalue_bounds, str):
+            rospy.logwarn('Converting eigenvalue bounds from string to dict.')
             self.eigenvalue_bounds = yaml.safe_load(self.eigenvalue_bounds)
+        for bounds in self.eigenvalue_bounds:
+            assert len(bounds) == 3
+            for i in (1, 2):
+                if not (isinstance(bounds[i], (float, int)) and -float('inf') < bounds[i] < float('inf')):
+                    bounds[i] = None
         rospy.logwarn('Eigenvalue bounds: %s', self.eigenvalue_bounds)
 
         if self.publish_filtered:

@@ -74,11 +74,11 @@ def within_bounds(x, min=None, max=None, log_variable=None):
 
     keep = torch.ones((x.numel(),), dtype=torch.bool, device=x.device)
 
-    if min is not None:
+    if min is not None and min > -float('inf'):
         if not isinstance(min, torch.Tensor):
             min = torch.tensor(min)
         keep = keep & (x.flatten() >= min)
-    if max is not None:
+    if max is not None and max < float('inf'):
         if not isinstance(max, torch.Tensor):
             max = torch.tensor(max)
         keep = keep & (x.flatten() <= max)

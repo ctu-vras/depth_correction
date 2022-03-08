@@ -10,6 +10,7 @@ import rospy
 from sensor_msgs.msg import PointCloud2
 import torch
 from timeit import default_timer as timer
+import yaml
 
 
 class DepthCorrection(object):
@@ -52,6 +53,9 @@ class DepthCorrection(object):
         self.eigenvalue_bounds = rospy.get_param('~eigenvalue_bounds', [])
         if not self.eigenvalue_bounds:
             self.eigenvalue_bounds = []
+        if isinstance(self.eigenvalue_bounds, str):
+            self.eigenvalue_bounds = yaml.safe_load(self.eigenvalue_bounds)
+        rospy.logwarn('Eigenvalue bounds: %s', self.eigenvalue_bounds)
 
         if self.publish_filtered:
             self.filtered_pub = rospy.Publisher('filtered_cloud', PointCloud2, queue_size=2)

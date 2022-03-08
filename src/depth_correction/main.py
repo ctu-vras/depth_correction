@@ -65,8 +65,7 @@ def slam_poses_csv(cfg: Config, name, slam):
 
 def eval_baselines(launch_prefix=None):
     # Avoid using ROS in global namespace to allow using scheduler.
-    from .eval import eval_loss
-    from .slam_eval import eval_slam
+    from .eval import eval_loss, eval_slam
     # TODO: launch prefix
     # evaluate consistency loss on all sequences
     cfg = Config()

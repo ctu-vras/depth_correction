@@ -89,10 +89,12 @@ class Config(object):
         # Cloud preprocessing
         self.min_depth = 1.0
         self.max_depth = 15.0
-        self.grid_res = 0.1
+        self.grid_res = 0.05
+        # self.grid_res = 0.1
         # Neighborhood
         self.nn_k = None
-        self.nn_r = 0.2
+        self.nn_r = 0.15
+        # self.nn_r = 0.2
 
         # Depth correction
         self.eigenvalue_bounds = [[0,    None, 0.02**2],
@@ -178,9 +180,38 @@ class Config(object):
     def torch_float_type(self):
         return eval('torch.%s' % self.float_type)
 
+    def sanitize(self):
+        if isinstance(self.eigenvalue_bounds, str):
+            self.eigenvalue_bounds = yaml.safe_load(self.eigenvalue_bounds)
+
+        eigenvalue_bounds = []
+        for i, min, max in self.eigenvalue_bounds:
+            if not isinstance(i, int) or i < 0:
+                continue
+            if not (isinstance(min, float) and -float('inf') < min < float('inf')):
+                min = float('nan')
+            if not (isinstance(max, float) and -float('inf') < max < float('inf')):
+                max = float('nan')
+            eigenvalue_bounds.append([i, min, max])
+        if eigenvalue_bounds != self.eigenvalue_bounds:
+            print('eigenvalue_bounds: %s -> %s' % (self.eigenvalue_bounds, eigenvalue_bounds))
+
+        self.eigenvalue_bounds = eigenvalue_bounds
+
     def get_log_dir(self):
-        name = ('depth_%.1f-%.1f_grid_%.2f_r%.2f'
-                % (self.min_depth, self.max_depth, self.grid_res, self.nn_r))
+        self.sanitize()
+        # name = ('depth_%.1f-%.1f_grid_%.2f_r%.2f'
+        #         % (self.min_depth, self.max_depth, self.grid_res, self.nn_r))
+        if self.nn_r:
+            nn = 'r%.2f' % self.nn_r
+        elif self.nn_k:
+            nn = 'k%i' % self.nn_k
+        else:
+            nn = 'none'
+        e = 'e'
+        for i, min, max in self.eigenvalue_bounds:
+            e += '%i_%.3g-%.3g' % (i, min, max)
+        name = ('d%.0f-%.0f_g%.2f_%s_%s' % (self.min_depth, self.max_depth, self.grid_res, nn, e))
         dir = os.path.join(self.pkg_dir, 'gen', name)
         return dir
 

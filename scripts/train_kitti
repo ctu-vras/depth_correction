@@ -25,6 +25,8 @@ from ros_numpy import msgify
 from rospkg import RosPack
 
 
+rospy.init_node('depth_correction', log_level=rospy.INFO)
+
 # pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
 pkg_dir = RosPack().get_path('depth_correction')
 # pkg_dir = "/home/ruslan/DepthCorrection/depth_correction"
@@ -59,13 +61,11 @@ k = None
 r = 0.30
 max_eig_0 = 0.02 ** 2
 min_eig_1 = 0.05 ** 2
-n_train_subseqs = 15
-n_val_subseqs = 5
+n_train_subseqs = rospy.get_param('~n_train_subseqs', 10)
+n_val_subseqs = rospy.get_param('n_val_subseqs', 5)
 data_sequence_step = 20
 local_cloud_step = 3
 log_filters = False
-
-rospy.init_node('depth_correction', log_level=rospy.INFO)
 
 # from eval('data.%s' % dataset) import Dataset, dataset_names
 # eval('from data.%s import Dataset, dataset_names' % dataset)
@@ -74,8 +74,8 @@ Dataset = getattr(imported_module, "Dataset")
 dataset_names = getattr(imported_module, "dataset_names")
 rospy.loginfo('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
 
-train_sequence = '01'
-val_sequence = '03'
+train_sequence = rospy.get_param('~train_sequence', '00')
+val_sequence = rospy.get_param('~val_sequence', '01')
 rospy.loginfo('Training set: %s.' % train_sequence)
 rospy.loginfo('Validation set: %s.' % val_sequence)
 

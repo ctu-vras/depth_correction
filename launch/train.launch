@@ -5,7 +5,7 @@
     <arg name="dataset" default="semantic_kitti" doc="supported datasets to train: [asl_laser, semantic_kitti]"/>
     <arg if="$(eval arg('dataset') == 'asl_laser')" name="train_names" default="['eth']"/>
     <arg if="$(eval arg('dataset') == 'asl_laser')" name="val_names" default="['stairs']"/>
-    <arg if="$(eval arg('dataset') == 'semantic_kitti')" name="train_names" default="['08_100_150']"/>
+    <arg if="$(eval arg('dataset') == 'semantic_kitti')" name="train_names" default="['08_100_150', '00_200_270']"/>
     <arg if="$(eval arg('dataset') == 'semantic_kitti')" name="val_names" default="['09_0_30']"/>
 
     <arg name="rviz_config" default="$(dirname)/../config/train_$(arg dataset).rviz"/>

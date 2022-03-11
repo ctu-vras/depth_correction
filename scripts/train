@@ -35,12 +35,11 @@ print(pkg_dir)
 # MODEL_TYPE = 'ScaledInvCos'
 MODEL_TYPE = rospy.get_param('~model_type', 'Polynomial')
 
-N_OPT_ITERS = 100
-LR = 1e-2
+N_OPT_ITERS = rospy.get_param('~n_opt_iters', 100)
+LR = rospy.get_param('~lr', 0.01)
 # LR = 1e-3
 # LR = 1e-4
 # LR = 1e-6
-SHOW_RESULTS = False
 
 # DATASET = 'asl_laser'
 # DATASET = 'utias_3dmap'
@@ -55,17 +54,15 @@ dtype = np.float64
 device = torch.device('cpu')
 # device = torch.device('cuda')
 
-min_depth = 1.0
-max_depth = 15.0
-grid_res = 0.2  # 0.05
+min_depth = rospy.get_param('~min_depth', 1.0)
+max_depth = rospy.get_param('~max_depth', 15.0)
+grid_res = rospy.get_param('~grid_res', 0.2)  # 0.05
 
-k = None
-r = 0.15
-# max_eig_0 = 0.005**2
-# max_eig_0 = 0.01**2
-max_eig_0 = 0.02**2
-min_eig_1 = 0.05**2
-step = 5
+k = rospy.get_param('~nn_k', None)
+r = rospy.get_param('~nn_r', 0.15)
+max_eig_0 = rospy.get_param('~max_eig_0', 0.02**2)
+min_eig_1 = rospy.get_param('~min_eig_1', 0.05**2)
+step = rospy.get_param('~cloud_step', 5)
 log_filters = False
 
 # from eval('data.%s' % dataset) import Dataset, dataset_names
@@ -77,6 +74,16 @@ rospy.loginfo('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
 
 train_names = rospy.get_param('~train_names', ['apartment', 'eth'])
 val_names = rospy.get_param('~val_names', ['stairs', 'gazebo_winter'])
+# train_names = []
+# val_names = []
+# for seq in np.random.choice(range(0, 22, 2), 2):
+#     step_seq = 50
+#     for start in range(0, 100, step_seq):
+#         train_names.append("%02d_%d_%d" % (seq, start, start + step_seq))
+# for seq in np.random.choice(range(1, 21, 2), 1):
+#     step_seq = 30
+#     for start in range(0, 60, step_seq):
+#         val_names.append("%02d_%d_%d" % (seq, start, start + step_seq))
 rospy.loginfo('Training set: %s.' % ', '.join(train_names))
 rospy.loginfo('Validation set: %s.' % ', '.join(val_names))
 
@@ -224,34 +231,20 @@ def publish_data(clouds: list, poses: list, poses_topic='', cloud_topic='', fram
 
     stamp = rospy.Time.now()
 
-    if DATASET == 'asl_laser':
-        for i, cloud in enumerate(clouds):
-            if 'val' in cloud_topic:
-                pc_topic = "%s_%s" % (cloud_topic, val_names[i])
-                p_topic = "%s_%s" % (poses_topic, val_names[i])
-            elif 'train' in cloud_topic:
-                pc_topic = "%s_%s" % (cloud_topic, train_names[i])
-                p_topic = "%s_%s" % (poses_topic, train_names[i])
-            else:
-                pc_topic = cloud_topic
-                p_topic = poses_topic
-            poses_pub = rospy.Publisher(p_topic, Path, queue_size=2)
-            dc_pub = rospy.Publisher(pc_topic, PointCloud2, queue_size=2)
-            pc_opt_msg = cloud_to_ros_msg(cloud, frame_id=frame_id, stamp=stamp)
-            path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses[i]),
-                                                      frame_id=frame_id, stamp=stamp)
-            dc_pub.publish(pc_opt_msg)
-            poses_pub.publish(path_opt_msg)
-    else:
-        cloud = DepthCloud.concatenate(clouds, dependent=False)
-        poses = torch.concat(poses, dim=0)
-
-        poses_pub = rospy.Publisher(poses_topic, Path, queue_size=2)
-        dc_pub = rospy.Publisher(cloud_topic, PointCloud2, queue_size=2)
-        stamp = rospy.Time.now()
-
+    for i, cloud in enumerate(clouds):
+        if 'val' in cloud_topic:
+            pc_topic = "%s_%s" % (cloud_topic, val_names[i]) if DATASET == 'asl_laser' else "%s_%d" % (cloud_topic, i)
+            p_topic = "%s_%s" % (poses_topic, val_names[i]) if DATASET == 'asl_laser' else "%s_%d" % (poses_topic, i)
+        elif 'train' in cloud_topic:
+            pc_topic = "%s_%s" % (cloud_topic, train_names[i]) if DATASET == 'asl_laser' else "%s_%d" % (cloud_topic, i)
+            p_topic = "%s_%s" % (poses_topic, train_names[i]) if DATASET == 'asl_laser' else "%s_%d" % (poses_topic, i)
+        else:
+            pc_topic = cloud_topic
+            p_topic = poses_topic
+        poses_pub = rospy.Publisher(p_topic, Path, queue_size=2)
+        dc_pub = rospy.Publisher(pc_topic, PointCloud2, queue_size=2)
         pc_opt_msg = cloud_to_ros_msg(cloud, frame_id=frame_id, stamp=stamp)
-        path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses),
+        path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses[i]),
                                                   frame_id=frame_id, stamp=stamp)
         dc_pub.publish(pc_opt_msg)
         poses_pub.publish(path_opt_msg)
@@ -343,14 +336,13 @@ def main():
     # optimizer = torch.optim.SGD(train_pose_deltas, lr=LR, momentum=0.9, nesterov=True)
     params = [{'params': model.parameters(), 'lr': LR}]
     if pose_correction is not None:
-        params.append({'params': train_pose_deltas, 'lr': 10*LR})
+        params.append({'params': train_pose_deltas, 'lr': LR})
     optimizer = torch.optim.SGD(params, momentum=0.9, nesterov=True)
 
     # Optimizable parameters and optimizer for validation sequences.
     if pose_correction == "sequence" or pose_correction == "pose":
         val_params = [{'params': val_pose_deltas, 'lr': LR}]
         val_optimizer = torch.optim.SGD(val_params, momentum=0.9, nesterov=True)
-        print('Validation optimizer: %s' % val_optimizer)
     else:
         val_optimizer = None
 
@@ -444,8 +436,6 @@ def main():
 
         val_loss, _ = min_eigval_loss(clouds_val, mask=val_masks)
 
-        print(val_pose_deltas)
-
         if val_loss.item() < min_loss:
             saved = True
             min_loss = val_loss.item()
@@ -457,12 +447,12 @@ def main():
         else:
             saved = False
 
-        rospy.loginfo('It. %i: training loss: %.9f, validation: %.9f. Model %s %s.'
-                      % (it, train_loss.item(), val_loss.item(), model, 'saved' if saved else ''))
+        rospy.loginfo('It. %i: training loss: %.9f, validation: %.9f. Model %s%s.'
+                      % (it, train_loss.item(), val_loss.item(), model, ' saved' if saved else ''))
 
         # publish poses and clouds
         if rospy.get_param('~publish_data', False):
-            if it % rospy.get_param('~publish_period', 1) == 0:
+            if it % rospy.get_param('~publish_period', 10) == 0:
                 publish_data(clouds_train, train_poses_upd,
                              poses_topic='poses_train', cloud_topic='global_cloud_train', frame_id='world')
                 publish_data(clouds_val, val_poses_upd,

@@ -3,10 +3,11 @@
 <launch>
     <arg name="publish_data" default="true"/>
     <arg name="dataset" default="semantic_kitti" doc="supported datasets to train: [asl_laser, semantic_kitti]"/>
-<!--    <arg name="train_names" default="['eth']"/>-->
-<!--    <arg name="val_names" default="['stairs']"/>-->
-    <arg name="train_names" default="['08_100_150', '08_150_200']"/>
-    <arg name="val_names" default="['09_0_30', '09_30_60']"/>
+    <arg if="$(eval arg('dataset') == 'asl_laser')" name="train_names" default="['eth']"/>
+    <arg if="$(eval arg('dataset') == 'asl_laser')" name="val_names" default="['stairs']"/>
+    <arg if="$(eval arg('dataset') == 'semantic_kitti')" name="train_names" default="['08_100_150']"/>
+    <arg if="$(eval arg('dataset') == 'semantic_kitti')" name="val_names" default="['09_0_30']"/>
+
     <arg name="rviz_config" default="$(dirname)/../config/train_$(arg dataset).rviz"/>
 
     <node name="train" pkg="depth_correction" type="train" output="screen">

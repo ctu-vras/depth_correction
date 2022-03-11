@@ -2,16 +2,20 @@
 
 <launch>
     <arg name="publish_data" default="true"/>
-    <arg name="dataset" default="kitti" doc="supported datasets to train: [asl, kitti]"/>
+    <arg name="dataset" default="semantic_kitti" doc="supported datasets to train: [asl_laser, semantic_kitti]"/>
+<!--    <arg name="train_names" default="['eth']"/>-->
+<!--    <arg name="val_names" default="['stairs']"/>-->
+    <arg name="train_names" default="['08_100_150', '08_150_200']"/>
+    <arg name="val_names" default="['09_0_30', '09_30_60']"/>
     <arg name="rviz_config" default="$(dirname)/../config/train_$(arg dataset).rviz"/>
 
-    <node name="train" pkg="depth_correction" type="train_$(arg dataset)" output="screen">
+    <node name="train" pkg="depth_correction" type="train" output="screen">
         <rosparam subst_value="true">
             publish_data: $(arg publish_data)
-            train_sequence: '00'
-            val_sequence: '02'
-            n_train_subseqs: 15
-            n_val_subseqs: 5
+            model_type: 'Polynomial'
+            dataset: $(arg dataset)
+            train_names: $(arg train_names)
+            val_names: $(arg val_names)
         </rosparam>
     </node>
 

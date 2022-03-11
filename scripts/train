@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 from __future__ import absolute_import, division, print_function
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
@@ -14,29 +13,27 @@ from pytorch3d.transforms import (axis_angle_to_matrix,
                                   matrix_to_quaternion,
                                   quaternion_to_axis_angle,
                                   axis_angle_to_quaternion)
-from tqdm import tqdm
-import os
 import rospy
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
 from nav_msgs.msg import Path
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from ros_numpy import msgify
+import os
 from rospkg import RosPack
-
 
 rospy.init_node('depth_correction', log_level=rospy.INFO)
 
 # pkg_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
 pkg_dir = RosPack().get_path('depth_correction')
-# pkg_dir = "/home/ruslan/DepthCorrection/depth_correction"
 print(pkg_dir)
 
 # MODEL_TYPE = 'Linear'
-MODEL_TYPE = 'Polynomial'
+# MODEL_TYPE = 'Polynomial'
 # MODEL_TYPE = 'ScaledPolynomial'
 # MODEL_TYPE = 'InvCos'
 # MODEL_TYPE = 'ScaledInvCos'
+MODEL_TYPE = rospy.get_param('~model_type', 'Polynomial')
 
 N_OPT_ITERS = 100
 LR = 1e-2
@@ -45,7 +42,12 @@ LR = 1e-2
 # LR = 1e-6
 SHOW_RESULTS = False
 
-DATASET = 'semantic_kitti'
+# DATASET = 'asl_laser'
+# DATASET = 'utias_3dmap'
+# DATASET = 'chilean_mine'
+# DATASET = 'esa_robotics'
+# DATASET = 'semantic_kitti'
+DATASET = rospy.get_param('~dataset', 'asl_laser')
 print(DATASET)
 
 dtype = np.float64
@@ -55,16 +57,15 @@ device = torch.device('cpu')
 
 min_depth = 1.0
 max_depth = 15.0
-grid_res = 0.20
+grid_res = 0.2  # 0.05
 
 k = None
-r = 0.30
-max_eig_0 = 0.02 ** 2
-min_eig_1 = 0.05 ** 2
-n_train_subseqs = rospy.get_param('~n_train_subseqs', 10)
-n_val_subseqs = rospy.get_param('n_val_subseqs', 5)
-data_sequence_step = 20
-local_cloud_step = 3
+r = 0.15
+# max_eig_0 = 0.005**2
+# max_eig_0 = 0.01**2
+max_eig_0 = 0.02**2
+min_eig_1 = 0.05**2
+step = 5
 log_filters = False
 
 # from eval('data.%s' % dataset) import Dataset, dataset_names
@@ -74,10 +75,10 @@ Dataset = getattr(imported_module, "Dataset")
 dataset_names = getattr(imported_module, "dataset_names")
 rospy.loginfo('Using %s datasets %s.' % (DATASET, ', '.join(dataset_names)))
 
-train_sequence = rospy.get_param('~train_sequence', '00')
-val_sequence = rospy.get_param('~val_sequence', '01')
-rospy.loginfo('Training set: %s.' % train_sequence)
-rospy.loginfo('Validation set: %s.' % val_sequence)
+train_names = rospy.get_param('~train_names', ['apartment', 'eth'])
+val_names = rospy.get_param('~val_names', ['stairs', 'gazebo_winter'])
+rospy.loginfo('Training set: %s.' % ', '.join(train_names))
+rospy.loginfo('Validation set: %s.' % ', '.join(val_names))
 
 
 # @timing
@@ -211,7 +212,7 @@ def matrix_to_xyz_axis_angle(T):
 
 
 @timing
-def publish_data(clouds: list, poses: list, cloud_topic='global_cloud', poses_topic='poses', frame_id='world'):
+def publish_data(clouds: list, poses: list, poses_topic='', cloud_topic='', frame_id='world'):
     for cloud in clouds:
         assert isinstance(cloud, DepthCloud)
     for pose in poses:
@@ -219,18 +220,30 @@ def publish_data(clouds: list, poses: list, cloud_topic='global_cloud', poses_to
         assert pose.dim() == 3
         assert pose.shape[1:] == (4, 4)
 
-    cloud = DepthCloud.concatenate(clouds, dependent=False)
-    poses = torch.concat(poses, dim=0)
-
-    poses_pub = rospy.Publisher(poses_topic, Path, queue_size=2)
-    dc_pub = rospy.Publisher(cloud_topic, PointCloud2, queue_size=2)
     stamp = rospy.Time.now()
 
-    pc_opt_msg = cloud_to_ros_msg(cloud, frame_id=frame_id, stamp=stamp)
-    path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses),
-                                              frame_id=frame_id, stamp=stamp)
-    dc_pub.publish(pc_opt_msg)
-    poses_pub.publish(path_opt_msg)
+    if DATASET == 'asl_laser':
+        for i, cloud in enumerate(clouds):
+            poses_pub = rospy.Publisher('poses_%s' % val_names[i], Path, queue_size=2)
+            dc_pub = rospy.Publisher('global_cloud_%s' % val_names[i], PointCloud2, queue_size=2)
+            pc_opt_msg = cloud_to_ros_msg(cloud, frame_id=frame_id, stamp=stamp)
+            path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses[i]),
+                                                      frame_id=frame_id, stamp=stamp)
+            dc_pub.publish(pc_opt_msg)
+            poses_pub.publish(path_opt_msg)
+    else:
+        cloud = DepthCloud.concatenate(clouds, dependent=False)
+        poses = torch.concat(poses, dim=0)
+
+        poses_pub = rospy.Publisher(poses_topic, Path, queue_size=2)
+        dc_pub = rospy.Publisher(cloud_topic, PointCloud2, queue_size=2)
+        stamp = rospy.Time.now()
+
+        pc_opt_msg = cloud_to_ros_msg(cloud, frame_id=frame_id, stamp=stamp)
+        path_opt_msg = xyz_axis_angle_to_path_msg(matrix_to_xyz_axis_angle(poses),
+                                                  frame_id=frame_id, stamp=stamp)
+        dc_pub.publish(pc_opt_msg)
+        poses_pub.publish(path_opt_msg)
 
 
 def main():
@@ -243,50 +256,45 @@ def main():
     train_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
     train_pose_deltas = []
-    train_neighbors = [None] * n_train_subseqs
-    train_masks = [None] * n_train_subseqs
-    ds_train = Dataset(train_sequence)
-    for i in range(n_train_subseqs):
-        clouds_val = []
+    train_neighbors = [None] * len(train_names)
+    train_masks = [None] * len(train_names)
+    for name in train_names:
+        clouds = []
         poses = []
-        for cloud, pose in ds_train[i * data_sequence_step:(i + 1) * data_sequence_step:local_cloud_step]:
-            # print('%i points read' % cloud.shape[0])
+        for cloud, pose in Dataset(name)[::step]:
             cloud = filtered_cloud(cloud)
             cloud = local_feature_cloud(cloud)
             # If poses are not optimized, depth can be corrected on global
             # feature clouds.
             # If poses are to be optimized, depth can be corrected on local
             # clouds and these can then be transformed to global cloud.
-            clouds_val.append(cloud)
+            clouds.append(cloud)
             poses.append(pose)
-        train_clouds.append(clouds_val)
+        train_clouds.append(clouds)
         poses = np.stack(poses).astype(dtype=dtype)
         poses = torch.as_tensor(poses, device=device)
         train_poses.append(poses)
-        pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+        # pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+        pose_deltas = torch.zeros((1, 6), dtype=poses.dtype)
         pose_deltas.requires_grad = True
         train_pose_deltas.append(pose_deltas)
 
     val_clouds = []
     val_poses = []
-    val_pose_deltas = []
-    val_neighbors = [None] * n_val_subseqs
-    val_masks = [None] * n_val_subseqs
-    ds_val = Dataset(val_sequence)
-    for i in range(n_val_subseqs):
-        clouds_val = []
+    val_neighbors = [None] * len(val_names)
+    val_masks = [None] * len(val_names)
+    for name in val_names:
+        clouds = []
         poses = []
-        for cloud, pose in ds_val[i * data_sequence_step:(i + 1) * data_sequence_step:local_cloud_step]:
+        for cloud, pose in Dataset(name)[::step]:
             cloud = filtered_cloud(cloud)
             cloud = local_feature_cloud(cloud)
-            clouds_val.append(cloud)
+            clouds.append(cloud)
             poses.append(pose)
-        val_clouds.append(clouds_val)
+        val_clouds.append(clouds)
         poses = np.stack(poses).astype(dtype=dtype)
         poses = torch.as_tensor(poses, device=device)
         val_poses.append(poses)
-        pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
-        val_pose_deltas.append(pose_deltas)
 
     # Create model
     model = eval(MODEL_TYPE)(device=device)
@@ -297,7 +305,7 @@ def main():
     # optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, nesterov=True)
     # optimizer = torch.optim.SGD(train_pose_deltas, lr=LR, momentum=0.9, nesterov=True)
     optimizer = torch.optim.SGD([{'params': model.parameters(), 'lr': LR},
-                                 {'params': train_pose_deltas, 'lr': LR}], momentum=0.9, nesterov=True)
+                                 {'params': train_pose_deltas, 'lr': 5*LR}], momentum=0.9, nesterov=True)
 
     writer = SummaryWriter(os.path.join(pkg_dir, '%s/config/tb_runs/model_%s_lr_%f_%s_%f'
                            % (pkg_dir, MODEL_TYPE, LR, DATASET, timer())))
@@ -310,6 +318,7 @@ def main():
         optimizer.zero_grad()
 
         # Training
+
         # Allow optimizing pose deltas.
         if train_pose_deltas is None:
             train_poses_upd = train_poses
@@ -320,13 +329,14 @@ def main():
                 pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
                 train_poses_upd.append(torch.matmul(train_poses[i], pose_deltas_mat))
 
-        clouds_train = global_clouds(train_clouds, model, train_poses_upd)
-        # if it == 0:
-        #     for cloud in clouds:
-        #         cloud.visualize(window_name='Train cloud')
+        clouds = global_clouds(train_clouds, model, train_poses_upd)
 
-        for i in range(len(clouds_train)):
-            cloud = clouds_train[i]
+        if it == 0:
+            for cloud in clouds:
+                cloud.visualize(window_name="Train cloud")
+
+        for i in range(len(clouds)):
+            cloud = clouds[i]
             if train_neighbors[i] is None:
                 cloud.update_all(k=k, r=r)
                 train_neighbors[i] = cloud.neighbors, cloud.weights
@@ -338,25 +348,26 @@ def main():
             else:
                 cloud.neighbors, cloud.weights = train_neighbors[i]
                 cloud.update_all(k=k, r=r, keep_neighbors=True)
-            clouds_train[i] = cloud
+            clouds[i] = cloud
 
-        train_loss, _ = min_eigval_loss(clouds_train, mask=train_masks)
+        train_loss, _ = min_eigval_loss(clouds, mask=train_masks)
 
         # Validation
+
         if train_pose_deltas is None:
             val_poses_upd = val_poses
         else:
-            assert len(val_poses) == len(val_pose_deltas)
-            # Use the deltas from validation.
+            # Convert pose deltas to matrices
             val_poses_upd = []
-            for i in range(len(val_poses)):
-                pose_deltas_mat = xyz_axis_angle_to_matrix(val_pose_deltas[i])
+            for i in range(len(train_poses)):
+                pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
                 val_poses_upd.append(torch.matmul(val_poses[i], pose_deltas_mat))
 
         clouds_val = global_clouds(val_clouds, model, val_poses_upd)
-        # if it == 0:
-        #     for cloud in clouds:
-        #         cloud.visualize(window_name='Val cloud')
+
+        if it == 0:
+            for cloud in clouds_val:
+                cloud.visualize(window_name="Val cloud")
 
         for i in range(len(clouds_val)):
             cloud = clouds_val[i]
@@ -379,10 +390,9 @@ def main():
             saved = True
             min_loss = val_loss.item()
             torch.save(model.state_dict(),
-                       os.path.join(pkg_dir,
-                                    '%s/config/weights/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
-                                    % (pkg_dir, MODEL_TYPE, ','.join(train_sequence), ','.join(val_sequence),
-                                       r, max_eig_0, min_eig_1, val_loss.item())))
+                       os.path.join(pkg_dir, '%s/config/weights/%s_train_%s_val_%s_r%.2f_eig_%.4f_%.4f_min_eigval_loss_%.9f.pth'
+                       % (pkg_dir, MODEL_TYPE, ','.join(train_names), ','.join(val_names),
+                          r, max_eig_0, min_eig_1, val_loss.item())))
         else:
             saved = False
 
@@ -391,21 +401,19 @@ def main():
 
         # publish (validation) poses and clouds
         if rospy.get_param('~publish_data', False):
-            if it == 0:
-                publish_data(clouds_train, train_poses_upd,
-                             cloud_topic='global_cloud_train', poses_topic='poses_train', frame_id='world')
-                publish_data(clouds_val, val_poses_upd,
-                             cloud_topic='global_cloud_val', poses_topic='poses_val', frame_id='world')
+            publish_data(clouds_val, val_poses_upd,
+                         poses_topic='poses_val', cloud_topic='global_cloud_val', frame_id='world')
 
         writer.add_scalar("min_eigval_loss/train", train_loss, it)
         writer.add_scalar("min_eigval_loss/val", val_loss, it)
-        for i in range(len(val_sequence)):
-            writer.add_histogram("pose_correction/train/%s/dx" % train_sequence, train_pose_deltas[i][:, 0], it)
-            writer.add_histogram("pose_correction/train/%s/dy" % train_sequence, train_pose_deltas[i][:, 1], it)
-            writer.add_histogram("pose_correction/train/%s/dz" % train_sequence, train_pose_deltas[i][:, 2], it)
-            writer.add_histogram("pose_correction/train/%s/dax" % train_sequence, train_pose_deltas[i][:, 3], it)
-            writer.add_histogram("pose_correction/train/%s/day" % train_sequence, train_pose_deltas[i][:, 4], it)
-            writer.add_histogram("pose_correction/train/%s/daz" % train_sequence, train_pose_deltas[i][:, 5], it)
+        for i in range(len(val_names)):
+            pose_deltas = train_pose_deltas[i].squeeze(0)
+            writer.add_scalar("pose_correction_%s/dx" % val_names[i], pose_deltas[0], it)
+            writer.add_scalar("pose_correction_%s/dy" % val_names[i], pose_deltas[1], it)
+            writer.add_scalar("pose_correction_%s/dz" % val_names[i], pose_deltas[2], it)
+            writer.add_scalar("pose_correction_%s/dax" % val_names[i], pose_deltas[3], it)
+            writer.add_scalar("pose_correction_%s/day" % val_names[i], pose_deltas[4], it)
+            writer.add_scalar("pose_correction_%s/daz" % val_names[i], pose_deltas[5], it)
 
         # Optimization step
         optimizer.zero_grad()

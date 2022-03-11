@@ -22,7 +22,11 @@ def filtered_cloud(cloud, cfg: Config):
 
 def local_feature_cloud(cloud, cfg: Config):
     # Convert to depth cloud and transform.
-    cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
+    # cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
+    if cloud.dtype.names:
+        cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
+    else:
+        cloud = DepthCloud.from_points(cloud, dtype=cfg.numpy_float_type())
     cloud = cloud.to(device=cfg.device)
     # Find/update neighbors and estimate all features.
     cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)

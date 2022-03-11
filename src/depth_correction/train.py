@@ -27,9 +27,11 @@ def train(cfg: Config):
     else:
         cfg.to_yaml(cfg_path)
 
-    assert cfg.dataset == 'asl_laser'
+    assert cfg.dataset == 'asl_laser' or cfg.dataset == 'semantic_kitti'
     if cfg.dataset == 'asl_laser':
         from data.asl_laser import Dataset
+    elif cfg.dataset == 'semantic_kitti':
+        from data.semantic_kitti import Dataset
     assert cfg.loss in ('min_eigval_loss', 'trace_loss')
     # if cfg.loss == 'min_eigval_loss':
     #     loss = min_eigval_loss
@@ -78,7 +80,7 @@ def train(cfg: Config):
         elif cfg.pose_correction == PoseCorrection.sequence:
             pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
         elif cfg.pose_correction == PoseCorrection.pose:
-            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype, requires_grad=True)
         else:
             pose_deltas = None
 
@@ -111,7 +113,7 @@ def train(cfg: Config):
         if cfg.pose_correction == PoseCorrection.sequence:
             pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
         elif cfg.pose_correction == PoseCorrection.pose:
-            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype, requires_grad=True)
         else:
             pose_deltas = None
 
@@ -191,7 +193,6 @@ def train(cfg: Config):
         train_loss, _ = loss_fun(clouds, mask=train_masks)
 
         # Validation
-        # if train_pose_deltas is None:
         if cfg.pose_correction == PoseCorrection.none:
             val_poses_upd = val_poses
         elif cfg.pose_correction == PoseCorrection.common:

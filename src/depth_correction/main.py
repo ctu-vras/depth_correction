@@ -2,12 +2,12 @@ from __future__ import absolute_import, division, print_function
 from .config import Config, Loss, Model, PoseCorrection, PoseProvider, SLAM
 from argparse import ArgumentParser
 from collections import deque
-from data.asl_laser import Dataset, dataset_names
 from glob import glob
 from itertools import product
 import os
 import random
 from subprocess import DEVNULL, PIPE, run
+import importlib
 """Launch all experiments.
 
 Generated files:
@@ -28,7 +28,12 @@ Generated files:
 """
 
 # TODO: Generate multiple splits.
-ds = ['asl_laser/%s' % name for name in dataset_names]
+# dataset = 'semantic_kitti'
+dataset = 'asl_laser'
+imported_module = importlib.import_module("data.%s" % dataset)
+Dataset = getattr(imported_module, "Dataset")
+dataset_names = getattr(imported_module, "dataset_names")
+ds = ['%s/%s' % (dataset, name) for name in dataset_names]
 num_splits = 4
 shift = len(ds) // num_splits
 splits = []
@@ -112,6 +117,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
         port = base_port + i_exp
         print('Generating config:')
         print('pose provider: %s' % pose_provider)
+        print('dataset: %s' % dataset)
         print('model: %s' % model)
         print('loss: %s' % loss)
         print('split: %i' % i_split)
@@ -129,6 +135,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
             cfg.test_poses_path = [slam_poses_csv(cfg, name, pose_provider) for name in test_names]
             cfg.pose_correction = PoseCorrection.pose
 
+        cfg.dataset = dataset
         cfg.model_class = model
         cfg.loss = loss
 

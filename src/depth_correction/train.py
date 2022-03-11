@@ -78,7 +78,7 @@ def train(cfg: Config):
         elif cfg.pose_correction == PoseCorrection.sequence:
             pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
         elif cfg.pose_correction == PoseCorrection.pose:
-            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype, requires_grad=True)
         else:
             pose_deltas = None
 
@@ -111,7 +111,7 @@ def train(cfg: Config):
         if cfg.pose_correction == PoseCorrection.sequence:
             pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
         elif cfg.pose_correction == PoseCorrection.pose:
-            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype)
+            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype, requires_grad=True)
         else:
             pose_deltas = None
 
@@ -191,7 +191,6 @@ def train(cfg: Config):
         train_loss, _ = loss_fun(clouds, mask=train_masks)
 
         # Validation
-        # if train_pose_deltas is None:
         if cfg.pose_correction == PoseCorrection.none:
             val_poses_upd = val_poses
         elif cfg.pose_correction == PoseCorrection.common:

@@ -27,9 +27,11 @@ def train(cfg: Config):
     else:
         cfg.to_yaml(cfg_path)
 
-    assert cfg.dataset == 'asl_laser'
+    assert cfg.dataset == 'asl_laser' or cfg.dataset == 'semantic_kitti'
     if cfg.dataset == 'asl_laser':
         from data.asl_laser import Dataset
+    elif cfg.dataset == 'semantic_kitti':
+        from data.semantic_kitti import Dataset
     assert cfg.loss in ('min_eigval_loss', 'trace_loss')
     # if cfg.loss == 'min_eigval_loss':
     #     loss = min_eigval_loss

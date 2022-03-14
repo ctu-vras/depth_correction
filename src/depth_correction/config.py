@@ -89,12 +89,12 @@ class Config(object):
         # Cloud preprocessing
         self.min_depth = 1.0
         self.max_depth = 15.0
-        self.grid_res = 0.05
-        # self.grid_res = 0.1
+        # self.grid_res = 0.05
+        self.grid_res = 0.1
         # Neighborhood
         self.nn_k = None
-        self.nn_r = 0.15
-        # self.nn_r = 0.2
+        # self.nn_r = 0.15
+        self.nn_r = 0.2
 
         # Depth correction
         self.eigenvalue_bounds = [[0,    None, 0.02**2],

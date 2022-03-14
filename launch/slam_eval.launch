@@ -8,7 +8,8 @@
     <arg name="rviz" default="true"/>
     <!-- Robot data and evaluation -->
     <arg name="slam_eval_csv" default="slam_eval.csv"/>
-    <arg name="slam_poses_csv" default="$(find data)/$(arg dataset)/csv_global/pose_scanner_slam.csv"/>
+<!--    <arg name="slam_poses_csv" default="$(find data)/$(arg dataset)/csv_global/pose_scanner_slam.csv"/>-->
+    <arg name="slam_poses_csv" default="pose_scanner_slam.csv"/>
     <!-- Cloud filter -->
     <arg name="min_depth" default="1.0"/>
     <arg name="max_depth" default="15.0"/>

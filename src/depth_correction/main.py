@@ -75,6 +75,7 @@ def eval_baselines(launch_prefix=None):
     # evaluate consistency loss on all sequences
     cfg = Config()
     # Adjust default config...
+    cfg.dataset = dataset
     cfg.model_class = 'BaseModel'
     cfg.model_state_dict = ''
     cfg.log_dir = cfg.get_log_dir()

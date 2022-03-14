@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Node providing robot data from various datasets for SLAM evaluation."""
 from __future__ import absolute_import, division, print_function
-from data.asl_laser import Dataset
+import importlib
 from depth_correction.io import append, write
 from geometry_msgs.msg import Transform, TransformStamped
 import numpy as np
@@ -51,6 +51,8 @@ class RobotData(object):
 
         self.dataset = None
         self.position = None
+        imported_module = importlib.import_module("data.%s" % self.dataset_name.split('/')[0])
+        Dataset = getattr(imported_module, "Dataset")
         if self.dataset_path:
             self.dataset = Dataset(path=self.dataset_path, poses_path=self.dataset_poses_path)
         else:

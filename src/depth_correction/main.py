@@ -126,6 +126,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
 
         cfg = Config()
         # TODO: Configure preprocessing.
+        cfg.dataset = dataset
         cfg.log_dir = cfg.get_log_dir()
         cfg.ros_master_port = port
 
@@ -135,8 +136,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0):
             cfg.val_poses_path = [slam_poses_csv(cfg, name, pose_provider) for name in val_names]
             cfg.test_poses_path = [slam_poses_csv(cfg, name, pose_provider) for name in test_names]
             cfg.pose_correction = PoseCorrection.pose
-
-        cfg.dataset = dataset
+        
         cfg.model_class = model
         cfg.loss = loss
 

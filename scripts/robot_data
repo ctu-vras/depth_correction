@@ -12,6 +12,7 @@ from sensor_msgs.msg import PointCloud2
 from tf.transformations import euler_matrix
 from tf2_msgs.msg import TFMessage
 from tf2_ros import Buffer, TransformException, TransformListener
+import yaml
 
 
 class RobotData(object):
@@ -34,11 +35,14 @@ class RobotData(object):
 
         self.odom_source = rospy.get_param('~odom/source', 'ground_truth')
         self.odom_cov = rospy.get_param('~odom/cov', 6 * [0.])
+        if isinstance(self.odom_cov, str):
+            rospy.logwarn('Converting odometry covariance from string to dict.')
+            self.odom_cov = yaml.safe_load(self.odom_cov)
         if self.odom_cov:
             self.odom_cov = np.array(self.odom_cov)
-            assert self.odom_cov.shape in ((6,), (6, 6))
             if self.odom_cov.shape == (6,):
                 self.odom_cov = np.diag(self.odom_cov)
+            assert self.odom_cov.shape in ((6,), (6, 6))
 
         self.lidar_frame = rospy.get_param('~lidar_frame', 'lidar')
         self.odom_frame = rospy.get_param('~odom_frame', 'odom')
@@ -162,8 +166,8 @@ class RobotData(object):
     def perturb_pose(self, pose):
         if self.odom_cov is not None:
             noise = np.random.multivariate_normal(np.zeros((6,)), self.odom_cov)
-            T = euler_matrix(*noise[3:])
-            T[:3, 3] = noise[:3]
+            T = euler_matrix(*noise[:3])
+            T[:3, 3] = noise[3:]
             pose = np.matmul(pose, T)
         return pose
 

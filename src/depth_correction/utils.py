@@ -1,5 +1,5 @@
 from __future__ import absolute_import, division, print_function
-
+from .config import Loss, Model, PoseProvider, SLAM
 import numpy as np
 import pandas as pd
 from matplotlib import cm
@@ -150,39 +150,55 @@ def tables_basic_demo():
     tab.to_latex()
 
 
-poses_sources = ['ground_truth', 'ethzasl_icp_mapper']
-models = ['polynomial', 'scaledpolynomial']
-losses = ['min_eigval_loss', 'trace_loss']
+# poses_sources = ['ground_truth', 'ethzasl_icp_mapper']
+# models = ['polynomial', 'scaledpolynomial']
+# losses = ['min_eigval_loss', 'trace_loss']
+poses_sources = list(PoseProvider)
+models = list(Model)
+losses = list(Loss)
 path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
+
+slam_eval_baseline_format = '{preproc}/slam_eval_{slam}.csv'
+# SLAM eval with depth correction filter from training
+# slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
+# SLAM eval with all points corrected
+slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
+# preproc = '*'
+# preproc = 'd1-15_g0.05_r0.15_e0_nan-0.00041_0.0025-nan.good'
+preproc = 'depth_1.0-15.0_grid_0.10_r0.20.good'
+# preproc = 'semantic_kitti_d1-15_g0.10_r0.20_e0_nan-0.00041_0.0025-nan.good'
 
 
 def slam_localization_error_demo():
     print(" SLAM error table ")
 
-    def get_slam_error(pose_src='*', model='*', loss='*', split='train'):
+    def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=SLAM.ethzasl_icp_mapper):
         dfs = None
-        for i, fname in enumerate(glob.glob(os.path.join(path,
-                                                         '*/%s_%s_%s/split_*/slam_eval*%s.csv' % (
-                                                                 pose_src, model, loss, split)))):
+        csv_paths = glob.glob(slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
+                                                      split='*', set=split, slam=slam))
+
+        for i, fname in enumerate(csv_paths):
             df = pd.read_csv(fname, delimiter=' ', header=None)
             if i == 0:
                 dfs = df
             else:
                 dfs = pd.concat([dfs, df])
-        orient_acc_rad, trans_acc_m = dfs.mean(axis=0).values
+        orient_acc_rad, trans_acc_m = dfs[[1, 2]].mean(axis=0).values
         orient_acc_deg = np.rad2deg(orient_acc_rad)
 
-        orient_acc_rad_std, trans_acc_m_std = dfs.std(axis=0).values
+        orient_acc_rad_std, trans_acc_m_std = dfs[[1, 2]].std(axis=0).values
         orient_acc_deg_std = np.rad2deg(orient_acc_rad_std)
         return (orient_acc_deg, orient_acc_deg_std), (trans_acc_m, trans_acc_m_std)
 
-    for fname in glob.glob(os.path.join(path, '*/slam_eval*.csv')):
-        print(fname)
+    # TODO: *base* variables are rewritten in each iterations.
+    csv_paths = glob.glob(os.path.join(path, slam_eval_baseline_format.format(preproc=preproc, slam=SLAM.ethzasl_icp_mapper)))
+    assert len(csv_paths) == 1
+    for fname in csv_paths:
         df = pd.read_csv(fname, delimiter=' ', header=None)
-        orient_acc_rad_base, trans_acc_m_base = df.mean(axis=0).values
+        orient_acc_rad_base, trans_acc_m_base = df[[1, 2]].mean(axis=0).values
         orient_acc_deg_base = np.rad2deg(orient_acc_rad_base)
 
-        orient_acc_rad_base_std, trans_acc_m_base_std = df.std(axis=0).values
+        orient_acc_rad_base_std, trans_acc_m_base_std = df[[1, 2]].std(axis=0).values
         orient_acc_deg_base_std = np.rad2deg(orient_acc_rad_base_std)
 
     for pose_src in poses_sources:
@@ -211,9 +227,9 @@ def slam_localization_error_demo():
                                                                           split='test')[i]])
                         for i in range(2)])
 
-            # print(tabulate.tabulate(table,
-            #                         ["model", "orientation error (train, val, test), [deg]",
-            #                          "translation error (train, val, test), [m]"], tablefmt="grid"))
+            print(tabulate.tabulate(table,
+                                    ["model", "orientation error (train, val, test), [deg]",
+                                     "translation error (train, val, test), [m]"], tablefmt="grid"))
 
             print(tabulate.tabulate(table,
                                     ["model", "orientation error (train, val, test), [deg]",
@@ -238,7 +254,7 @@ def mean_loss_over_sequences_and_data_splits_demo():
     for loss in losses:
         for fname in glob.glob(os.path.join(path, '*/loss_eval_%s.csv' % loss)):
             df = pd.read_csv(fname, delimiter=' ', header=None)
-            base_loss_values.append([df.mean(axis=0).values[0], df.std(axis=0).values[0]])
+            base_loss_values.append([df[[1]].mean(axis=0).values[0], df[[1]].std(axis=0).values[0]])
     assert len(base_loss_values) == len(losses)
 
     for pose_src in poses_sources:
@@ -294,6 +310,7 @@ def results_for_individual_sequences_demo(std=False):
             # results, corrected with model or not
             if optimized:
                 files_dir = '*/*_%s_*/split_*/loss_eval_%s_%s.csv' % (model, loss, split)
+                # files_dir = '*/*_%s_*/split_*/eval_all_corrected/loss_eval_%s_%s.csv' % (model, loss, split)
             else:
                 files_dir = '*/loss_eval_%s.csv' % loss
 

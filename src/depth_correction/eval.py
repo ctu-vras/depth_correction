@@ -108,6 +108,9 @@ def eval_slam(cfg: Config):
     for i, name in enumerate(cfg.test_names):
         # Allow overriding poses paths, assume valid if non-empty.
         poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
+        # Evaluate SLAM on whole kitti sequences if the dataset is semantic kitti
+        if cfg.dataset == 'semantic_kitti':
+            name = name[:17]  # semantic_kitti/XY
         print('SLAM evaluation on %s started.' % name)
         # print(cfg.to_yaml())
 

@@ -29,7 +29,7 @@
         <arg name="dataset" value="$(arg dataset)"/>
         <arg name="dataset_poses_path" value="$(arg dataset_poses_path)"/>
         <arg name="start" value="0"/>
-        <arg name="stop" value="1000"/>
+        <arg name="stop" value="1000000000"/>
         <arg name="step" value="1"/>
         <arg name="period" value="3.0"/>
         <arg name="delay_start" value="3.0"/>

@@ -27,30 +27,30 @@ Generated files:
         gen/<preprocessing>/<pose_provider>_<model>_<loss>/<split>/slam_eval_<loss>_<subset>.csv
 """
 
-# TODO: Generate multiple splits.
-# dataset = 'semantic_kitti'
-dataset = 'asl_laser'
-imported_module = importlib.import_module("data.%s" % dataset)
-Dataset = getattr(imported_module, "Dataset")
-dataset_names = getattr(imported_module, "dataset_names")
-ds = ['%s/%s' % (dataset, name) for name in dataset_names]
-num_splits = 4
-shift = len(ds) // num_splits
-splits = []
 
-random.seed(135)
-random.shuffle(ds)
-ds_deque = deque(ds)
-for i in range(num_splits):
-    # random.shuffle(datasets)
-    ds_deque.rotate(shift)
-    # copy = list(datasets)
-    # random.shuffle(copy)
-    # splits.append([copy[:4], copy[4:6], copy[6:]])
-    ds_list = list(ds_deque)
-    splits.append([ds_list[:4], ds_list[4:6], ds_list[6:]])
-# for split in splits:
-#     print(split)
+def create_splits(dataset='asl_laser'):
+    # TODO: Generate multiple splits.
+    imported_module = importlib.import_module("data.%s" % dataset)
+    dataset_names = getattr(imported_module, "dataset_names")
+    ds = ['%s/%s' % (dataset, name) for name in dataset_names]
+    num_splits = 4
+    shift = len(ds) // num_splits
+    splits = []
+
+    random.seed(135)
+    random.shuffle(ds)
+    ds_deque = deque(ds)
+    for i in range(num_splits):
+        # random.shuffle(datasets)
+        ds_deque.rotate(shift)
+        # copy = list(datasets)
+        # random.shuffle(copy)
+        # splits.append([copy[:4], copy[4:6], copy[6:]])
+        ds_list = list(ds_deque)
+        splits.append([ds_list[:4], ds_list[4:6], ds_list[6:]])
+    # for split in splits:
+    #     print(split)
+    return splits
 
 
 def cmd_out(cmd):
@@ -68,7 +68,7 @@ def slam_poses_csv(cfg: Config, name, slam):
     return path
 
 
-def eval_baselines(launch_prefix=None):
+def eval_baselines(launch_prefix=None, dataset='asl_laser'):
     # Avoid using ROS in global namespace to allow using scheduler.
     from .eval import eval_loss, eval_slam
     # TODO: launch prefix
@@ -80,6 +80,10 @@ def eval_baselines(launch_prefix=None):
     cfg.model_state_dict = ''
     cfg.log_dir = cfg.get_log_dir()
     os.makedirs(cfg.log_dir, exist_ok=True)
+
+    imported_module = importlib.import_module("data.%s" % cfg.dataset)
+    dataset_names = getattr(imported_module, "dataset_names")
+    ds = ['%s/%s' % (dataset, name) for name in dataset_names]
 
     for test_loss in Loss:
         eval_cfg = cfg.copy()
@@ -101,7 +105,9 @@ def eval_baselines(launch_prefix=None):
             eval_slam(cfg=eval_cfg)
 
 
-def train_and_eval_all(launch_prefix=None, num_jobs=0):
+def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
+
+    splits = create_splits(dataset=dataset)
 
     num_exp = len(list(product(PoseProvider, Model, Loss, enumerate(splits))))
     print('Number of experiments: %i' % num_exp)
@@ -254,6 +260,7 @@ def run_from_cmdline():
     parser.add_argument('--launch-prefix', type=str)
     parser.add_argument('--num-jobs', type=int, default=0)  # allows debug with fewer jobs
     parser.add_argument('--eigenvalue-bounds', type=str)
+    parser.add_argument('--dataset', type=str, default='asl_laser')
     parser.add_argument('args', type=str, nargs='+')
     # parser.add_argument('arg', type=str, required=False)
     args = parser.parse_args()
@@ -262,9 +269,9 @@ def run_from_cmdline():
     arg = args.args[1] if len(args.args) >= 2 else None
     # return
     if verb == 'eval_baselines':
-        eval_baselines()
+        eval_baselines(dataset=args.dataset)
     elif verb == 'train_and_eval_all':
-        train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs)
+        train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs, dataset=args.dataset)
     elif verb == 'eval':
         print(verb, arg)
         kwargs = {}

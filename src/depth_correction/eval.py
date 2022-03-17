@@ -168,6 +168,7 @@ def eval_slam_all(cfg: Config):
 
 def demo():
     cfg = Config()
+    cfg.dataset = 'asl_laser'
     cfg.test_names = ['stairs']
     cfg.model_class = 'ScaledPolynomial'
     cfg.model_state_dict = '/home/petrito1/workspace/depth_correction/gen/2022-02-21_16-31-34/088_8.85347e-05_state_dict.pth'

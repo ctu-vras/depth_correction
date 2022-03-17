@@ -28,14 +28,15 @@ Generated files:
 """
 
 
-def create_splits(dataset='asl_laser'):
+def create_splits(dataset='asl_laser', num_splits=4):
     # TODO: Generate multiple splits.
     imported_module = importlib.import_module("data.%s" % dataset)
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (dataset, name) for name in dataset_names]
-    num_splits = 4
     shift = len(ds) // num_splits
     splits = []
+    n_dats = len(dataset_names)
+    assert n_dats % 4 == 0
 
     random.seed(135)
     random.shuffle(ds)
@@ -47,7 +48,7 @@ def create_splits(dataset='asl_laser'):
         # random.shuffle(copy)
         # splits.append([copy[:4], copy[4:6], copy[6:]])
         ds_list = list(ds_deque)
-        splits.append([ds_list[:4], ds_list[4:6], ds_list[6:]])
+        splits.append([ds_list[:2*n_dats//4], ds_list[2*n_dats//4:3*n_dats//4], ds_list[3*n_dats//4:]])
     # for split in splits:
     #     print(split)
     return splits

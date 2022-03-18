@@ -22,6 +22,7 @@ For models evauation we utilize and provide training pipeline on the following d
 - [Semantic KITTI](http://www.semantic-kitti.org/dataset.html).
 
 
-<!-- ## Installation
+## Installation
 
-Please, follow the installation instructions, provided in [docs/install.md]() -->
+Please, follow the installation instructions, provided in
+[docs/install.md](https://github.com/RuslanAgishev/depth_correction/blob/main/docs/install.md)

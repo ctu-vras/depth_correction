@@ -23,6 +23,7 @@ From: ros:noetic-perception
     python3-catkin-tools
     ros-noetic-ros-numpy
     ros-noetic-rviz
+    ros-noetic-tf-conversions
     "
     apt-get update
     apt-get install -y ${packages}
@@ -55,6 +56,7 @@ From: ros:noetic-perception
     cd "${ws}/src"
     git clone https://github.com/tpet/data.git
     git clone https://github.com/RuslanAgishev/depth_correction.git
+    cd $ws && wstool init src ${ws}/src/depth_correction/dependencies.rosinstall
 
     # Build ROS workspace
     cd "${ws}"

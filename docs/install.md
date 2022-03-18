@@ -25,7 +25,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 6. Build ROS workspace:
    ```bash
    cd ~/catkin_ws/src/ && git clone https://github.com/tpet/data.git
-   cd ~/catkin_ws/ && wstool init src ${ws}/src/depth_correction/dependencies.rosinstall
+   cd ~/catkin_ws/ && wstool init src ~/catkin_ws/src/depth_correction/dependencies.rosinstall
    cd ~/catkin_ws/ && catkin build
    source devel/setup.bash
    ```

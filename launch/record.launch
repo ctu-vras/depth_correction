@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="bag" default=""/>
+    <arg name="bag_prefix" default="$(find depth_correction)/slam"/>
+    <arg name="args" default="$(eval ('-O %s' % bag if bag else '') + ('-o %s' % bag_prefix if not bag and bag_prefix else ''))"/>
+    <node if="$(eval bool(bag or bag_prefix) )" name="record" pkg="rosbag" type="record"
+          args="--lz4 $(arg args)
+                /corrected_cloud
+                /filtered_cloud
+                /icp_diagnostics
+                /icp_error_odom
+                /icp_odom
+                /rosout_agg
+                /tf
+                /tf_static"/>
+    <!--
+    /point_map
+    -->
+</launch>

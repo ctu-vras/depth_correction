@@ -121,6 +121,9 @@ def eval_slam(cfg: Config):
         cli_args.append('odom:=true')
         cli_args.append('rviz:=true' if cfg.rviz else 'rviz:=false')
         cli_args.append('slam_eval_csv:=%s' % cfg.slam_eval_csv)
+        if cfg.slam_eval_bag:
+            cli_args.append('record:=true')
+            cli_args.append('bag:=%s' % cfg.slam_eval_bag.format(name=name.replace('/', '_')))
         if cfg.slam_poses_csv:
             cli_args.append('slam_poses_csv:=%s' % cfg.slam_poses_csv)
         cli_args.append('min_depth:=%.3f' % cfg.min_depth)
@@ -165,6 +168,8 @@ def eval_slam_all(cfg: Config):
             eval_cfg.slam = slam
             eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir,
                                                   'slam_eval_%s_%s.csv' % (slam, suffix))
+            eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir,
+                                                  'slam_eval_%s_%s_{name}.bag' % (slam, suffix))
             eval_cfg.slam_poses_csv = ''
             eval_slam(cfg=eval_cfg)
 

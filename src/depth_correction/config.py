@@ -134,6 +134,7 @@ class Config(object):
                                     datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         self.loss_eval_csv = None
         self.slam_eval_csv = None
+        self.slam_eval_bag = None
         self.slam_poses_csv = None
         # Testing
         self.eval_losses = ['min_eigval_loss', 'trace_loss']

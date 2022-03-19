@@ -100,6 +100,7 @@ def eval_baselines(launch_prefix=None, dataset='asl_laser'):
             eval_cfg.test_names = [name]
             eval_cfg.slam = slam
             eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir, 'slam_eval_%s.csv' % slam)
+            eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir, 'slam_eval_%s.bag' % slam)
             # Output SLAM poses to structure within log dir.
             eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
             os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)

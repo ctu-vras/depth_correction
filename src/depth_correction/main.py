@@ -86,12 +86,12 @@ def eval_baselines(launch_prefix=None, dataset='asl_laser'):
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (dataset, name) for name in dataset_names]
 
-    for test_loss in Loss:
-        eval_cfg = cfg.copy()
-        eval_cfg.test_names = ds
-        eval_cfg.loss = test_loss
-        eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir, 'loss_eval_%s.csv' % test_loss)
-        eval_loss(cfg=eval_cfg)
+    # for test_loss in Loss:
+    #     eval_cfg = cfg.copy()
+    #     eval_cfg.test_names = ds
+    #     eval_cfg.loss = test_loss
+    #     eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir, 'loss_eval_%s.csv' % test_loss)
+    #     eval_loss(cfg=eval_cfg)
 
     # Generate SLAM poses as well.
     for slam in SLAM:

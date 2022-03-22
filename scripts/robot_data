@@ -3,8 +3,10 @@
 from __future__ import absolute_import, division, print_function
 import importlib
 from depth_correction.io import append, write
+from depth_correction.utils import timer, timing
 from geometry_msgs.msg import Transform, TransformStamped
 import numpy as np
+from numpy.random import MT19937, RandomState, SeedSequence
 import os
 from ros_numpy import msgify, numpify
 import rospy
@@ -15,8 +17,52 @@ from tf2_ros import Buffer, TransformException, TransformListener
 import yaml
 
 
+def nearest_orthonormal(A):
+    U, _, Vt = np.linalg.svd(A)
+    A = U @ Vt
+    return A
+
+
+def fix_transform(T):
+    T_fixed = T.copy()
+    T_fixed[:-1, :-1] = nearest_orthonormal(T[:-1, :-1])
+    # print('fix:\n', T_fixed - T)
+    return T
+
+
+def rotation_angle(T):
+    R = T[:-1, :-1]
+    angle = np.arccos((np.trace(R) - 1.0) / 2.0).item()
+    return angle
+
+
+def translation_norm(T):
+    t = T[:-1, -1:]
+    norm = np.linalg.norm(t).item()
+    return norm
+
+
+def transform_inv(T):
+    T_inv = np.eye(T.shape[0])
+    R = T[:-1, :-1]
+    t = T[:-1, -1:]
+    T_inv[:-1, :-1] = R.T
+    T_inv[:-1, -1:] = -R.T @ t
+    return T
+
+
+def delta_transform(T_0, T_1):
+    """Delta transform D s.t. T_1 = T_0 * D."""
+    delta = np.linalg.solve(T_0, T_1)
+    # delta = transform_inv(T_0) @ T_1
+    return delta
+
+
 class RobotData(object):
     def __init__(self):
+        # Seeded random state generator
+        self.random = RandomState(MT19937(SeedSequence(135)))
+
         self.dataset_path = rospy.get_param('~dataset_path', None)
         self.dataset_name = rospy.get_param('~dataset', 'asl_laser/eth')
         self.dataset_poses_path = rospy.get_param('~dataset_poses_path', None)
@@ -32,6 +78,7 @@ class RobotData(object):
         self.delay_start = self.delay_start if self.delay_start > 0.0 else 0.0
         self.delay_end = rospy.get_param('~delay_end', 5.0)
         self.delay_end = self.delay_end if self.delay_end > 0.0 else 0.0
+        self.timeout = rospy.Duration.from_sec(rospy.get_param('~timeout', 3.0))
 
         self.odom_source = rospy.get_param('~odom/source', 'ground_truth')
         self.odom_cov = rospy.get_param('~odom/cov', 6 * [0.])
@@ -54,7 +101,7 @@ class RobotData(object):
         self.slam_poses_csv = rospy.get_param('~slam_poses_csv', 'slam_poses.csv')
 
         self.dataset = None
-        self.position = None
+        self.index = None
         imported_module = importlib.import_module("data.%s" % self.dataset_name.split('/')[0])
         Dataset = getattr(imported_module, "Dataset")
         if self.dataset_path:
@@ -71,87 +118,184 @@ class RobotData(object):
                       ', ...' if len(self.ids) > 5 else '')
 
         if self.ids:
-            self.position = 0
+            # ID index (index into ids)
+            self.index = 0
+        # Previous pose (pose for index - 1) including noise
+        self.prev_pose = np.eye(4)
 
         # Timestamps to evaluate localization accuracy.
         self.eval_stamps = []
+        # Ground-truth and SLAM poses
+        self.gt_poses = []  # Ground-truth poses
+        # Path length, m traversed accumulated from point-to-point distances
+        self.path_len = 0.0
+        self.path_lengths = []
+        self.odom_poses = []
+        self.slam_poses = []
+
         # Use sufficiently large TF buffer cache to be able to evaluate
         # localization during the whole run ex post.
-        self.tf = Buffer(cache_time=rospy.Duration.from_sec(600.0))
+        # self.tf = Buffer(cache_time=rospy.Duration.from_sec(3600.0))
+        self.tf = Buffer(cache_time=rospy.Duration.from_sec(10.0))
         self.tf_sub = TransformListener(self.tf)
 
         self.tf_pub = rospy.Publisher('/tf', TFMessage, queue_size=2, latch=True)
         self.cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2, latch=True)
 
-        self.timer = rospy.Timer(rospy.Duration(self.delay_start), self.start_timer, oneshot=True)
+        # self.timer = rospy.Timer(rospy.Duration(self.delay_start), self.start_timer, oneshot=True)
+
+    def random_transform(self):
+        noise = self.random.multivariate_normal(np.zeros((6,)), self.odom_cov)
+        T = euler_matrix(*noise[:3])
+        T[:3, 3] = noise[3:]
+        return T
 
     def evaluate(self):
-        timeout_until = rospy.Time.now() + rospy.Duration.from_sec(3.0)
-        # timeout = rospy.Duration.from_sec(3.0)
         r_angles = []
         t_norms = []
-        poses = []
-        last_tf = np.eye(4)
-        for stamp in self.eval_stamps:
-            timeout = timeout_until - rospy.Time.now()
-            time = (stamp - self.eval_stamps[0]).to_sec()
-            assert isinstance(stamp, rospy.Time)
-
-            try:
-                gt = self.tf.lookup_transform(*self.gt_frames, stamp, timeout)
-                gt = numpify(gt.transform)
-            except TransformException as ex:
-                rospy.logerr('Ground truth not available at time %.1f s: %s', time, ex)
-                poses.append(np.eye(4))
-                continue
-
-            try:
-                tf = self.tf.lookup_transform(*self.eval_frames, stamp, timeout)
-                tf = numpify(tf.transform)
-            except TransformException as ex:
-                rospy.logwarn('Could not find transforms at time %.1f s: %s', time, ex)
-                rospy.logwarn('Using last transform or identity for evaluation.')
-                tf = last_tf
-
-            poses.append(tf)
-            delta = np.linalg.solve(tf, gt)
-            # print(delta)
-            r = delta[:3, :3]
-            t = delta[:3, 3:]
-            r_angle = np.arccos((np.trace(r) - 1.0) / 2.0).item()
-            t_norm = np.linalg.norm(t).item()
+        rel_offsets = []
+        for index, (gt_pose, odom_pose, slam_pose, path_len) \
+                in enumerate(zip(self.gt_poses, self.odom_poses, self.slam_poses, self.path_lengths)):
+            position = self.ids[index]
+            delta = delta_transform(slam_pose, gt_pose)
+            r_angle = rotation_angle(delta)
+            t_norm = translation_norm(delta)
+            rel_offset = t_norm / path_len if path_len > 0. else 0.
             r_angles.append(r_angle)
             t_norms.append(t_norm)
-            rospy.loginfo('Error at %.1f s: rotation %.6f deg., translation %.6f m.',
-                          time, np.degrees(r_angle), t_norm)
+            rel_offsets.append(rel_offset)
+            rospy.loginfo('Error at position %i (index %i): rotation %.6f deg., translation %.6f m (%.3f %%).',
+                          position, index, np.degrees(r_angle), t_norm, 100. * rel_offset)
 
-        # print(r_angles)
-        # print(t_norms)
         r_angle = np.mean(r_angles).item()
         t_norm = np.mean(t_norms).item()
-        rospy.logwarn('Average error: rotation %.6f deg., translation %.6f m.',
-                      np.degrees(r_angle), t_norm)
-        append(self.slam_eval_csv, '%s %.9f %.9f\n' % (self.dataset_name, r_angle, t_norm))
-        rospy.loginfo('SLAM accuracy results written to %s.', self.slam_eval_csv)
+        rel_offset = np.mean(rel_offsets).item()
+        rospy.logwarn('Average error: rotation %.6f deg., translation %.6f m (%.3f %%).',
+                      np.degrees(r_angle), t_norm, 100. * rel_offset)
+        append(self.slam_eval_csv, '%s %.9f %.9f %.9f\n' % (self.dataset_name, r_angle, t_norm, rel_offset))
+        rospy.loginfo('SLAM accuracy results written to %s.', os.path.realpath(self.slam_eval_csv))
 
         # write SLAM poses and timestamps to csv file
         if self.slam_poses_csv:
             if os.path.exists(self.slam_poses_csv):
-                rospy.logwarn('File with SLAM poses already exists: %s. It will be overwritten.', self.slam_poses_csv)
+                rospy.logwarn('File with SLAM poses already exists: %s. It will be overwritten.',
+                              os.path.realpath(self.slam_poses_csv))
             write(self.slam_poses_csv,
                   'poseId, timestamp, T00, T01, T02, T03, T10, T11, T12, T13, T20, T21, T22, T23, T30, T31, T32, T33\n')
-            for i, t, T in zip(self.ids, self.eval_stamps, poses):
+            for i, t, T in zip(self.ids, self.eval_stamps, self.slam_poses):
                 assert T.shape == (4, 4)
                 append(self.slam_poses_csv, '%d, %.6f, %s\n'
                        % (i, t.to_sec(), ', '.join(['%.6f' % x for x in T.flatten()])))
-            rospy.loginfo('SLAM poses written to %s.', self.slam_poses_csv)
+            rospy.loginfo('SLAM poses written to %s.', os.path.realpath(self.slam_poses_csv))
 
     def start_timer(self, evt):
         self.timer = rospy.Timer(rospy.Duration(self.period), self.publish_and_move)
         rospy.loginfo('Publishing robot data.')
 
+    def perturb_pose(self, pose):
+        if self.odom_cov is not None:
+            noise = self.random_transform()
+            pose = np.matmul(pose, noise)
+        return pose
+
+    def local_cloud(self, i=None):
+        if i is None:
+            i = self.index
+        return self.dataset.local_cloud(self.ids[i])
+
+    def cloud_pose(self, i=None):
+        if i is None:
+            i = self.index
+        return self.dataset.cloud_pose(self.ids[i])
+
+    def delta_pose(self):
+        if self.index > 0:
+            return delta_transform(self.cloud_pose(self.index - 1), self.cloud_pose(self.index))
+        return np.eye(4)
+
+    def publish(self):
+        if rospy.is_shutdown():
+            return
+        if not self.is_valid():
+            return
+
+        now = rospy.Time.now()
+        self.eval_stamps.append(now)
+
+        # Accumulate path length.
+        self.path_len += translation_norm(self.delta_pose())
+        self.path_lengths.append(self.path_len)
+        rospy.logdebug('Publishing data from position %i (index %i), path length %.1f m.',
+                       self.ids[self.index], self.index, self.path_len)
+
+        # Get and publish ground-truth pose.
+        gt_pose = self.cloud_pose()
+        self.gt_poses.append(gt_pose)
+        if self.gt_frames and len(self.gt_frames) == 2:
+            tf = TransformStamped()
+            tf.header.stamp = now
+            tf.header.frame_id = self.gt_frames[0]
+            tf.child_frame_id = self.gt_frames[1]
+            tf.transform = msgify(Transform, gt_pose)
+            self.tf_pub.publish(TFMessage([tf]))
+
+        # Create and publish (noisy) odometry.
+        # Don't perturb the first pose - that would transform map origin
+        # as odom-to-map is initialized to identity.
+        if self.index == 0:
+            assert not self.odom_poses
+            odom_pose = np.eye(4)
+        else:
+            assert self.index > 0
+            assert self.odom_poses
+            odom_pose = self.odom_poses[-1] @ self.delta_pose() @ self.random_transform()
+        odom_pose = fix_transform(odom_pose)
+        self.odom_poses.append(odom_pose)
+        odom_error = translation_norm(delta_transform(gt_pose, odom_pose))
+        rospy.logdebug('Odometry error at position %i (index %i): %.3f m (%.1f %%)',
+                       self.ids[self.index], self.index,
+                       odom_error, 100. * odom_error / self.path_len if self.path_len > 0. else 0.)
+        if self.odom_source == 'ground_truth':
+            tf = TransformStamped()
+            tf.header.stamp = now
+            tf.header.frame_id = self.odom_frame
+            tf.child_frame_id = self.lidar_frame
+            tf.transform = msgify(Transform, odom_pose)
+            self.tf_pub.publish(TFMessage([tf]))
+
+        # Publish local cloud.
+        cloud = self.local_cloud()
+        msg = msgify(PointCloud2, cloud)
+        assert isinstance(msg, PointCloud2)
+        msg.header.stamp = now
+        msg.header.frame_id = self.lidar_frame
+        self.cloud_pub.publish(msg)
+
+    def wait_for_transform(self, i=None):
+        if i is None:
+            i = self.index
+        try:
+            tf = self.tf.lookup_transform(*self.eval_frames, self.eval_stamps[i], self.timeout)
+            slam_pose = numpify(tf.transform)
+        except TransformException as ex:
+            rospy.logwarn('Could not find transform from %s to %s at position %i (index %i): %s',
+                          *self.eval_frames[::-1], self.ids[self.index], self.index, ex)
+            rospy.logwarn_once('Using last transform or identity for evaluation.')
+            if self.slam_poses:
+                slam_pose = self.slam_poses[-1]
+            else:
+                slam_pose = np.eye(4)
+        self.slam_poses.append(slam_pose)
+        slam_error = translation_norm(delta_transform(self.gt_poses[i], slam_pose))
+        rospy.loginfo('SLAM error at position %i (index %i): %.3f m (%.1f %%)',
+                      self.ids[i], i,
+                      slam_error, 100. * slam_error / self.path_len if self.path_len > 0. else 0.)
+
+    def move(self):
+        self.index += 1
+
     def is_valid(self):
-        return self.position < len(self.ids)
+        return not rospy.is_shutdown() and self.index < len(self.ids)
 
     def halt_if_done(self):
         if not self.is_valid():
@@ -163,69 +307,33 @@ class RobotData(object):
                 rospy.sleep(rospy.Duration.from_sec(self.delay_end))
             rospy.signal_shutdown('No more positions.')
 
-    def perturb_pose(self, pose):
-        if self.odom_cov is not None:
-            noise = np.random.multivariate_normal(np.zeros((6,)), self.odom_cov)
-            T = euler_matrix(*noise[:3])
-            T[:3, 3] = noise[3:]
-            pose = np.matmul(pose, T)
-        return pose
-
-    def publish(self):
-        if rospy.is_shutdown():
-            return
-        if not self.is_valid():
-            return
-
-        now = rospy.Time.now()
-        id = self.ids[self.position]
-        rospy.loginfo('Publishing data from position %i.', id)
-        pose = self.dataset.cloud_pose(id)
-
-        # Publish ground-truth pose.
-        if self.gt_frames and len(self.gt_frames) == 2:
-            tf = TransformStamped()
-            tf.header.stamp = now
-            tf.header.frame_id = self.gt_frames[0]
-            tf.child_frame_id = self.gt_frames[1]
-            tf.transform = msgify(Transform, pose)
-            self.tf_pub.publish(TFMessage([tf]))
-
-        # Publish (perturbed) odometry?
-        if self.odom_source == 'ground_truth':
-            # Don't perturb the first pose - that would transform map origin
-            # as odom-to-map is initialized to identity.
-            if self.position > 0:
-                pose = self.perturb_pose(pose)
-            tf = TransformStamped()
-            tf.header.stamp = now
-            tf.header.frame_id = self.odom_frame
-            tf.child_frame_id = self.lidar_frame
-            tf.transform = msgify(Transform, pose)
-            self.tf_pub.publish(TFMessage([tf]))
-
-        cloud = self.dataset.local_cloud(self.ids[self.position])
-        msg = msgify(PointCloud2, cloud)
-        assert isinstance(msg, PointCloud2)
-        msg.header.stamp = now
-        msg.header.frame_id = self.lidar_frame
-        self.cloud_pub.publish(msg)
-
-        self.eval_stamps.append(now)
-
-    def move(self):
-        self.position += 1
-
     def publish_and_move(self, evt):
         self.halt_if_done()
         self.publish()
         self.move()
 
+    def spin(self):
+        rospy.sleep(rospy.Duration(self.delay_start))
+        rospy.loginfo('Publishing robot data.')
+        while True:
+            if not self.is_valid():
+                rospy.loginfo('No more positions.')
+                break
+            if rospy.is_shutdown():
+                rospy.loginfo('Shutting down.')
+                break
+            self.publish()
+            self.wait_for_transform()
+            self.move()
+        self.evaluate()
+
 
 def main():
     rospy.init_node('RobotData')
     node = RobotData()
-    rospy.spin()
+    # rospy.spin()
+    node.spin()
+
 
 
 if __name__ == '__main__':

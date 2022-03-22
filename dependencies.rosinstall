@@ -1,7 +1,7 @@
-- git:
-    local-name: ethzasl_icp_mapping
-    uri: https://github.com/norlab-ulaval/ethzasl_icp_mapping.git
-    version: darpa_subt
+# - git:
+#     local-name: ethzasl_icp_mapping
+#     uri: https://github.com/norlab-ulaval/ethzasl_icp_mapping.git
+#     version: darpa_subt
 - git:
     local-name: libnabo
     uri: https://github.com/ethz-asl/libnabo.git
@@ -9,4 +9,16 @@
 - git:
     local-name: libpointmatcher
     uri: https://github.com/ethz-asl/libpointmatcher.git
+    version: master
+- git:
+    local-name: libpointmatcher_ros
+    uri: https://github.com/norlab-ulaval/libpointmatcher_ros.git
+    version: master
+- git:
+    local-name: norlab_icp_mapper
+    uri: https://github.com/tpet/norlab_icp_mapper.git
+    version: master
+- git:
+    local-name: norlab_icp_mapper_ros
+    uri: https://github.com/tpet/norlab_icp_mapper_ros.git
     version: master

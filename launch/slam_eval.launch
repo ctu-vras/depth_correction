@@ -5,18 +5,21 @@
     <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
     <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
     <arg name="odom" default="true" doc="Publish possibly perturbed odometry."/>
+    <arg name="step" default="1"/>
     <arg name="rviz" default="true"/>
     <arg name="record" default="false"/>
     <arg name="play" default="false"/>
     <arg name="bag" default=""/>
     <arg name="bag_prefix" default="$(find depth_correction)/slam"/>
     <!-- Robot data and evaluation -->
+    <arg name="slam" default="norlab_icp_mapper"
+         doc="SLAM algorithm to use, from {ethzasl_icp_mapper, norlab_icp_mapper}."/>
     <arg name="slam_eval_csv" default="slam_eval.csv"/>
 <!--    <arg name="slam_poses_csv" default="$(find data)/$(arg dataset)/csv_global/pose_scanner_slam.csv"/>-->
-    <arg name="slam_poses_csv" default="pose_scanner_slam.csv"/>
+    <arg name="slam_poses_csv" default="slam_poses.csv"/>
     <!-- Cloud filter -->
     <arg name="min_depth" default="1.0"/>
-    <arg name="max_depth" default="15.0"/>
+    <arg name="max_depth" default="25.0"/>
     <arg name="grid_res" default="0.1"/>
     <!-- Depth correction -->
     <arg name="depth_correction" default="false"/>
@@ -41,7 +44,7 @@
             <arg name="dataset_poses_path" value="$(arg dataset_poses_path)"/>
             <arg name="start" value="0"/>
             <arg name="stop" value="1000000000"/>
-            <arg name="step" value="1"/>
+            <arg name="step" value="$(arg step)"/>
             <arg name="period" value="3.0"/>
             <arg name="delay_start" value="3.0"/>
             <arg name="delay_end" value="3.0"/>

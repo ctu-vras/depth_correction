@@ -22,6 +22,8 @@ From: ros:noetic-perception
     python3-catkin-tools
     ros-noetic-jsk-rqt-plugins
     ros-noetic-jsk-rviz-plugins
+    ros-noetic-libnabo
+    ros-noetic-libpointmatcher
     ros-noetic-ros-numpy
     ros-noetic-rviz
     "

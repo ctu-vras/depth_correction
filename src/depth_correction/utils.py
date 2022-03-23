@@ -51,10 +51,12 @@ def map_colors(values, colormap=cm.gist_rainbow, min_value=None, max_value=None)
 def timing(f):
     def timing_wrapper(*args, **kwargs):
         t0 = timer()
-        ret = f(*args, **kwargs)
-        t1 = timer()
-        print('%s %.6f s' % (f.__name__, t1 - t0))
-        return ret
+        try:
+            ret = f(*args, **kwargs)
+            return ret
+        finally:
+            t1 = timer()
+            print('%s %.6f s' % (f.__name__, t1 - t0))
 
     return timing_wrapper
 

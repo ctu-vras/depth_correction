@@ -51,7 +51,7 @@
             final_trajectory_file_name: $(dirname)/../trajectory.vtk
             icp_config: $(dirname)/../config/slam/icp.yaml
             input_filters_config: $(dirname)/../config/slam/input_filters.yaml
-            map_post_filters_config: $(dirname)/../config/slam/map_post_filters.yaml
+<!--            map_post_filters_config: $(dirname)/../config/slam/map_post_filters.yaml-->
             map_update_condition: overlap
             map_update_overlap: 0.9
             map_update_delay: 0.0
@@ -76,6 +76,7 @@
         </rosparam>
 
         <remap from="points_in" to="$(arg cloud)"/>
+        <remap from="filtered_points" to="filtered_points"/>
         <remap from="map" to="point_map"/>
         <remap from="icp_odom" to="icp_odom"/>
     </node>

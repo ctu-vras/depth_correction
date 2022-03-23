@@ -25,6 +25,7 @@ From: ros:noetic-perception
     ros-noetic-libnabo
     ros-noetic-libpointmatcher
     ros-noetic-ros-numpy
+    ros-noetic-rtabmap-ros
     ros-noetic-rviz
     "
     apt-get update

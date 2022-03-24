@@ -111,6 +111,8 @@ def eval_slam(cfg: Config):
         # Evaluate SLAM on whole kitti sequences if the dataset is semantic kitti
         if cfg.dataset == 'semantic_kitti':
             name = name[:17]  # semantic_kitti/XY
+            # name += '_step_%i' % cfg.data_step
+            name += '_end_1000_step_1'
         print('SLAM evaluation on %s started.' % name)
         # print(cfg.to_yaml())
 

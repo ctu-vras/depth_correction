@@ -69,9 +69,9 @@ def slam_poses_csv(cfg: Config, name, slam):
     return path
 
 
-def eval_baselines(launch_prefix=None, dataset='asl_laser'):
+def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
     # Avoid using ROS in global namespace to allow using scheduler.
-    from .eval import eval_loss, eval_slam
+
     # TODO: launch prefix
     # evaluate consistency loss on all sequences
     cfg = Config()
@@ -86,24 +86,59 @@ def eval_baselines(launch_prefix=None, dataset='asl_laser'):
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (dataset, name) for name in dataset_names]
 
-    # for test_loss in Loss:
-    #     eval_cfg = cfg.copy()
-    #     eval_cfg.test_names = ds
-    #     eval_cfg.loss = test_loss
-    #     eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir, 'loss_eval_%s.csv' % test_loss)
-    #     eval_loss(cfg=eval_cfg)
+    base_port = Config().ros_master_port
 
     # Generate SLAM poses as well.
-    for slam in SLAM:
-        for name in ds:
-            eval_cfg = cfg.copy()
-            eval_cfg.test_names = [name]
-            eval_cfg.slam = slam
-            eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir, 'slam_eval_%s.csv' % slam)
-            eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir, 'slam_eval_%s.bag' % slam)
-            # Output SLAM poses to structure within log dir.
-            eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
-            os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)
+    for i_exp, (slam, name) in enumerate(product(SLAM, ds)):
+
+        if launch_prefix and i_exp >= num_jobs:
+            print('Maximum number of jobs scheduled.')
+            print()
+            break
+
+        port = base_port + i_exp
+        print('Generating config:')
+        print('slam: %s' % slam)
+        print('dataset: %s' % name)
+        print('port: %i' % port)
+
+        eval_cfg = cfg.copy()
+        eval_cfg.ros_master_port = port
+        eval_cfg.log_dir = os.path.join(cfg.log_dir, name)
+        os.makedirs(eval_cfg.log_dir, exist_ok=True)
+        eval_cfg.test_names = [name]
+        eval_cfg.slam = slam
+        # eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir, 'slam_eval_%s.csv' % slam)
+        eval_cfg.slam_eval_csv = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.csv' % slam)
+
+        # Output bag files from evaluation.
+        # eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir, name, 'slam_eval_%s.bag' % slam)
+        eval_cfg.slam_eval_bag = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.bag' % slam)
+        # os.makedirs(os.path.dirname(eval_cfg.slam_eval_bag), exist_ok=True)
+
+        # Output SLAM poses to structure within log dir.
+        eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
+        os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)
+
+        if launch_prefix:
+            # Save config and schedule batch job (via launch_prefix).
+            cfg_path = os.path.join(cfg.log_dir, name, 'slam_eval_%s.yaml' % slam)
+            if os.path.exists(cfg_path):
+                print('Skipping existing config %s.' % cfg_path)
+                continue
+            eval_cfg.to_yaml(cfg_path)
+            launch_prefix = launch_prefix.format(log_dir=cfg.log_dir)
+            launch_prefix_parts = launch_prefix.split(' ')
+            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'slam']
+            print('Command line:', cmd)
+            print()
+            out, err = cmd_out(cmd)
+            print('Output:', out)
+            print('Error:', err)
+            print()
+
+        else:
+            from .eval import eval_slam
             eval_slam(cfg=eval_cfg)
 
 
@@ -119,10 +154,12 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
 
     for i_exp, (pose_provider, model, loss, (i_split, (train_names, val_names, test_names))) \
             in enumerate(product(PoseProvider, Model, Loss, enumerate(splits))):
+
         if launch_prefix and i_exp >= num_jobs:
             print('Maximum number of jobs scheduled.')
             print()
             break
+
         port = base_port + i_exp
         print('Generating config:')
         print('pose provider: %s' % pose_provider)

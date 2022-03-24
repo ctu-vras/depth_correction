@@ -164,13 +164,13 @@ class RobotData(object):
             r_angles.append(r_angle)
             t_norms.append(t_norm)
             rel_offsets.append(rel_offset)
-            rospy.loginfo('Error at position %i (index %i): rotation %.6f deg., translation %.6f m (%.3f %%).',
+            rospy.loginfo('SLAM error at pos. %i (index %i): rot. %.6f deg., transl. %.6f m (%.3f %%).',
                           position, index, np.degrees(r_angle), t_norm, 100. * rel_offset)
 
         r_angle = np.mean(r_angles).item()
         t_norm = np.mean(t_norms).item()
         rel_offset = np.mean(rel_offsets).item()
-        rospy.logwarn('Average error: rotation %.6f deg., translation %.6f m (%.3f %%).',
+        rospy.logwarn('Average error: rot. %.6f deg., transl. %.6f m (%.3f %%).',
                       np.degrees(r_angle), t_norm, 100. * rel_offset)
         append(self.slam_eval_csv, '%s %.9f %.9f %.9f\n' % (self.dataset_name, r_angle, t_norm, rel_offset))
         rospy.loginfo('SLAM accuracy results written to %s.', os.path.realpath(self.slam_eval_csv))
@@ -252,7 +252,7 @@ class RobotData(object):
         odom_pose = fix_transform(odom_pose)
         self.odom_poses.append(odom_pose)
         odom_error = translation_norm(delta_transform(gt_pose, odom_pose))
-        rospy.logdebug('Odometry error at position %i (index %i): %.3f m (%.1f %%)',
+        rospy.logdebug('Odometry error at pos. %i (index %i): %.3f m (%.1f %%)',
                        self.ids[self.index], self.index,
                        odom_error, 100. * odom_error / self.path_len if self.path_len > 0. else 0.)
         if self.odom_source == 'ground_truth':
@@ -287,7 +287,7 @@ class RobotData(object):
                 slam_pose = np.eye(4)
         self.slam_poses.append(slam_pose)
         slam_error = translation_norm(delta_transform(self.gt_poses[i], slam_pose))
-        rospy.loginfo('SLAM error at position %i (index %i): %.3f m (%.1f %%)',
+        rospy.loginfo('SLAM error at pos. %i (index %i): %.3f m (%.1f %%)',
                       self.ids[i], i,
                       slam_error, 100. * slam_error / self.path_len if self.path_len > 0. else 0.)
 

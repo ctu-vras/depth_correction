@@ -9,6 +9,7 @@
     <arg name="rviz" default="true"/>
     <arg name="record" default="false"/>
     <arg name="play" default="false"/>
+    <arg name="rate" default="2.0"/>
     <arg name="bag" default=""/>
     <arg name="bag_prefix" default="$(find depth_correction)/slam"/>
     <!-- Robot data and evaluation -->
@@ -34,7 +35,7 @@
 
     <group if="$(eval play)">
         <param name="use_sim_time" value="true"/>
-        <node name="rosbag_play" pkg="rosbag" type="play" args="--clock -d 3.0 -r 5.0 $(arg bag)"/>
+        <node name="rosbag_play" pkg="rosbag" type="play" args="--clock -d 3.0 -r $(arg rate) $(arg bag)"/>
     </group>
 
     <group if="$(eval not play)">

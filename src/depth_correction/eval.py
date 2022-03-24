@@ -112,7 +112,7 @@ def eval_slam(cfg: Config):
         if cfg.dataset == 'semantic_kitti':
             name = name[:17]  # semantic_kitti/XY
             # name += '_step_%i' % cfg.data_step
-            name += '_end_500_step_2'
+            name += '_end_500_step_1'
         print('SLAM evaluation on %s started.' % name)
         # print(cfg.to_yaml())
 

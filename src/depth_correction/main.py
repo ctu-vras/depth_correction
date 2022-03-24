@@ -308,7 +308,7 @@ def run_from_cmdline():
     arg = args.args[1] if len(args.args) >= 2 else None
     # return
     if verb == 'eval_baselines':
-        eval_baselines(dataset=args.dataset)
+        eval_baselines(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs, dataset=args.dataset)
     elif verb == 'train_and_eval_all':
         train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs, dataset=args.dataset)
     elif verb == 'eval':

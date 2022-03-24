@@ -145,7 +145,8 @@ def eval_slam(cfg: Config):
         roslaunch_args = cli_args[1:]
         roslaunch_file = [(roslaunch.rlutil.resolve_launch_arguments(cli_args)[0], roslaunch_args)]
         launch_kwargs = {}
-        launch_kwargs['force_log'] = True
+        # launch_kwargs['force_log'] = True
+        launch_kwargs['force_screen'] = True
         if cfg.ros_master_port:
             launch_kwargs['port'] = cfg.ros_master_port
         parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, **launch_kwargs)

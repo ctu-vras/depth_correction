@@ -88,7 +88,7 @@ class Config(object):
 
         # Cloud preprocessing
         self.min_depth = 1.0
-        self.max_depth = 15.0
+        self.max_depth = 25.0
         # self.grid_res = 0.05
         self.grid_res = 0.1
         # Neighborhood

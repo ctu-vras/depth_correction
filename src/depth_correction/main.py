@@ -127,7 +127,7 @@ def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
                 print('Skipping existing config %s.' % cfg_path)
                 continue
             eval_cfg.to_yaml(cfg_path)
-            launch_prefix = launch_prefix.format(log_dir=cfg.log_dir)
+            launch_prefix = launch_prefix.format(log_dir=cfg.log_dir, name=name, slam=slam)
             launch_prefix_parts = launch_prefix.split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'slam']
             print('Command line:', cmd)

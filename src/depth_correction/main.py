@@ -69,7 +69,7 @@ def slam_poses_csv(cfg: Config, name, slam):
     return path
 
 
-def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
+def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser', port=None, **kwargs):
     # Avoid using ROS in global namespace to allow using scheduler.
 
     # TODO: launch prefix
@@ -86,7 +86,7 @@ def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (dataset, name) for name in dataset_names]
 
-    base_port = Config().ros_master_port
+    base_port = port or Config().ros_master_port
 
     # Generate SLAM poses as well.
     for i_exp, (slam, name) in enumerate(product(SLAM, ds)):
@@ -141,7 +141,7 @@ def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
             eval_slam(cfg=eval_cfg)
 
 
-def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
+def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser', port=None, **kwargs):
 
     splits = create_splits(dataset=dataset)
 
@@ -149,7 +149,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
     print('Number of experiments: %i' % num_exp)
     print('Maximum number of jobs: %i' % num_jobs)
     assert num_exp < 100
-    base_port = Config().ros_master_port
+    base_port = port or Config().ros_master_port
 
     for i_exp, (pose_provider, model, loss, (i_split, (train_names, val_names, test_names))) \
             in enumerate(product(PoseProvider, Model, Loss, enumerate(splits))):
@@ -220,7 +220,8 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser'):
             train_and_eval(cfg)
 
 
-def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg='all', eigenvalue_bounds=None):
+def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg='all', eigenvalue_bounds=None,
+                 port=None, **kwargs):
     """Evaluate selected configs.
 
     Collect config paths using path template.
@@ -237,7 +238,7 @@ def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg=
     assert isinstance(log_dir, str)
     configs = glob(config)
     print(configs)
-    base_port = Config().ros_master_port
+    base_port = port or Config().ros_master_port
 
     for i, config_path in enumerate(configs):
 
@@ -298,24 +299,27 @@ def run_from_cmdline():
     parser.add_argument('--num-jobs', type=int, default=0)  # allows debug with fewer jobs
     parser.add_argument('--eigenvalue-bounds', type=str)
     parser.add_argument('--dataset', type=str, default='asl_laser')
+    parser.add_argument('--port', type=int)
     parser.add_argument('args', type=str, nargs='+')
     # parser.add_argument('arg', type=str, required=False)
     args = parser.parse_args()
     print(args)
     verb = args.args[0]
     arg = args.args[1] if len(args.args) >= 2 else None
-    # return
+    kwargs = dict(config=args.config,
+                  log_dir=args.log_dir,
+                  launch_prefix=args.launch_prefix,
+                  num_jobs=args.num_jobs,
+                  eigenvalue_bounds=args.eigenvalue_bounds,
+                  dataset=args.dataset,
+                  port=args.port)
     if verb == 'eval_baselines':
-        eval_baselines(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs, dataset=args.dataset)
+        eval_baselines(**kwargs)
     elif verb == 'train_and_eval_all':
-        train_and_eval_all(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs, dataset=args.dataset)
+        train_and_eval_all(**kwargs)
     elif verb == 'eval':
         print(verb, arg)
-        kwargs = {}
-        if args.eigenvalue_bounds:
-            kwargs['eigenvalue_bounds'] = args.eigenvalue_bounds
-        eval_configs(launch_prefix=args.launch_prefix, num_jobs=args.num_jobs,
-                     config=args.config, log_dir=args.log_dir, arg=arg, **kwargs)
+        eval_configs(arg=arg, **kwargs)
     elif verb == 'print_config':
         print(Config().to_yaml())
 

@@ -1,5 +1,7 @@
 # Depth Correction
 
+![](./docs/imgs/depth_correction_scheme.png)
+
 LiDAR measurements correction models trained in a self-supervised manner on real data from diverse environments.
 Models exploit multiple point cloud measurements of the same scene from different view-points in
 order to reduce the bias based on the consistency of the constructed map.

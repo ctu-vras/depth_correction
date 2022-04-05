@@ -1,13 +1,15 @@
 from __future__ import absolute_import, division, print_function
 from .config import Loss, Model, PoseProvider, SLAM
-import numpy as np
-import pandas as pd
+import glob
 from matplotlib import cm
+import numpy as np
+import os
+import pandas as pd
+import tabulate
 from timeit import default_timer as timer
 import torch
-import tabulate
-import os
-import glob
+import traceback
+
 
 __all__ = [
     'map_colors',

@@ -7,6 +7,7 @@ from itertools import product
 import os
 import random
 from subprocess import DEVNULL, PIPE, run
+import sys
 import importlib
 """Launch all experiments.
 
@@ -69,14 +70,14 @@ def slam_poses_csv(cfg: Config, name, slam):
     return path
 
 
-def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser', port=None, **kwargs):
+def eval_baselines(base_cfg: Config=None):
     # Avoid using ROS in global namespace to allow using scheduler.
 
     # TODO: launch prefix
     # evaluate consistency loss on all sequences
     cfg = Config()
     # Adjust default config...
-    cfg.dataset = dataset
+    cfg.dataset = base_cfg.dataset
     cfg.model_class = 'BaseModel'
     cfg.model_state_dict = ''
     cfg.log_dir = cfg.get_log_dir()
@@ -84,14 +85,14 @@ def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser', port=Non
 
     imported_module = importlib.import_module("data.%s" % cfg.dataset)
     dataset_names = getattr(imported_module, "dataset_names")
-    ds = ['%s/%s' % (dataset, name) for name in dataset_names]
+    ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
 
-    base_port = port or Config().ros_master_port
+    base_port = base_cfg.ros_master_port or Config().ros_master_port
 
     # Generate SLAM poses as well.
     for i_exp, (slam, name) in enumerate(product(SLAM, ds)):
 
-        if launch_prefix and i_exp >= num_jobs:
+        if base_cfg.launch_prefix and i_exp >= base_cfg.num_jobs:
             print('Maximum number of jobs scheduled.')
             print()
             break
@@ -120,14 +121,14 @@ def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser', port=Non
         eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
         os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)
 
-        if launch_prefix:
+        if base_cfg.launch_prefix:
             # Save config and schedule batch job (via launch_prefix).
             cfg_path = os.path.join(cfg.log_dir, name, 'slam_eval_%s.yaml' % slam)
             if os.path.exists(cfg_path):
                 print('Skipping existing config %s.' % cfg_path)
                 continue
             eval_cfg.to_yaml(cfg_path)
-            launch_prefix_parts = launch_prefix.format(log_dir=cfg.log_dir, name=name, slam=slam).split(' ')
+            launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=cfg.log_dir, name=name, slam=slam).split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'slam']
             print('Command line:', cmd)
             print()
@@ -141,20 +142,21 @@ def eval_baselines(launch_prefix=None, num_jobs=0, dataset='asl_laser', port=Non
             eval_slam(cfg=eval_cfg)
 
 
-def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser', port=None, **kwargs):
+def train_and_eval_all(base_cfg: Config=None):
 
-    splits = create_splits(dataset=dataset)
+    splits = create_splits(dataset=base_cfg.dataset)
 
     num_exp = len(list(product(PoseProvider, Model, Loss, enumerate(splits))))
     print('Number of experiments: %i' % num_exp)
-    print('Maximum number of jobs: %i' % num_jobs)
+    print('Maximum number of jobs: %i' % base_cfg.num_jobs)
     assert num_exp < 100
-    base_port = port or Config().ros_master_port
+    base_port = base_cfg.ros_master_port or Config().ros_master_port
 
     for i_exp, (pose_provider, model, loss, (i_split, (train_names, val_names, test_names))) \
             in enumerate(product(PoseProvider, Model, Loss, enumerate(splits))):
 
-        if launch_prefix and i_exp >= num_jobs:
+        # if launch_prefix and i_exp >= num_jobs:
+        if base_cfg.launch_prefix and i_exp >= base_cfg.num_jobs:
             print('Maximum number of jobs scheduled.')
             print()
             break
@@ -162,7 +164,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser', port
         port = base_port + i_exp
         print('Generating config:')
         print('pose provider: %s' % pose_provider)
-        print('dataset: %s' % dataset)
+        print('dataset: %s' % base_cfg.dataset)
         print('model: %s' % model)
         print('loss: %s' % loss)
         print('split: %i' % i_split)
@@ -170,7 +172,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser', port
 
         cfg = Config()
         # TODO: Configure preprocessing.
-        cfg.dataset = dataset
+        cfg.dataset = base_cfg.dataset
         cfg.log_dir = cfg.get_log_dir()
         cfg.ros_master_port = port
 
@@ -199,14 +201,14 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser', port
         os.makedirs(cfg.log_dir, exist_ok=True)
         print()
 
-        if launch_prefix:
+        if base_cfg.launch_prefix:
             # Save config and schedule batch job (via launch_prefix).
             cfg_path = os.path.join(cfg.log_dir, 'config.yaml')
             if os.path.exists(cfg_path):
                 print('Skipping existing config %s.' % cfg_path)
                 continue
             cfg.to_yaml(cfg_path)
-            launch_prefix_parts = launch_prefix.format(log_dir=cfg.log_dir).split(' ')
+            launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=cfg.log_dir).split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.train_and_eval', '-c', cfg_path]
             print('Command line:', cmd)
             print()
@@ -220,8 +222,7 @@ def train_and_eval_all(launch_prefix=None, num_jobs=0, dataset='asl_laser', port
             train_and_eval(cfg)
 
 
-def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg='all', eigenvalue_bounds=None,
-                 port=None, **kwargs):
+def eval_configs(base_cfg: Config=None, config=None, arg='all'):
     """Evaluate selected configs.
 
     Collect config paths using path template.
@@ -235,14 +236,14 @@ def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg=
     :return:
     """
     assert isinstance(config, str)
-    assert isinstance(log_dir, str)
+    assert isinstance(base_cfg.log_dir, str)
     configs = glob(config)
     print(configs)
-    base_port = port or Config().ros_master_port
+    base_port = base_cfg.ros_master_port or Config().ros_master_port
 
     for i, config_path in enumerate(configs):
 
-        if launch_prefix and i >= num_jobs:
+        if base_cfg.launch_prefix and i >= base_cfg.num_jobs:
             print('Maximum number of jobs scheduled.')
             print()
             break
@@ -250,19 +251,19 @@ def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg=
         cfg = Config()
         cfg.from_yaml(config_path)
         dirname, basename = os.path.split(config_path)
-        cfg.log_dir = log_dir.format(dirname=dirname, basename=basename)
+        cfg.log_dir = base_cfg.log_dir.format(dirname=dirname, basename=basename)
         os.makedirs(cfg.log_dir, exist_ok=True)
         cfg.ros_master_port = base_port + i
-        if eigenvalue_bounds is not None:
-            cfg.eigenvalue_bounds = eigenvalue_bounds
-        if launch_prefix:
+        if base_cfg.eigenvalue_bounds is not None:
+            cfg.eigenvalue_bounds = base_cfg.eigenvalue_bounds
+        if base_cfg.launch_prefix:
             # Save config and schedule batch job (via launch_prefix).
             new_path = os.path.join(cfg.log_dir, basename)
             if os.path.exists(new_path):
                 print('Skipping existing config %s.' % new_path)
                 continue
             cfg.to_yaml(new_path)
-            launch_args = launch_prefix.format(log_dir=cfg.log_dir).split(' ')
+            launch_args = base_cfg.launch_prefix.format(log_dir=cfg.log_dir).split(' ')
             cmd = launch_args + ['python', '-m', 'depth_correction.eval', '-c', new_path, arg]
             print('Command line:', cmd)
             print()
@@ -274,7 +275,6 @@ def eval_configs(launch_prefix=None, num_jobs=0, config=None, log_dir=None, arg=
             print('Eval all')
             # Avoid using ROS in global namespace to allow using scheduler.
             from .eval import eval_loss_all, eval_slam_all
-            # eval_all(cfg)
             eval_loss_all(cfg)
             eval_slam_all(cfg)
         elif arg == 'loss_all':
@@ -291,37 +291,32 @@ def run_all():
 
 
 def run_from_cmdline():
+    argv = sys.argv[1:]
+    cmd_cfg = Config()
+    argv = cmd_cfg.from_args(argv)
+    print('Non-default configuration:')
+    for k, v in cmd_cfg.non_default().items():
+        print('%s: %s' % (k, v))
+    print()
+
     parser = ArgumentParser()
     parser.add_argument('--config', type=str)
-    parser.add_argument('--log-dir', type=str)
-    # parser.add_argument('--launch-prefix', type=str, nargs='+')
-    parser.add_argument('--launch-prefix', type=str)
-    parser.add_argument('--num-jobs', type=int, default=0)  # allows debug with fewer jobs
-    parser.add_argument('--eigenvalue-bounds', type=str)
-    parser.add_argument('--dataset', type=str, default='asl_laser')
-    parser.add_argument('--port', type=int)
     parser.add_argument('args', type=str, nargs='+')
-    # parser.add_argument('arg', type=str, required=False)
-    args = parser.parse_args()
-    print(args)
+    args = parser.parse_args(argv)
+
     verb = args.args[0]
     arg = args.args[1] if len(args.args) >= 2 else None
-    kwargs = dict(config=args.config,
-                  log_dir=args.log_dir,
-                  launch_prefix=args.launch_prefix,
-                  num_jobs=args.num_jobs,
-                  eigenvalue_bounds=args.eigenvalue_bounds,
-                  dataset=args.dataset,
-                  port=args.port)
     if verb == 'eval_baselines':
-        eval_baselines(**kwargs)
+        eval_baselines(cmd_cfg)
     elif verb == 'train_and_eval_all':
-        train_and_eval_all(**kwargs)
+        train_and_eval_all(cmd_cfg)
     elif verb == 'eval':
         print(verb, arg)
-        eval_configs(arg=arg, **kwargs)
+        print()
+        eval_configs(cmd_cfg, arg=arg)
     elif verb == 'print_config':
         print(Config().to_yaml())
+        print()
 
 
 def main():

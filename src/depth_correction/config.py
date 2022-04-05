@@ -1,4 +1,5 @@
 from __future__ import absolute_import, division, print_function
+from argparse import ArgumentParser
 from copy import deepcopy
 from datetime import datetime
 # from enum import Enum
@@ -24,6 +25,75 @@ class ValueEnum(type):
 
     def __contains__(self, item):
         return item in iter(self)
+
+
+class Configurable(object):
+    """Object configurable from command-line arguments or YAML."""
+
+    DEFAULT = object()
+
+    def __getitem__(self, name):
+        return getattr(self, name)
+
+    def __iter__(self):
+        return iter(self.to_dict().keys())
+
+    def from_dict(self, d):
+        old = self.to_dict()
+        for k, v in d.items():
+            if k in old:
+                setattr(self, k, v)
+
+    def from_yaml(self, path):
+        if isinstance(path, str):
+            with open(path, 'r') as f:
+                try:
+                    d = yaml.safe_load(f)
+                    if d:  # Don't raise exception in case of empty yaml.
+                        self.from_dict(d)
+                except yaml.YAMLError as ex:
+                    print(ex)
+
+    def from_args(self, args):
+        # Construct argument definitions from current config.
+        parser = ArgumentParser()
+        for k in self:
+            arg = '--%s' % '-'.join(k.split('_'))
+            parser.add_argument(arg, type=str, default=Configurable.DEFAULT)
+
+        # Parse arguments and values as YAML.
+        # parsed_args = parser.parse_args(args)
+        # parsed_args = parser.parse_known_args(args)[0]
+        parsed_args, remainder = parser.parse_known_args(args)
+        new = {}
+        for k, v in vars(parsed_args).items():
+            if v == Configurable.DEFAULT:
+                continue
+            new[k] = yaml.safe_load(v)
+
+        self.from_dict(new)
+
+        return remainder
+
+    def to_dict(self):
+        return vars(self)
+
+    def to_yaml(self, path=None):
+        if path is None:
+            return yaml.safe_dump(self.to_dict())
+        with open(path, 'w') as f:
+            yaml.safe_dump(self.to_dict(), f)
+
+    def non_default(self):
+        d = {}
+        cfg = self.__class__()
+        for k in cfg:
+            if cfg[k] != self[k]:
+                d[k] = self[k]
+        return d
+
+    def copy(self):
+        return deepcopy(self)
 
 
 class Loss(metaclass=ValueEnum):
@@ -56,7 +126,8 @@ class PoseCorrection(metaclass=ValueEnum):
 
 
 class SLAM(metaclass=ValueEnum):
-    ethzasl_icp_mapper = 'ethzasl_icp_mapper'
+    # ethzasl_icp_mapper = 'ethzasl_icp_mapper'
+    norlab_icp_mapper = 'norlab_icp_mapper'
 
 
 class PoseProvider(metaclass=ValueEnum):
@@ -68,18 +139,24 @@ for slam in SLAM:
     setattr(PoseProvider, slam, slam)
 
 
-class Config(object):
+class Config(Configurable):
     """Depth correction config.
 
     Only basic Python types should be used as values."""
     def __init__(self, **kwargs):
+        super(Config, self).__init__()
+
+        # Launch and scheduler options.
+        self.launch_prefix = None  # Allows setting launch prefix, e.g., for scheduler.
+        self.num_jobs = 0  # Allows debugging with fewer jobs.
+
         self.pkg_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.enable_ros = False
         self.ros_master_port = 11513
 
-        self.slam = 'ethzasl_icp_mapper'
+        self.slam = SLAM.norlab_icp_mapper
         self.model = None
-        self.model_class = 'ScaledPolynomial'
+        self.model_class = Model.ScaledPolynomial
         self.model_state_dict = None
         # self.dtype = np.float64
         self.float_type = 'float64'
@@ -115,8 +192,8 @@ class Config(object):
         self.world_frame = 'world'
 
         # Training
-        self.loss = 'min_eigval_loss'
-        # self.loss = 'trace_loss'
+        self.loss = Loss.min_eigval_loss
+        # self.loss = Loss.trace_loss
         self.n_opt_iters = 100
 
         self.optimizer = 'Adam'
@@ -137,8 +214,8 @@ class Config(object):
         self.slam_eval_bag = None
         self.slam_poses_csv = None
         # Testing
-        self.eval_losses = ['min_eigval_loss', 'trace_loss']
-        self.eval_slams = ['ethzasl_icp_mapper']
+        self.eval_losses = list(Loss)
+        self.eval_slams = [SLAM.norlab_icp_mapper]
 
         self.log_filters = False
         self.show_results = False
@@ -148,32 +225,6 @@ class Config(object):
 
         # Override from kwargs
         self.from_dict(kwargs)
-
-    def __getitem__(self, name):
-        return getattr(name)
-
-    def from_dict(self, d):
-        for k, v in d.items():
-            setattr(self, k, v)
-
-    def from_yaml(self, path):
-        if isinstance(path, str):
-            with open(path, 'r') as f:
-                try:
-                    d = yaml.safe_load(f)
-                    if d:  # Don't raise exception in case of empty yaml.
-                        self.from_dict(d)
-                except yaml.YAMLError as ex:
-                    print(ex)
-
-    def to_dict(self):
-        return vars(self)
-
-    def to_yaml(self, path=None):
-        if path is None:
-            return yaml.safe_dump(self.to_dict())
-        with open(path, 'w') as f:
-            yaml.safe_dump(self.to_dict(), f)
 
     def numpy_float_type(self):
         return eval('numpy.%s' % self.float_type)
@@ -217,5 +268,17 @@ class Config(object):
         dir = os.path.join(self.pkg_dir, 'gen', name)
         return dir
 
-    def copy(self):
-        return deepcopy(self)
+
+def test():
+    cfg = Config()
+    cfg.from_dict({'nn_k': 5, 'grid_res': 0.5})
+    cfg.from_args(['--nn-k', '10'])
+    print(cfg.non_default())
+
+
+def main():
+    test()
+
+
+if __name__ == '__main__':
+    main()

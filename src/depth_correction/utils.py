@@ -194,7 +194,7 @@ def slam_error_from_csv(csv_paths):
     return (orient_acc_deg, orient_acc_deg_std), (trans_acc_m, trans_acc_m_std)
 
 
-def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=SLAM.ethzasl_icp_mapper):
+def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=list(SLAM)[0]):
     csv_paths = glob.glob(slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
                                                   split='*', set=split, slam=slam))
     print('preproc={preproc}, pose_provider={pose_provider}, model={model}, loss={loss}, split={split}, set={set}, slam={slam} paths:'
@@ -206,7 +206,7 @@ def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='tr
 def slam_localization_error_demo():
     print(" SLAM error table ")
     # TODO: *base* variables are rewritten in each iterations.
-    slam_eval_baseline_pattern = os.path.join(path, slam_eval_baseline_format.format(preproc=preproc, slam=SLAM.ethzasl_icp_mapper))
+    slam_eval_baseline_pattern = os.path.join(path, slam_eval_baseline_format.format(preproc=preproc, slam=list(SLAM)[0]))
     print('slam_eval_baseline_pattern:', slam_eval_baseline_pattern)
     csv_paths = glob.glob(slam_eval_baseline_pattern)
     print(*csv_paths, sep='\n')

@@ -18,6 +18,26 @@ __all__ = [
 ]
 
 
+poses_sources = list(PoseProvider)
+models = list(Model)
+losses = list(Loss)
+path = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..', 'gen'))
+print(path)
+
+# Choose dataset
+# dataset = 'asl_laser'
+dataset = 'semantic_kitti'
+
+# preproc = '{dataset}_d1-25_g0.10_r0.20_e0_nan-0.00041_0.0025-nan'.format(dataset=dataset)
+preproc = '{dataset}_*'.format(dataset=dataset)
+slam_eval_baseline_format = '{{preproc}}/{dataset}/*/slam_eval_{{slam}}.csv'.format(dataset=dataset)
+
+# SLAM eval with depth correction filter from training
+# slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
+# SLAM eval with all points corrected
+slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
+
+
 # def map_colors(values, colormap=cm.nipy_spectral, min_value=None, max_value=None):
 def map_colors(values, colormap=cm.gist_rainbow, min_value=None, max_value=None):
     if not isinstance(values, torch.Tensor):
@@ -154,56 +174,44 @@ def tables_basic_demo():
     tab.to_latex()
 
 
-# poses_sources = ['ground_truth', 'ethzasl_icp_mapper']
-# models = ['polynomial', 'scaledpolynomial']
-# losses = ['min_eigval_loss', 'trace_loss']
-poses_sources = list(PoseProvider)
-models = list(Model)
-losses = list(Loss)
-path = os.path.join(os.path.dirname(__file__), '..', '..', 'gen')
+def slam_error_from_csv(csv_paths):
+    if not csv_paths:
+        traceback.print_stack()
+        return (float('nan'), float('nan')), (float('nan'), float('nan'))
 
-slam_eval_baseline_format = '{preproc}/slam_eval_{slam}.csv'
-# SLAM eval with depth correction filter from training
-# slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
-# SLAM eval with all points corrected
-slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
-# preproc = '*'
-# preproc = 'd1-15_g0.05_r0.15_e0_nan-0.00041_0.0025-nan.good'
-preproc = 'depth_1.0-15.0_grid_0.10_r0.20.good'
-# preproc = 'semantic_kitti_d1-15_g0.10_r0.20_e0_nan-0.00041_0.0025-nan.good'
+    dfs = None
+
+    for csv_path in csv_paths:
+        df = pd.read_csv(csv_path, delimiter=' ', header=None)
+        dfs = df if dfs is None else pd.concat([dfs, df])
+
+    orient_acc_rad, trans_acc_m = dfs[[1, 2]].mean(axis=0).values
+    orient_acc_rad_std, trans_acc_m_std = dfs[[1, 2]].std(axis=0).values
+
+    orient_acc_deg = np.rad2deg(orient_acc_rad)
+    orient_acc_deg_std = np.rad2deg(orient_acc_rad_std)
+
+    return (orient_acc_deg, orient_acc_deg_std), (trans_acc_m, trans_acc_m_std)
+
+
+def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=SLAM.ethzasl_icp_mapper):
+    csv_paths = glob.glob(slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
+                                                  split='*', set=split, slam=slam))
+    print('preproc={preproc}, pose_provider={pose_provider}, model={model}, loss={loss}, split={split}, set={set}, slam={slam} paths:'
+          .format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss, split='*', set=split, slam=slam))
+    print('\n'.join([csv_path[csv_path.index(dataset):] for csv_path in csv_paths]))
+    return slam_error_from_csv(csv_paths)
 
 
 def slam_localization_error_demo():
     print(" SLAM error table ")
-
-    def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=SLAM.ethzasl_icp_mapper):
-        dfs = None
-        csv_paths = glob.glob(slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
-                                                      split='*', set=split, slam=slam))
-
-        for i, fname in enumerate(csv_paths):
-            df = pd.read_csv(fname, delimiter=' ', header=None)
-            if i == 0:
-                dfs = df
-            else:
-                dfs = pd.concat([dfs, df])
-        orient_acc_rad, trans_acc_m = dfs[[1, 2]].mean(axis=0).values
-        orient_acc_deg = np.rad2deg(orient_acc_rad)
-
-        orient_acc_rad_std, trans_acc_m_std = dfs[[1, 2]].std(axis=0).values
-        orient_acc_deg_std = np.rad2deg(orient_acc_rad_std)
-        return (orient_acc_deg, orient_acc_deg_std), (trans_acc_m, trans_acc_m_std)
-
     # TODO: *base* variables are rewritten in each iterations.
-    csv_paths = glob.glob(os.path.join(path, slam_eval_baseline_format.format(preproc=preproc, slam=SLAM.ethzasl_icp_mapper)))
-    assert len(csv_paths) == 1
-    for fname in csv_paths:
-        df = pd.read_csv(fname, delimiter=' ', header=None)
-        orient_acc_rad_base, trans_acc_m_base = df[[1, 2]].mean(axis=0).values
-        orient_acc_deg_base = np.rad2deg(orient_acc_rad_base)
-
-        orient_acc_rad_base_std, trans_acc_m_base_std = df[[1, 2]].std(axis=0).values
-        orient_acc_deg_base_std = np.rad2deg(orient_acc_rad_base_std)
+    slam_eval_baseline_pattern = os.path.join(path, slam_eval_baseline_format.format(preproc=preproc, slam=SLAM.ethzasl_icp_mapper))
+    print('slam_eval_baseline_pattern:', slam_eval_baseline_pattern)
+    csv_paths = glob.glob(slam_eval_baseline_pattern)
+    print(*csv_paths, sep='\n')
+    (orient_acc_deg_base, orient_acc_deg_base_std), (trans_acc_m_base, trans_acc_m_base_std) = \
+            slam_error_from_csv(csv_paths)
 
     for pose_src in poses_sources:
 

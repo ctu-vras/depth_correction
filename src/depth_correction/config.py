@@ -139,6 +139,27 @@ for slam in SLAM:
     setattr(PoseProvider, slam, slam)
 
 
+def slam_eval_csv(log_dir: str, slam: str):
+    path = os.path.join(log_dir, 'slam_eval_%s.csv' % slam)
+    return path
+
+
+def slam_eval_bag(log_dir: str, slam: str):
+    path = os.path.join(log_dir, 'slam_eval_%s.bag' % slam)
+    return path
+
+
+# def slam_poses_csv(cfg: Config, name, slam):
+#     # path = os.path.join(cfg.get_log_dir(), name, 'slam_poses_%s.csv' % slam)
+#     path = os.path.join(cfg.log_dir, name, 'slam_poses_%s.csv' % slam)
+#     return path
+
+
+def slam_poses_csv(log_dir: str, name: str, slam: str):
+    path = os.path.join(log_dir, name, 'slam_poses_%s.csv' % slam)
+    return path
+
+
 class Config(Configurable):
     """Depth correction config.
 

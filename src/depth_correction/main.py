@@ -1,5 +1,15 @@
 from __future__ import absolute_import, division, print_function
-from .config import Config, Loss, Model, PoseCorrection, PoseProvider, SLAM
+from .config import (
+    Config,
+    Loss,
+    Model,
+    PoseCorrection,
+    PoseProvider,
+    SLAM,
+    slam_eval_bag,
+    slam_eval_csv,
+    slam_poses_csv
+)
 from argparse import ArgumentParser
 from collections import deque
 from glob import glob
@@ -64,30 +74,13 @@ def cmd_out(cmd):
     return out, err
 
 
-def slam_poses_csv(cfg: Config, name, slam):
-    # path = os.path.join(cfg.get_log_dir(), name, 'slam_poses_%s.csv' % slam)
-    path = os.path.join(cfg.log_dir, name, 'slam_poses_%s.csv' % slam)
-    return path
-
-
 def eval_baselines(base_cfg: Config=None):
-    # Avoid using ROS in global namespace to allow using scheduler.
 
-    # TODO: launch prefix
-    # evaluate consistency loss on all sequences
-    cfg = Config()
-    # Adjust default config...
-    cfg.dataset = base_cfg.dataset
-    cfg.model_class = 'BaseModel'
-    cfg.model_state_dict = ''
-    cfg.log_dir = cfg.get_log_dir()
-    os.makedirs(cfg.log_dir, exist_ok=True)
-
-    imported_module = importlib.import_module("data.%s" % cfg.dataset)
+    imported_module = importlib.import_module("data.%s" % base_cfg.dataset)
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
 
-    base_port = base_cfg.ros_master_port or Config().ros_master_port
+    base_cfg.log_dir = base_cfg.get_log_dir()
 
     # Generate SLAM poses as well.
     for i_exp, (slam, name) in enumerate(product(SLAM, ds)):
@@ -97,38 +90,46 @@ def eval_baselines(base_cfg: Config=None):
             print()
             break
 
-        port = base_port + i_exp
+        port = base_cfg.ros_master_port + i_exp
         print('Generating config:')
         print('slam: %s' % slam)
         print('dataset: %s' % name)
         print('port: %i' % port)
 
-        eval_cfg = cfg.copy()
+        eval_cfg = base_cfg.copy()
+        eval_cfg.log_dir = eval_cfg.get_log_dir()
+        os.makedirs(eval_cfg.log_dir, exist_ok=True)
+        eval_cfg.model_class = 'BaseModel'
+        eval_cfg.model_state_dict = ''
         eval_cfg.ros_master_port = port
-        eval_cfg.log_dir = os.path.join(cfg.log_dir, name)
+        eval_cfg.log_dir = os.path.join(base_cfg.log_dir, name)
         os.makedirs(eval_cfg.log_dir, exist_ok=True)
         eval_cfg.test_names = [name]
         eval_cfg.slam = slam
-        # eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir, 'slam_eval_%s.csv' % slam)
-        eval_cfg.slam_eval_csv = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.csv' % slam)
+        # eval_cfg.slam_eval_csv = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.csv' % slam)
+        eval_cfg.slam_eval_csv = slam_eval_csv(eval_cfg.log_dir, slam)
+        os.makedirs(os.path.dirname(eval_cfg.slam_eval_csv), exist_ok=True)
 
         # Output bag files from evaluation.
-        # eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir, name, 'slam_eval_%s.bag' % slam)
-        eval_cfg.slam_eval_bag = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.bag' % slam)
-        # os.makedirs(os.path.dirname(eval_cfg.slam_eval_bag), exist_ok=True)
+        # eval_cfg.slam_eval_bag = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.bag' % slam)
+        eval_cfg.slam_eval_bag = slam_eval_bag(eval_cfg.log_dir, slam)
+        os.makedirs(os.path.dirname(eval_cfg.slam_eval_bag), exist_ok=True)
 
         # Output SLAM poses to structure within log dir.
-        eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
+        # eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
+        # eval_cfg.slam_poses_csv = os.path.join(base_cfg.log_dir, name, 'slam_poses_%s.csv' % slam)
+        eval_cfg.slam_poses_csv = slam_poses_csv(base_cfg.log_dir, name, slam)
         os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)
 
         if base_cfg.launch_prefix:
             # Save config and schedule batch job (via launch_prefix).
-            cfg_path = os.path.join(cfg.log_dir, name, 'slam_eval_%s.yaml' % slam)
+            # cfg_path = os.path.join(cfg.log_dir, name, 'slam_eval_%s.yaml' % slam)
+            cfg_path = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.yaml' % slam)
             if os.path.exists(cfg_path):
                 print('Skipping existing config %s.' % cfg_path)
                 continue
             eval_cfg.to_yaml(cfg_path)
-            launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=cfg.log_dir, name=name, slam=slam).split(' ')
+            launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam).split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'slam']
             print('Command line:', cmd)
             print()
@@ -138,6 +139,7 @@ def eval_baselines(base_cfg: Config=None):
             print()
 
         else:
+            # Avoid using ROS in global namespace to allow using scheduler.
             from .eval import eval_slam
             eval_slam(cfg=eval_cfg)
 
@@ -150,18 +152,16 @@ def train_and_eval_all(base_cfg: Config=None):
     print('Number of experiments: %i' % num_exp)
     print('Maximum number of jobs: %i' % base_cfg.num_jobs)
     assert num_exp < 100
-    base_port = base_cfg.ros_master_port or Config().ros_master_port
 
     for i_exp, (pose_provider, model, loss, (i_split, (train_names, val_names, test_names))) \
             in enumerate(product(PoseProvider, Model, Loss, enumerate(splits))):
 
-        # if launch_prefix and i_exp >= num_jobs:
         if base_cfg.launch_prefix and i_exp >= base_cfg.num_jobs:
             print('Maximum number of jobs scheduled.')
             print()
             break
 
-        port = base_port + i_exp
+        port = base_cfg.ros_master_port + i_exp
         print('Generating config:')
         print('pose provider: %s' % pose_provider)
         print('dataset: %s' % base_cfg.dataset)
@@ -170,9 +170,8 @@ def train_and_eval_all(base_cfg: Config=None):
         print('split: %i' % i_split)
         print('port: %i' % port)
 
-        cfg = Config()
+        cfg = base_cfg.copy()
         # TODO: Configure preprocessing.
-        cfg.dataset = base_cfg.dataset
         cfg.log_dir = cfg.get_log_dir()
         cfg.ros_master_port = port
 
@@ -239,7 +238,6 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
     assert isinstance(base_cfg.log_dir, str)
     configs = glob(config)
     print(configs)
-    base_port = base_cfg.ros_master_port or Config().ros_master_port
 
     for i, config_path in enumerate(configs):
 
@@ -253,7 +251,7 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
         dirname, basename = os.path.split(config_path)
         cfg.log_dir = base_cfg.log_dir.format(dirname=dirname, basename=basename)
         os.makedirs(cfg.log_dir, exist_ok=True)
-        cfg.ros_master_port = base_port + i
+        cfg.ros_master_port = base_cfg.ros_master_port + i
         if base_cfg.eigenvalue_bounds is not None:
             cfg.eigenvalue_bounds = base_cfg.eigenvalue_bounds
         if base_cfg.launch_prefix:

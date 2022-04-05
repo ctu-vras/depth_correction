@@ -98,9 +98,6 @@ def eval_slam(cfg: Config):
     else:
         cfg.to_yaml(cfg_path)
 
-    # TODO: Actually use SLAM id if multiple pipelines are to be tested.
-    assert cfg.slam == 'ethzasl_icp_mapper'
-    # csv = os.path.join(cfg.log_dir, 'slam_eval.csv')
     assert cfg.slam_eval_csv
     assert not cfg.slam_poses_csv or len(cfg.test_names) == 1
     uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
@@ -122,6 +119,7 @@ def eval_slam(cfg: Config):
             cli_args.append('dataset_poses_path:=%s' % poses_path)
         cli_args.append('odom:=true')
         cli_args.append('rviz:=true' if cfg.rviz else 'rviz:=false')
+        cli_args.append('slam:=%s' % cfg.slam)
         cli_args.append('slam_eval_csv:=%s' % cfg.slam_eval_csv)
         if cfg.slam_eval_bag:
             cli_args.append('record:=true')

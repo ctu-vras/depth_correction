@@ -131,11 +131,17 @@ def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False, 
     return filtered
 
 
-def filter_eigenvalues(cloud, eig_bounds, only_mask=False, log=False):
+def filter_eigenvalues(cloud: DepthCloud, eig_bounds: list, only_mask: bool=False, log: bool=False):
     mask = None
-    for eig, min, max in eig_bounds:
-        eig_mask = filter_eigenvalue(cloud, eig, min=min, max=max, only_mask=True, log=log)
-        mask = eig_mask if mask is None else mask & eig_mask
+    if eig_bounds:
+        for eig, min, max in eig_bounds:
+            eig_mask = filter_eigenvalue(cloud, eig, min=min, max=max, only_mask=True, log=log)
+            mask = eig_mask if mask is None else mask & eig_mask
+    else:
+        mask = torch.ones((cloud.size(),), dtype=torch.bool)
+    if log and mask is not None:
+        print('%.3f = %i / %i points kept (eigenvalues within bounds).'
+              % (mask.double().mean(), mask.sum(), mask.numel()))
     if only_mask:
         return mask
     cloud = cloud[mask]

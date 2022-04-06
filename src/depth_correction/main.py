@@ -290,11 +290,21 @@ def run_all():
 
 def run_from_cmdline():
     argv = sys.argv[1:]
+    print('Command-line arguments:')
+    for arg in argv:
+        print(arg)
+    print()
     cmd_cfg = Config()
     argv = cmd_cfg.from_args(argv)
+    print('Config parsed from command line.')
     print('Non-default configuration:')
     for k, v in cmd_cfg.non_default().items():
         print('%s: %s' % (k, v))
+    print()
+
+    print('Remaining arguments:')
+    for arg in argv:
+        print(arg)
     print()
 
     parser = ArgumentParser()

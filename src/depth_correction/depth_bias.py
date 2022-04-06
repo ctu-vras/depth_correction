@@ -1,6 +1,8 @@
 from __future__ import absolute_import, division, print_function
+from .config import Config
 from .depth_cloud import DepthCloud
-from .filters import filter_eigenvalue, filter_depth, filter_grid
+from .filters import filter_eigenvalue, filter_eigenvalues, filter_depth, filter_grid
+from .preproc import *
 from .utils import timer, timing
 import matplotlib
 # matplotlib.use('Agg')
@@ -54,55 +56,31 @@ def plot_fit(x, y, x_label='x', y_label='y', x_lims=None, y_lims=None):
     ax.legend()
     fig.tight_layout()
     fig.show()
-    # print(np.nanquantile(x, np.linspace(0.0, 1.0, 10)))
-    # print(np.nanquantile(y, np.linspace(0.0, 1.0, 10)))
 
 
-def plot_depth_bias(ds):
-    min_depth = 1.0
-    max_depth = 15.0
-    grid_res = 0.05
-    k = None
-    r = 3 * grid_res
-    device = torch.device('cpu')
-    # device = torch.device('cuda')
-
+def plot_depth_bias(ds, cfg: Config):
     clouds = []
     poses = []
     for cloud, pose in ds:
-        # Filter and subsample input cloud.
-        cloud = filter_depth(cloud, min=min_depth, max=max_depth)
-        cloud = filter_grid(cloud, grid_res=grid_res, keep='last')
-
-        # Convert to depth cloud and transform.
-        cloud = DepthCloud.from_points(cloud)
-        cloud = cloud.type(dtype=torch.float64)
-        cloud = cloud.to(device=device)
-        pose = torch.tensor(pose, device=device)
-        cloud = cloud.transform(pose)
-
-        # Find/update neighbors and estimate all features.
-        # cloud.update_all(k=k, r=r)
-        # Select planar regions to estimate bias.
-        # mask = filter_eigenvalue(cloud, 0, max=(grid_res / 5)**2, only_mask=True)
-        # mask = mask & filter_eigenvalue(cloud, 1, min=grid_res**2, only_mask=True)
-        # cloud.mask = mask
-
-        # cloud.update_all(k=k, r=r)
+        cloud = filtered_cloud(cloud, cfg)
+        cloud = local_feature_cloud(cloud, cfg)
         clouds.append(cloud)
-        poses.append(pose)
+        poses.append(torch.as_tensor(pose))
 
-    cloud = DepthCloud.concatenate(clouds, True)
-    cloud.visualize(colors='z')
+    cloud = global_cloud(clouds, None, poses)
     # cloud.visualize(colors='inc_angles')
-    cloud.update_all(k=k, r=r)
-    cloud.visualize(colors='inc_angles')
+    # cloud.visualize(colors='z')
+    cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
+    # cloud.visualize(colors='inc_angles')
+    # cloud.visualize(colors='min_eigval')
+    cloud.visualize(colors=torch.sqrt(cloud.eigvals[:, 0]))
 
     # Select planar regions to estimate bias.
-    mask = filter_eigenvalue(cloud, 0, max=(grid_res / 5)**2, only_mask=True, log=True)
-    mask = mask & filter_eigenvalue(cloud, 1, min=grid_res**2, only_mask=True, log=True)
-    # cloud.mask = mask
-    cloud = cloud[mask]
+    mask = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=True)
+    if cfg.eigenvalue_bounds:
+        cloud.visualize(colors=mask)
+
+    return
 
     # Visualize plane distance to incidence angle.
     # TODO: Compare using plane fit for low incidence angle?
@@ -127,13 +105,26 @@ def plot_depth_bias(ds):
 
 
 def demo():
-    from data.asl_laser import Dataset, dataset_names
-    dataset_names = ['eth']
+    cfg = Config()
+    cfg.grid_res = 0.1
+    cfg.nn_k = 15
+    # cfg.nn_r = 0.4
+    # cfg.nn_r = None
+    # cfg.eigenvalue_bounds = [[0, None, (cfg.nn_r / 8)**2],
+    #                          [1, (cfg.nn_r / 4)**2, None]]
+    cfg.eigenvalue_bounds = []
+    for k, v in cfg.non_default().items():
+        print('%s: %s' % (k, v))
+
+    # from data.asl_laser import Dataset, dataset_names
+    # dataset_names = ['eth']
     # dataset_names = ['apartment', 'eth', 'gazebo_summer', 'gazebo_winter', 'stairs']
+    from data.semantic_kitti import Dataset, dataset_names
     for name in dataset_names:
+        print(name)
         ds = Dataset(name)
-        ds = ds[::4]
-        plot_depth_bias(ds)
+        ds = ds[::cfg.data_step]
+        plot_depth_bias(ds, cfg)
 
 
 def main():

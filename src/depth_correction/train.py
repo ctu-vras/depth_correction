@@ -37,6 +37,7 @@ def train(cfg: Config):
     #     loss = min_eigval_loss
     loss_fun = eval(cfg.loss)
     print(cfg.loss, loss_fun.__name__)
+    print(cfg.loss_kwargs)
 
     # Cloud needs to retain neighbors, weights, and mask from previous
     # iterations.
@@ -190,7 +191,7 @@ def train(cfg: Config):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        train_loss, _ = loss_fun(clouds, mask=train_masks)
+        train_loss, _ = loss_fun(clouds, mask=train_masks, **cfg.loss_kwargs)
 
         # Validation
         if cfg.pose_correction == PoseCorrection.none:
@@ -227,7 +228,7 @@ def train(cfg: Config):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        val_loss, _ = loss_fun(clouds, mask=val_masks)
+        val_loss, _ = loss_fun(clouds, mask=val_masks, **cfg.loss_kwargs)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:

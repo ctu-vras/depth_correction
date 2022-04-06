@@ -213,6 +213,7 @@ class Config(Configurable):
         # Training
         self.loss = Loss.min_eigval_loss
         # self.loss = Loss.trace_loss
+        self.loss_kwargs = {}
         self.n_opt_iters = 100
 
         self.optimizer = 'Adam'

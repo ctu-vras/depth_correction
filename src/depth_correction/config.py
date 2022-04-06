@@ -279,10 +279,10 @@ class Config(Configurable):
             nn = 'k%i' % self.nn_k
         else:
             nn = 'none'
-        eig = 'e'
+        eig = ''
         for i, min, max in self.eigenvalue_bounds:
-            eig += '%i_%.3g-%.3g' % (i, min, max)
-        name = ('%s_d%.0f-%.0f_g%.2f_%s_%s'
+            eig += '_e%i_%.3g-%.3g' % (i, min, max)
+        name = ('%s_d%.0f-%.0f_g%.2f_%s%s'
                 % (self.dataset, self.min_depth, self.max_depth, self.grid_res, nn, eig))
         dir = os.path.join(self.pkg_dir, 'gen', name)
         return dir

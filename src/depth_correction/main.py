@@ -321,7 +321,7 @@ def run_from_cmdline():
     elif verb == 'eval':
         print(verb, arg)
         print()
-        eval_configs(cmd_cfg, arg=arg)
+        eval_configs(cmd_cfg, config=args.config, arg=arg)
     elif verb == 'print_config':
         print(Config().to_yaml())
         print()

@@ -473,7 +473,7 @@ class DepthCloud(object):
         if 'vp_x' in arr.dtype.names:
             vps = structured_to_unstructured(arr[['vp_%s' % f for f in 'xyz']], dtype=dtype)
         else:
-            print('Viewpoints not provided.')
+            # print('Viewpoints not provided.')
             vps = None
         return DepthCloud.from_points(pts, vps)
 

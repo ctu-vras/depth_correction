@@ -86,13 +86,14 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def batch_loss(loss_fun, clouds, mask=None, offset=None, reduction=Reduction.MEAN):
+def batch_loss(loss_fun, clouds, mask=None, offset=None, sqrt=False, reduction=Reduction.MEAN):
     """General batch loss of a sequence of clouds.
 
     :param loss_fun: Loss function.
     :param clouds: Sequence of clouds, optional.
     :param mask: Sequence of masks, optional.
     :param offset: Source cloud to offset point-wise loss values, optional.
+    :param sqrt: Whether to use square root of point-wise losses.
     :param reduction: Loss reduction mode.
     :return: Reduced loss and loss clouds.
     """
@@ -106,7 +107,7 @@ def batch_loss(loss_fun, clouds, mask=None, offset=None, reduction=Reduction.MEA
         c = clouds[i]
         m = None if mask is None else mask[i]
         o = None if offset is None else offset[i]
-        loss, loss_cloud = loss_fun(c, mask=m, offset=o, reduction=Reduction.NONE)
+        loss, loss_cloud = loss_fun(c, mask=m, offset=o, sqrt=sqrt, reduction=Reduction.NONE)
         losses.append(loss)
         loss_clouds.append(loss_cloud)
     # Double reduction (average of averages)
@@ -116,7 +117,7 @@ def batch_loss(loss_fun, clouds, mask=None, offset=None, reduction=Reduction.MEA
     return loss, loss_clouds
 
 
-def min_eigval_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
+def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, reduction=Reduction.MEAN):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -126,13 +127,14 @@ def min_eigval_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
     :param cloud:
     :param mask:
     :param offset: Source cloud to offset point-wise loss values, optional.
+    :param sqrt: Whether to use square root of eigenvalue.
     :param reduction:
     :return:
     """
     # If a batch of clouds is (as a list), process them separately,
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        return batch_loss(min_eigval_loss, cloud, mask=mask, offset=offset, reduction=reduction)
+        return batch_loss(min_eigval_loss, cloud, mask=mask, offset=offset, sqrt=sqrt, reduction=reduction)
 
     assert isinstance(cloud, (DepthCloud, list, tuple))
 
@@ -159,6 +161,9 @@ def min_eigval_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
         # Ensure positive loss.
         loss = torch.relu(loss)
 
+    if sqrt:
+        loss = torch.sqrt(loss)
+
     if mask is None:
         cloud = cloud.copy()
     else:
@@ -169,7 +174,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
     return loss, cloud
 
 
-def trace_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
+def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN):
     """Map consistency loss based on the trace of covariance matrix.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -179,13 +184,14 @@ def trace_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
     :param cloud:
     :param mask:
     :param offset: Source cloud to offset point-wise loss values, optional.
+    :param sqrt: Whether to use square root of trace.
     :param reduction:
     :return:
     """
     # If a batch of clouds is (as a list), process them separately,
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        return batch_loss(trace_loss, cloud, mask=mask, offset=offset, reduction=reduction)
+        return batch_loss(trace_loss, cloud, mask=mask, offset=offset, sqrt=sqrt, reduction=reduction)
 
     assert isinstance(cloud, DepthCloud)
     assert cloud.cov is not None
@@ -206,6 +212,9 @@ def trace_loss(cloud, mask=None, offset=None, reduction=Reduction.MEAN):
             loss = loss - trace(offset.cov[mask])
         # Ensure positive loss.
         loss = torch.relu(loss)
+
+    if sqrt:
+        loss = torch.sqrt(loss)
 
     if mask is None:
         cloud = cloud.copy()

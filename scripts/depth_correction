@@ -40,7 +40,9 @@ class DepthCorrection(object):
 
         self.max_age = rospy.get_param('~max_age', 1.0)
         self.nn_k = rospy.get_param('~nn_k', None)
+        self.nn_k = int(self.nn_k) if self.nn_k else None
         self.nn_r = rospy.get_param('~nn_r', 0.15)
+        self.nn_r = float(self.nn_r) if self.nn_r else None
 
         # Point-wise and grid-based filtering.
         self.min_depth = rospy.get_param('~min_depth', None)

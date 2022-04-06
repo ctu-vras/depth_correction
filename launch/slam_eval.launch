@@ -24,6 +24,7 @@
     <arg name="grid_res" default="0.1"/>
     <!-- Depth correction -->
     <arg name="depth_correction" default="false"/>
+    <arg name="nn_k" default=""/>
     <arg name="nn_r" default="0.2"/>
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"/>
     <arg name="model_class" default="BaseModel"/>
@@ -65,6 +66,7 @@
         <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
             <arg name="input" value="filtered_cloud"/>
             <arg name="output" value="corrected_cloud"/>
+            <arg name="nn_k" value="$(arg nn_k)"/>
             <arg name="nn_r" value="$(arg nn_r)"/>
             <arg name="eigenvalue_bounds" value="$(arg eigenvalue_bounds)"/>
             <arg name="model_class" value="$(arg model_class)"/>

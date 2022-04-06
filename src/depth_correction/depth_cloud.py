@@ -387,8 +387,7 @@ class DepthCloud(object):
             raise ValueError("Unsupported color specification.")
 
         assert isinstance(vals, torch.Tensor)
-        vals = vals.detach()
-
+        vals = vals.detach().float()
         # min_val, max_val = torch.quantile(vals, torch.tensor([0.01, 0.99], dtype=vals.dtype))
         # min_val, max_val = vals.min(), vals.max()
         valid = torch.isfinite(vals)

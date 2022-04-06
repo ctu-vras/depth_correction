@@ -34,12 +34,13 @@ def nearest_neighbors(points, query, k=None, r=None, n_jobs=-1):
     invalid_dist = float('nan')
     invalid_index = -1
     index = cKDTree(points)
-    if k is not None:
-        dist, ind = index.query(query, k, distance_upper_bound=r, n_jobs=n_jobs)
+    if k:
+        dist, ind = index.query(query, k, n_jobs=n_jobs, **({'distance_upper_bound': r} if r else {}))
         ind[ind == index.n] = invalid_index
-
-    elif r is not None:
+    elif r:
         dist, ind = None, index.query_ball_point(query, r, n_jobs=n_jobs)
+    else:
+        raise ValueError('Invalid neighborhood definition.')
 
     # else:
     #     # TODO: currently doesn't support neighbors in a radius vicinity
@@ -54,16 +55,17 @@ def nearest_neighbors(points, query, k=None, r=None, n_jobs=-1):
     #         ind = ind.squeeze()
 
     # Convert distances and indices to fixed size array if using cuda.
-    if True or device.type == 'cuda':
+    # if device.type == 'cuda':
+    if ind.dtype == np.object:
         n = max([len(x) for x in ind])
         if dist is not None:
             dist = np.array([x + (n - len(x)) * [invalid_dist] for x in dist])
         ind = np.array([x + (n - len(x)) * [invalid_index] for x in ind])
 
-        # Move nearest neighbor output to input device.
-        if dist is not None:
-            dist = torch.from_numpy(dist).to(device)
-        ind = torch.from_numpy(ind).to(device)
+    # Move nearest neighbor output to input device.
+    if dist is not None:
+        dist = torch.from_numpy(dist).to(device)
+    ind = torch.from_numpy(ind).to(device)
 
     return dist, ind
 

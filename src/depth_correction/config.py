@@ -273,16 +273,15 @@ class Config(Configurable):
         self.sanitize()
         # name = ('depth_%.1f-%.1f_grid_%.2f_r%.2f'
         #         % (self.min_depth, self.max_depth, self.grid_res, self.nn_r))
+        nn = ''
+        if self.nn_k:
+            nn += '_k%i' % self.nn_k
         if self.nn_r:
-            nn = 'r%.2f' % self.nn_r
-        elif self.nn_k:
-            nn = 'k%i' % self.nn_k
-        else:
-            nn = 'none'
+            nn += '_r%.2f' % self.nn_r
         eig = ''
         for i, min, max in self.eigenvalue_bounds:
             eig += '_e%i_%.3g-%.3g' % (i, min, max)
-        name = ('%s_d%.0f-%.0f_g%.2f_%s%s'
+        name = ('%s_d%.0f-%.0f_g%.2f%s%s'
                 % (self.dataset, self.min_depth, self.max_depth, self.grid_res, nn, eig))
         dir = os.path.join(self.pkg_dir, 'gen', name)
         return dir

@@ -47,7 +47,8 @@ def global_cloud(clouds: (list, tuple),
     """
     transformed_clouds = []
     for i, cloud in enumerate(clouds):
-        cloud = model(cloud)
+        if model is not None:
+            cloud = model(cloud)
         cloud = cloud.transform(poses[i])
         transformed_clouds.append(cloud)
     cloud = DepthCloud.concatenate(transformed_clouds, True)

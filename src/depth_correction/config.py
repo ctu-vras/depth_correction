@@ -62,8 +62,6 @@ class Configurable(object):
             parser.add_argument(arg, type=str, default=Configurable.DEFAULT)
 
         # Parse arguments and values as YAML.
-        # parsed_args = parser.parse_args(args)
-        # parsed_args = parser.parse_known_args(args)[0]
         parsed_args, remainder = parser.parse_known_args(args)
         new = {}
         for k, v in vars(parsed_args).items():

@@ -237,7 +237,10 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
     assert isinstance(config, str)
     assert isinstance(base_cfg.log_dir, str)
     configs = glob(config)
-    print(configs)
+    print('Configs to evaluate:')
+    for c in configs:
+        print(c)
+    print()
 
     for i, config_path in enumerate(configs):
 

@@ -384,7 +384,7 @@ class DepthCloud(object):
             assert self.points is not None
             vals = self.points[:, 2:]
         else:
-            raise ValueError("Something's wrong.")
+            raise ValueError("Unsupported color specification.")
 
         assert isinstance(vals, torch.Tensor)
         vals = vals.detach()

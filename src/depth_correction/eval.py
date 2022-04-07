@@ -64,7 +64,7 @@ def eval_loss(cfg: Config):
         if cfg.enable_ros:
             publish_data([cloud], [poses], [name], cfg=cfg)
 
-        test_loss, _ = loss_fun(cloud, mask=mask)
+        test_loss, _ = loss_fun(cloud, mask=mask, **cfg.loss_kwargs)
         print('Test loss on %s: %.9f' % (name, test_loss.item()))
         csv = cfg.loss_eval_csv
         assert csv

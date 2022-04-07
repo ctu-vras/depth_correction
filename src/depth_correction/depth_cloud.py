@@ -311,7 +311,12 @@ class DepthCloud(object):
         # Use faster cpu eigh implementation.
         # device = self.cov.device
         device = torch.device('cpu')
-        eigvals, eigvecs = torch.linalg.eigh(self.cov.to(device))
+        try:
+            eigvals, eigvecs = torch.linalg.eigh(self.cov.to(device))
+        except RuntimeError as ex:
+            # https://github.com/pytorch/pytorch/issues/28293
+            noise = 1e-6 * torch.rand_like(self.cov.to(device))
+            eigvals, eigvecs = torch.linalg.eigh(self.cov.to(device) + noise)
         return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
 
         # # Degenerate cov matrices must be skipped to avoid exception.

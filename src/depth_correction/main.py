@@ -171,6 +171,7 @@ def train_and_eval_all(base_cfg: Config=None):
         print('port: %i' % port)
 
         cfg = base_cfg.copy()
+        assert isinstance(cfg, Config)
         # TODO: Configure preprocessing.
         cfg.log_dir = cfg.get_log_dir()
         cfg.ros_master_port = port
@@ -188,10 +189,12 @@ def train_and_eval_all(base_cfg: Config=None):
         cfg.train_names = train_names
         cfg.val_names = val_names
         cfg.test_names = test_names
-        loss_kwargs = '_'.join('%s_%s' % (k, v) for k, v in cfg.loss_kwargs.items())
-        loss_kwargs = '_' + loss_kwargs if loss_kwargs else ''
         cfg.log_dir = os.path.join(cfg.log_dir,
-                                   '%s_%s_%s%s' % (pose_provider, cfg.model_class, cfg.loss, loss_kwargs),
+                                   '_'.join([pose_provider,
+                                             cfg.model_class,
+                                             cfg.get_nn_desc(),
+                                             cfg.get_eigval_bounds_desc(),
+                                             cfg.get_loss_desc()]),
                                    'split_%i' % i_split)
         print('Log dir: %s' % cfg.log_dir)
         if os.path.exists(cfg.log_dir):

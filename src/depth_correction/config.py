@@ -270,20 +270,46 @@ class Config(Configurable):
 
         self.eigenvalue_bounds = eigenvalue_bounds
 
+    def get_depth_filter_desc(self):
+        desc = 'd%.0f-%.0f' % (self.min_depth, self.max_depth)
+        return desc
+
+    def get_grid_filter_desc(self):
+        desc = 'g%.2f' % self.grid_res
+        return desc
+
+    def get_nn_desc(self):
+        desc = ''
+        if self.nn_k:
+            desc += 'k%i' % self.nn_k
+        if self.nn_r:
+            if desc:
+                desc += '_'
+            desc += 'r%.2f' % self.nn_r
+        if not desc:
+            desc = 'none'
+        return desc
+
+    def get_eigval_bounds_desc(self):
+        desc = ''
+        for i, min, max in self.eigenvalue_bounds:
+            if desc:
+                desc += '_'
+            desc += 'e%i_%.3g-%.3g' % (i, min, max)
+        if not desc:
+            desc = 'none'
+        return desc
+
+    def get_loss_desc(self):
+        desc = self.loss
+        loss_kwargs = '_'.join('%s_%s' % (k, v) for k, v in self.loss_kwargs.items())
+        if loss_kwargs:
+            desc += '_' + loss_kwargs
+        return desc
+
     def get_log_dir(self):
         self.sanitize()
-        # name = ('depth_%.1f-%.1f_grid_%.2f_r%.2f'
-        #         % (self.min_depth, self.max_depth, self.grid_res, self.nn_r))
-        nn = ''
-        if self.nn_k:
-            nn += '_k%i' % self.nn_k
-        if self.nn_r:
-            nn += '_r%.2f' % self.nn_r
-        eig = ''
-        for i, min, max in self.eigenvalue_bounds:
-            eig += '_e%i_%.3g-%.3g' % (i, min, max)
-        name = ('%s_d%.0f-%.0f_g%.2f%s%s'
-                % (self.dataset, self.min_depth, self.max_depth, self.grid_res, nn, eig))
+        name = '_'.join([self.dataset, self.get_depth_filter_desc(), self.get_grid_filter_desc()])
         dir = os.path.join(self.pkg_dir, 'gen', name)
         return dir
 

@@ -193,8 +193,8 @@ class Config(Configurable):
         self.nn_r = 0.2
 
         # Depth correction
-        self.eigenvalue_bounds = [[0,    None, 0.02**2],
-                                  [1, 0.05**2,    None]]
+        self.eigenvalue_bounds = [[0,               None, (self.nn_r / 8)**2],
+                                  [1, (self.nn_r / 4)**2,               None]]
 
         # Data
         self.dataset = 'asl_laser'

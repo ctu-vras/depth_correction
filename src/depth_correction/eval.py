@@ -170,8 +170,9 @@ def eval_slam_all(cfg: Config):
             eval_cfg.slam = slam
             eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir,
                                                   'slam_eval_%s_%s.csv' % (slam, suffix))
-            eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir,
-                                                  'slam_eval_%s_%s_{name}.bag' % (slam, suffix))
+            # eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir,
+            #                                       'slam_eval_%s_%s_{name}.bag' % (slam, suffix))
+            eval_cfg.slam_eval_bag = None  # Don't record for now.
             eval_cfg.slam_poses_csv = ''
             eval_slam(cfg=eval_cfg)
 

@@ -28,14 +28,19 @@ print(path)
 # dataset = 'asl_laser'
 dataset = 'semantic_kitti'
 
-# preproc = '{dataset}_d1-25_g0.10_r0.20_e0_nan-0.00041_0.0025-nan'.format(dataset=dataset)
-preproc = '{dataset}_*'.format(dataset=dataset)
+if dataset == 'asl_laser':
+    preproc = '{dataset}*g0.10'.format(dataset=dataset)
+elif dataset == 'semantic_kitti':
+    preproc = '{dataset}*g0.20'.format(dataset=dataset)
+else:
+    raise ValueError('Unsupported dataset: %s.' % dataset)
 slam_eval_baseline_format = '{{preproc}}/{dataset}/*/slam_eval_{{slam}}.csv'.format(dataset=dataset)
 
 # SLAM eval with depth correction filter from training
-# slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
+# slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv')
+slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_*_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
 # SLAM eval with all points corrected
-slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
+# slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
 
 
 # def map_colors(values, colormap=cm.nipy_spectral, min_value=None, max_value=None):
@@ -195,10 +200,12 @@ def slam_error_from_csv(csv_paths):
 
 
 def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=list(SLAM)[0]):
-    csv_paths = glob.glob(slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
-                                                  split='*', set=split, slam=slam))
-    print('preproc={preproc}, pose_provider={pose_provider}, model={model}, loss={loss}, split={split}, set={set}, slam={slam} paths:'
-          .format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss, split='*', set=split, slam=slam))
+    csv_pattern = slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
+                                          split='*', set=split, slam=slam)
+    csv_paths = glob.glob(csv_pattern)
+    # print('preproc={preproc}, pose_provider={pose_provider}, model={model}, loss={loss}, split={split}, set={set}, slam={slam} paths:'
+    #       .format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss, split='*', set=split, slam=slam))
+    print(csv_pattern)
     print('\n'.join([csv_path[csv_path.index(dataset):] for csv_path in csv_paths]))
     return slam_error_from_csv(csv_paths)
 

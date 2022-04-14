@@ -4,15 +4,17 @@ from time import sleep
 from random import random
 
 
-def write(path, text, append=False):
+def write(path, text, append=False, create_dirs=True):
+    if create_dirs:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
     with PathLock(path):
         mode = 'a' if append else 'w'
         with open(path, mode) as f:
             f.write(text)
 
 
-def append(path, text):
-    write(path, text, append=True)
+def append(path, text, create_dirs=True):
+    write(path, text, append=True, create_dirs=create_dirs)
 
 
 class PathLockException(Exception):

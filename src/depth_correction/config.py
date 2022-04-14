@@ -153,7 +153,10 @@ def slam_eval_bag(log_dir: str, slam: str):
 
 
 def slam_poses_csv(log_dir: str, name: str, slam: str):
-    path = os.path.join(log_dir, name, 'slam_poses_%s.csv' % slam)
+    if name:
+        path = os.path.join(log_dir, name, 'slam_poses_%s.csv' % slam)
+    else:
+        path = os.path.join(log_dir, 'slam_poses_%s.csv' % slam)
     return path
 
 

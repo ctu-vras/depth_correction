@@ -1,5 +1,5 @@
 from __future__ import absolute_import, division, print_function
-from .config import Config, PoseCorrection
+from .config import Config, loss_eval_csv, PoseCorrection, slam_eval_bag, slam_eval_csv, slam_poses_csv
 from .filters import filter_eigenvalues
 from .io import append
 from .loss import min_eigval_loss, trace_loss
@@ -76,6 +76,10 @@ def eval_loss_all(cfg: Config):
     # Use ground-truth poses for evaluation.
     for names, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
                              ['train', 'val', 'test']):
+
+        if not names:
+            continue
+
         for loss in cfg.eval_losses:
             eval_cfg = cfg.copy()
             eval_cfg.test_names = names
@@ -83,8 +87,7 @@ def eval_loss_all(cfg: Config):
             eval_cfg.val_poses_path = []
             eval_cfg.test_poses_path = []
             eval_cfg.loss = loss
-            eval_cfg.loss_eval_csv = os.path.join(cfg.log_dir,
-                                                  'loss_eval_%s_%s.csv' % (loss, suffix))
+            eval_cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss)
             eval_loss(cfg=eval_cfg)
 
 
@@ -161,6 +164,9 @@ def eval_slam_all(cfg: Config):
     for names, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
                              ['train', 'val', 'test']):
 
+        if not names:
+            continue
+
         for slam in cfg.eval_slams:
             eval_cfg = cfg.copy()
             eval_cfg.test_names = names
@@ -168,12 +174,10 @@ def eval_slam_all(cfg: Config):
             eval_cfg.val_poses_path = []
             eval_cfg.test_poses_path = []
             eval_cfg.slam = slam
-            eval_cfg.slam_eval_csv = os.path.join(cfg.log_dir,
-                                                  'slam_eval_%s_%s.csv' % (slam, suffix))
-            # eval_cfg.slam_eval_bag = os.path.join(cfg.log_dir,
-            #                                       'slam_eval_%s_%s_{name}.bag' % (slam, suffix))
+            # eval_cfg.slam_eval_bag = slam_eval_csv(cfg.log_dir, slam)
             eval_cfg.slam_eval_bag = None  # Don't record for now.
-            eval_cfg.slam_poses_csv = ''
+            eval_cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam)
+            eval_cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, names[0], slam)
             eval_slam(cfg=eval_cfg)
 
 
@@ -198,19 +202,18 @@ def run_from_cmdline():
     cfg.from_yaml(args.config)
     print('Config:')
     print(cfg.to_yaml())
-    print('Evaluating loss...')
-    if args.arg == 'all':
-        eval_loss(cfg)
-        eval_slam(cfg)
-    elif args.arg == 'loss':
-        eval_loss(cfg)
-    elif args.arg == 'loss_all':
-        eval_loss_all(cfg)
-    elif args.arg == 'slam':
-        eval_slam(cfg)
-    elif args.arg == 'slam_all':
-        eval_slam_all(cfg)
-    print('Evaluating loss finished.')
+    print('Evaluating...')
+    if 'all' in args.arg:
+        if 'loss' in args.arg:
+            eval_loss_all(cfg)
+        if 'slam' in args.arg:
+            eval_slam_all(cfg)
+    else:
+        if 'loss' in args.arg:
+            eval_loss(cfg)
+        if 'slam' in args.arg:
+            eval_slam(cfg)
+    print('Evaluating finished.')
 
 
 def main():

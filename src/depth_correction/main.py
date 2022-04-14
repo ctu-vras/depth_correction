@@ -97,6 +97,7 @@ def eval_baselines(base_cfg: Config=None):
         print('port: %i' % port)
 
         eval_cfg = base_cfg.copy()
+        assert isinstance(eval_cfg, Config)
         eval_cfg.log_dir = eval_cfg.get_log_dir()
         os.makedirs(eval_cfg.log_dir, exist_ok=True)
         eval_cfg.model_class = 'BaseModel'
@@ -106,18 +107,15 @@ def eval_baselines(base_cfg: Config=None):
         os.makedirs(eval_cfg.log_dir, exist_ok=True)
         eval_cfg.test_names = [name]
         eval_cfg.slam = slam
-        # eval_cfg.slam_eval_csv = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.csv' % slam)
+        # CSV files will be generated (for all slams and losses).
         eval_cfg.slam_eval_csv = slam_eval_csv(eval_cfg.log_dir, slam)
         os.makedirs(os.path.dirname(eval_cfg.slam_eval_csv), exist_ok=True)
 
         # Output bag files from evaluation.
-        # eval_cfg.slam_eval_bag = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.bag' % slam)
         eval_cfg.slam_eval_bag = slam_eval_bag(eval_cfg.log_dir, slam)
         os.makedirs(os.path.dirname(eval_cfg.slam_eval_bag), exist_ok=True)
 
         # Output SLAM poses to structure within log dir.
-        # eval_cfg.slam_poses_csv = slam_poses_csv(cfg, name, slam)
-        # eval_cfg.slam_poses_csv = os.path.join(base_cfg.log_dir, name, 'slam_poses_%s.csv' % slam)
         eval_cfg.slam_poses_csv = slam_poses_csv(base_cfg.log_dir, name, slam)
         os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)
 
@@ -130,7 +128,7 @@ def eval_baselines(base_cfg: Config=None):
                 continue
             eval_cfg.to_yaml(cfg_path)
             launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam).split(' ')
-            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'all']
+            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'loss_and_slam_all']
             print('Command line:', cmd)
             print()
             out, err = cmd_out(cmd)
@@ -140,9 +138,9 @@ def eval_baselines(base_cfg: Config=None):
 
         else:
             # Avoid using ROS in global namespace to allow using scheduler.
-            from .eval import eval_loss, eval_slam
-            eval_loss(cfg=eval_cfg)
-            eval_slam(cfg=eval_cfg)
+            from .eval import eval_loss_all, eval_slam_all
+            eval_loss_all(cfg=eval_cfg)
+            eval_slam_all(cfg=eval_cfg)
 
 
 def train_and_eval_all(base_cfg: Config=None):

@@ -153,6 +153,7 @@ class RobotData(object):
     def evaluate(self):
         r_angles = []
         t_norms = []
+        rel_angles = []
         rel_offsets = []
         for index, (gt_pose, odom_pose, slam_pose, path_len) \
                 in enumerate(zip(self.gt_poses, self.odom_poses, self.slam_poses, self.path_lengths)):
@@ -160,19 +161,23 @@ class RobotData(object):
             delta = delta_transform(slam_pose, gt_pose)
             r_angle = rotation_angle(delta)
             t_norm = translation_norm(delta)
+            rel_angle = r_angle / path_len if path_len > 0. else 0.
             rel_offset = t_norm / path_len if path_len > 0. else 0.
             r_angles.append(r_angle)
             t_norms.append(t_norm)
+            rel_angles.append(rel_angle)
             rel_offsets.append(rel_offset)
-            rospy.loginfo('SLAM error at pos. %i (index %i): rot. %.6f deg., transl. %.6f m (%.3f %%).',
-                          position, index, np.degrees(r_angle), t_norm, 100. * rel_offset)
+            rospy.loginfo('SLAM error at pos. %i (index %i): rot. %.6f deg. (%.3f deg/m), transl. %.6f m (%.3f %%).',
+                          position, index, np.degrees(r_angle), np.degrees(rel_angle), t_norm, 100. * rel_offset)
 
         r_angle = np.mean(r_angles).item()
         t_norm = np.mean(t_norms).item()
+        rel_angle = np.mean(rel_angles).item()
         rel_offset = np.mean(rel_offsets).item()
-        rospy.logwarn('Average error: rot. %.6f deg., transl. %.6f m (%.3f %%).',
-                      np.degrees(r_angle), t_norm, 100. * rel_offset)
-        append(self.slam_eval_csv, '%s %.9f %.9f %.9f\n' % (self.dataset_name, r_angle, t_norm, rel_offset))
+        rospy.logwarn('Average error: rot. %.6f deg. (%.3f deg/m), transl. %.6f m (%.3f %%).',
+                      np.degrees(r_angle), np.degrees(rel_angle), t_norm, 100. * rel_offset)
+        append(self.slam_eval_csv, '%s %.9f %.9f %.9f %.9f\n'
+               % (self.dataset_name, r_angle, t_norm, rel_angle, rel_offset))
         rospy.loginfo('SLAM accuracy results written to %s.', os.path.realpath(self.slam_eval_csv))
 
         # write SLAM poses and timestamps to csv file

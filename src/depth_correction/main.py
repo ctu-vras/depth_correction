@@ -130,7 +130,7 @@ def eval_baselines(base_cfg: Config=None):
                 continue
             eval_cfg.to_yaml(cfg_path)
             launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam).split(' ')
-            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'slam']
+            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'all']
             print('Command line:', cmd)
             print()
             out, err = cmd_out(cmd)
@@ -140,7 +140,8 @@ def eval_baselines(base_cfg: Config=None):
 
         else:
             # Avoid using ROS in global namespace to allow using scheduler.
-            from .eval import eval_slam
+            from .eval import eval_loss, eval_slam
+            eval_loss(cfg=eval_cfg)
             eval_slam(cfg=eval_cfg)
 
 

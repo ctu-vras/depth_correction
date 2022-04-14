@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from .config import Loss, Model, PoseProvider, SLAM
+from itertools import product
 import glob
 from matplotlib import cm
 import numpy as np
@@ -179,10 +180,14 @@ def tables_basic_demo():
     tab.to_latex()
 
 
-def slam_error_from_csv(csv_paths):
+def slam_error_from_csv(csv_paths, cols=2):
     if not csv_paths:
         traceback.print_stack()
-        return (float('nan'), float('nan')), (float('nan'), float('nan'))
+
+        if cols == 2:
+            return (float('nan'), float('nan')), (float('nan'), float('nan'))
+
+        return (float('nan'), float('nan')), (float('nan'), float('nan')), (float('nan'), float('nan'))
 
     dfs = None
 
@@ -190,16 +195,21 @@ def slam_error_from_csv(csv_paths):
         df = pd.read_csv(csv_path, delimiter=' ', header=None)
         dfs = df if dfs is None else pd.concat([dfs, df])
 
-    orient_acc_rad, trans_acc_m = dfs[[1, 2]].mean(axis=0).values
-    orient_acc_rad_std, trans_acc_m_std = dfs[[1, 2]].std(axis=0).values
+    if cols == 2:
+        orient_acc_rad, trans_acc_m = dfs[[1, 2]].mean(axis=0).values
+        orient_acc_rad_std, trans_acc_m_std = dfs[[1, 2]].std(axis=0).values
 
-    orient_acc_deg = np.rad2deg(orient_acc_rad)
-    orient_acc_deg_std = np.rad2deg(orient_acc_rad_std)
+        orient_acc_deg = np.rad2deg(orient_acc_rad)
+        orient_acc_deg_std = np.rad2deg(orient_acc_rad_std)
 
-    return (orient_acc_deg, orient_acc_deg_std), (trans_acc_m, trans_acc_m_std)
+        return (orient_acc_deg, orient_acc_deg_std), (trans_acc_m, trans_acc_m_std)
+
+    mean = dfs[cols].mean(axis=0).values
+    std = dfs[cols].std(axis=0).values
+    return zip(mean, std)
 
 
-def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=list(SLAM)[0]):
+def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=list(SLAM)[0], cols=2):
     csv_pattern = slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
                                           split='*', set=split, slam=slam)
     csv_paths = glob.glob(csv_pattern)
@@ -207,7 +217,7 @@ def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='tr
     #       .format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss, split='*', set=split, slam=slam))
     print(csv_pattern)
     print('\n'.join([csv_path[csv_path.index(dataset):] for csv_path in csv_paths]))
-    return slam_error_from_csv(csv_paths)
+    return slam_error_from_csv(csv_paths, cols=cols)
 
 
 def slam_localization_error_demo():
@@ -253,6 +263,67 @@ def slam_localization_error_demo():
             print(tabulate.tabulate(table,
                                     ["model", "orientation error (train, val, test), [deg]",
                                      "translation error (train, val, test), [m]"], tablefmt="latex"))
+
+
+def slam_localization_error_tables():
+    slam_eval_baseline_pattern = os.path.join(path, slam_eval_baseline_format.format(preproc=preproc, slam=list(SLAM)[0]))
+    print('slam_eval_baseline_pattern:', slam_eval_baseline_pattern)
+    csv_paths = glob.glob(slam_eval_baseline_pattern)
+    print(*csv_paths, sep='\n')
+    # cols = [1, 2, 3]
+    cols = [1, 2]
+    base_res = slam_error_from_csv(csv_paths, cols)
+    base_res = list(base_res)
+    print(base_res)
+
+    model_map = {Model.Polynomial: '$\\epsilon_\\mathrm{p}$ (\\ref{eq:polynomial_model})',
+                 Model.ScaledPolynomial: '$\\epsilon_\\mathrm{sp}$ (\\ref{eq:scaled_polynomial_model})'}
+    loss_map = {Loss.min_eigval_loss: '$\\lambda_1$ (\\ref{eq:min_eig_loss})',
+                Loss.trace_loss: '$\\trace \\m{Q}$ (\\ref{eq:trace_loss})'}
+    pose_map = {PoseProvider.ground_truth: 'GT',
+                SLAM.norlab_icp_mapper: 'SLAM'}
+    subsets = ['train', 'val', 'test']
+    table = []
+    # for model, loss, pose_src, col, subset in product(models, losses, poses_sources, cols, subsets):
+    for model, loss, pose_src in product(models, losses, poses_sources):
+
+        table.append([model_map[model], loss_map[loss], pose_map[pose_src]])
+
+        for col, subset in product(cols, subsets):
+
+            res = get_slam_error(pose_src=pose_src, model=model, loss=loss, split=subset, cols=[col])
+            res = list(res)
+            assert len(res) == 1
+            mean, std = res[0]
+
+            if col == 1:  # orientation, from rad to deg
+                mean, std = np.rad2deg([mean, std])
+            elif col == 3:
+                mean, std = 100 * mean, 100 * std
+
+            if subset == 'test':
+                # table[-1] += ['%.3f \u00B1 %.3f' % (mean, std)]
+                # table[-1] += ['%.3f \\pm %.3f' % (mean, std)]
+                table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+            else:
+                table[-1] += ['$%.3f$' % mean]
+
+    base_table = [[]]
+    for i, col in enumerate(cols):
+        mean, std = base_res[i]
+        if col == 1:
+            mean, std = np.rad2deg([mean, std])
+        elif col == 3:
+            mean, std = 100 * mean, 100 * std
+
+        base_table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+
+    print()
+    print('SLAM results with no correction')
+    print(tabulate.tabulate(base_table, tablefmt='latex_raw'))
+    print()
+    print('SLAM results with depth correction')
+    print(tabulate.tabulate(table, tablefmt='latex_raw'))
 
 
 def mean_loss_over_sequences_and_data_splits_demo():
@@ -367,6 +438,7 @@ def results_for_individual_sequences_demo(std=False):
 
 
 if __name__ == '__main__':
-    slam_localization_error_demo()
-    mean_loss_over_sequences_and_data_splits_demo()
-    results_for_individual_sequences_demo()
+    # slam_localization_error_demo()
+    slam_localization_error_tables()
+    # mean_loss_over_sequences_and_data_splits_demo()
+    # results_for_individual_sequences_demo()

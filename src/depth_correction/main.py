@@ -105,6 +105,8 @@ def eval_baselines(base_cfg: Config=None):
         eval_cfg.ros_master_port = port
         eval_cfg.log_dir = os.path.join(base_cfg.log_dir, name)
         os.makedirs(eval_cfg.log_dir, exist_ok=True)
+        eval_cfg.train_names = []
+        eval_cfg.val_names = []
         eval_cfg.test_names = [name]
         eval_cfg.slam = slam
         # CSV files will be generated (for all slams and losses).
@@ -128,6 +130,62 @@ def eval_baselines(base_cfg: Config=None):
                 continue
             eval_cfg.to_yaml(cfg_path)
             launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam).split(' ')
+            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'loss_and_slam_all']
+            print('Command line:', cmd)
+            print()
+            out, err = cmd_out(cmd)
+            print('Output:', out)
+            print('Error:', err)
+            print()
+
+        else:
+            # Avoid using ROS in global namespace to allow using scheduler.
+            from .eval import eval_slam
+            eval_slam(cfg=eval_cfg)
+
+
+def eval_baselines_all(base_cfg: Config=None):
+
+    imported_module = importlib.import_module("data.%s" % base_cfg.dataset)
+    dataset_names = getattr(imported_module, "dataset_names")
+    ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
+
+    base_cfg.log_dir = base_cfg.get_log_dir()
+
+    # Generate SLAM poses as well.
+    for i_exp, name in enumerate(ds):
+
+        if base_cfg.launch_prefix and i_exp >= base_cfg.num_jobs:
+            print('Maximum number of jobs scheduled.')
+            print()
+            break
+
+        port = base_cfg.ros_master_port + i_exp
+        print('Generating config:')
+        print('dataset: %s' % name)
+        print('port: %i' % port)
+
+        eval_cfg = base_cfg.copy()
+        assert isinstance(eval_cfg, Config)
+        eval_cfg.log_dir = eval_cfg.get_log_dir()
+        os.makedirs(eval_cfg.log_dir, exist_ok=True)
+        eval_cfg.model_class = 'BaseModel'
+        eval_cfg.model_state_dict = ''
+        eval_cfg.ros_master_port = port
+        eval_cfg.log_dir = os.path.join(base_cfg.log_dir, name)
+        os.makedirs(eval_cfg.log_dir, exist_ok=True)
+        eval_cfg.train_names = []
+        eval_cfg.val_names = []
+        eval_cfg.test_names = [name]
+
+        if base_cfg.launch_prefix:
+            # Save config and schedule batch job (via launch_prefix).
+            cfg_path = os.path.join(eval_cfg.log_dir, 'eval_baselines.yaml')
+            if os.path.exists(cfg_path):
+                print('Skipping existing config %s.' % cfg_path)
+                continue
+            eval_cfg.to_yaml(cfg_path)
+            launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name).split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'loss_and_slam_all']
             print('Command line:', cmd)
             print()
@@ -321,7 +379,8 @@ def run_from_cmdline():
     verb = args.args[0]
     arg = args.args[1] if len(args.args) >= 2 else None
     if verb == 'eval_baselines':
-        eval_baselines(cmd_cfg)
+        # eval_baselines(cmd_cfg)
+        eval_baselines_all(cmd_cfg)
     elif verb == 'train_and_eval_all':
         train_and_eval_all(cmd_cfg)
     elif verb == 'eval':

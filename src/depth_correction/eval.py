@@ -19,7 +19,7 @@ def eval_loss(cfg: Config):
     :param cfg:
     """
     os.makedirs(cfg.log_dir, exist_ok=True)
-    cfg_path = os.path.join(cfg.log_dir, 'eval.yaml')
+    cfg_path = os.path.join(cfg.log_dir, 'eval_loss.yaml')
     if os.path.exists(cfg_path):
         print('Config %s already exists.' % cfg_path)
     else:

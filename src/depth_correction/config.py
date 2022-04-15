@@ -82,12 +82,16 @@ class Configurable(object):
         with open(path, 'w') as f:
             yaml.safe_dump(self.to_dict(), f)
 
-    def non_default(self):
+    def diff(self, cfg):
         d = {}
-        cfg = self.__class__()
         for k in cfg:
             if cfg[k] != self[k]:
                 d[k] = self[k]
+        return d
+
+    def non_default(self):
+        cfg = self.__class__()
+        d = self.diff(cfg)
         return d
 
     def copy(self):

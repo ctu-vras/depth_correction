@@ -322,9 +322,18 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
             # Save config and schedule batch job (via launch_prefix).
             new_path = os.path.join(cfg.log_dir, basename)
             if os.path.exists(new_path):
-                print('Skipping existing config %s.' % new_path)
-                continue
-            cfg.to_yaml(new_path)
+                # print('Skipping existing config %s.' % new_path)
+                # continue
+                new_cfg = Config()
+                new_cfg.from_yaml(new_path)
+                diff = cfg.diff(new_cfg)
+                if diff:
+                    print('Skipping due to difference from existing config %s: %s.' % (new_path, diff))
+                    continue
+                else:
+                    print('No difference to existing config %s.' % new_path)
+            else:
+                cfg.to_yaml(new_path)
             launch_args = base_cfg.launch_prefix.format(log_dir=cfg.log_dir).split(' ')
             cmd = launch_args + ['python', '-m', 'depth_correction.eval', '-c', new_path, arg]
             print('Command line:', cmd)

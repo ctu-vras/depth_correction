@@ -327,9 +327,11 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
                 new_cfg = Config()
                 new_cfg.from_yaml(new_path)
                 diff = cfg.diff(new_cfg)
-                if diff:
+                if diff and not base_cfg.force:
                     print('Skipping due to difference from existing config %s: %s.' % (new_path, diff))
                     continue
+                elif diff:
+                    print('Ignoring conflicting config %s: %s.' % (new_path, diff))
                 else:
                     print('No difference to existing config %s.' % new_path)
             else:

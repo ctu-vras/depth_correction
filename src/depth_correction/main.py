@@ -110,7 +110,7 @@ def eval_baselines(base_cfg: Config=None):
         eval_cfg.test_names = [name]
         eval_cfg.slam = slam
         # CSV files will be generated (for all slams and losses).
-        eval_cfg.slam_eval_csv = slam_eval_csv(eval_cfg.log_dir, slam)
+        eval_cfg.slam_eval_csv = slam_eval_csv(eval_cfg.log_dir, slam, 'test')
         os.makedirs(os.path.dirname(eval_cfg.slam_eval_csv), exist_ok=True)
 
         # Output bag files from evaluation.

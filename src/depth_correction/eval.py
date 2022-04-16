@@ -176,7 +176,7 @@ def eval_slam_all(cfg: Config):
             eval_cfg.slam = slam
             # eval_cfg.slam_eval_bag = slam_eval_csv(cfg.log_dir, slam)
             eval_cfg.slam_eval_bag = None  # Don't record for now.
-            eval_cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam)
+            eval_cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam, suffix)
             if len(names) == 1:
                 eval_cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, names[0], slam)
             else:

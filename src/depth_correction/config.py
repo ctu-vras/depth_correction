@@ -146,8 +146,8 @@ def loss_eval_csv(log_dir: str, loss: str):
     return path
 
 
-def slam_eval_csv(log_dir: str, slam: str):
-    path = os.path.join(log_dir, 'slam_eval_%s.csv' % slam)
+def slam_eval_csv(log_dir: str, slam: str, subset: str):
+    path = os.path.join(log_dir, 'slam_eval_%s_%s.csv' % (slam, subset))
     return path
 
 

@@ -9,13 +9,14 @@
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
     <arg name="model_state_dict" default="$(find depth_correction)/config/weights/ScaledPolynomial.pth"
          doc="Path to the model state dict."/>
+    <arg name="device" default="cpu" doc="Device to run tensor operations on: cpu or cuda"/>
 
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam subst_value="true">
             model:
                 class: '$(arg model_class)'
                 state_dict: '$(arg model_state_dict)'
-            device: cpu
+            device: '$(arg device)'
             float_type: float64
             max_age: 1.0
             publish_filtered: false

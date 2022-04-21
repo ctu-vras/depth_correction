@@ -2,6 +2,7 @@
 <launch>
     <arg name="rviz" default="true"/>
     <arg name="dataset" default="asl_laser/eth"/>
+    <arg name="device" default="cpu"/>
 
     <!-- Robot data: from ASL dataset -->
     <include file="$(dirname)/robot_data.launch">
@@ -11,6 +12,7 @@
     <!-- Depth correction -->
     <include file="$(dirname)/depth_correction.launch">
         <arg name="input" value="cloud"/>
+        <arg name="device" value="$(arg device)"/>
     </include>
 
     <!-- RVIZ -->

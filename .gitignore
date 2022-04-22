@@ -138,6 +138,7 @@ data
 *.simg
 *.img
 *.sif
+*.ply
 
 # Logs
 tb_runs/

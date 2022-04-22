@@ -81,10 +81,6 @@ class DepthCorrection(object):
         rospy.logdebug("Received point cloud for depth correction")
         t = timer()
         with torch.no_grad():
-            # if self.float_type == torch.float64:
-            #     dc = DepthCloud.from_structured_array(input_cloud, dtype=np.float64)
-            # else:
-            #     dc = DepthCloud.from_structured_array(input_cloud)
             dc = DepthCloud.from_structured_array(input_cloud, dtype=self.float_type)
             dc.to(device=self.device)
             if self.min_depth or self.max_depth:

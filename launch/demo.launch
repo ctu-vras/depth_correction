@@ -7,12 +7,22 @@
     <!-- Robot data: from ASL dataset -->
     <include file="$(dirname)/robot_data.launch">
         <arg name="dataset" value="$(arg dataset)"/>
+        <arg name="stop" value="1000"/>
+    </include>
+
+    <include file="$(dirname)/cloud_filter.launch">
+        <arg name="input" value="cloud"/>
+        <arg name="output" value="filtered_cloud"/>
+        <arg name="min_depth" value="1.0"/>
+        <arg name="max_depth" value="25.0"/>
+        <arg name="grid_res" value="0.1"/>
     </include>
 
     <!-- Depth correction -->
     <include file="$(dirname)/depth_correction.launch">
-        <arg name="input" value="cloud"/>
+        <arg name="input" value="filtered_cloud"/>
         <arg name="device" value="$(arg device)"/>
+        <arg name="eigenvalue_bounds" value="[]"/>
     </include>
 
     <!-- RVIZ -->

@@ -1,0 +1,128 @@
+#! /usr/bin/env python
+
+from __future__ import absolute_import, division, print_function
+
+import matplotlib.pyplot as plt
+import torch
+import numpy as np
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.loss import min_eigval_loss
+from depth_correction.model import ScaledPolynomial, Polynomial
+from depth_correction.filters import filter_depth, filter_grid
+from numpy.lib.recfunctions import unstructured_to_structured
+import rospy
+from sensor_msgs.msg import PointCloud2
+from ros_numpy import msgify
+import tf
+import time
+
+
+N_pts = 10000
+r_nn = 0.2
+LR = 1e-4
+grid_res = 0.05
+PTS_HEIGHT = 1.2
+
+
+def dc_to_msg(dc, stamp, frame='map'):
+    cloud = DepthCloud.to_structured_array(dc)
+    pc_msg = msgify(PointCloud2, cloud)
+    pc_msg.header.frame_id = frame
+    pc_msg.header.stamp = stamp
+    return pc_msg
+
+
+def main():
+    rospy.init_node('depth_correction', anonymous=True)
+    cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2)
+    corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
+    br = tf.TransformBroadcaster()
+
+    # device = torch.device('cuda:0')
+    device = torch.device('cpu')
+    model = ScaledPolynomial().to(device)
+    # model = Polynomial().to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+
+    # create flat point cloud (a wall)
+    cloud = np.zeros((N_pts, 3), dtype=np.float32)
+    cloud[:, [0, 1]] = np.random.rand(N_pts, 2) * 10 - 5  # 10 x 10 m
+    cloud[:, 2] = PTS_HEIGHT
+    cloud = unstructured_to_structured(np.asarray(cloud, dtype=np.float32), names=list('xyz'))
+
+    dc_init = DepthCloud.from_structured_array(cloud).to(device)
+    dc_init.update_all(r=r_nn)
+    # add disturbances
+    p0, p1 = -0.01, -0.01
+    gama = dc_init.inc_angles
+    dc_init.depth = dc_init.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
+    # dc_init = filter_depth(dc_init, min=1, max=20, log=False)
+    dc_init = filter_grid(dc_init, grid_res, keep='last')
+    dc_init.update_all(r=r_nn)
+
+    # dc_init.visualize(colors='min_eigval', normals=True)
+
+    # use model to correct the distortion (hopefully)
+    loss0 = None
+    plt.figure()
+    losses = []
+    while True:
+        if rospy.is_shutdown():
+            break
+        t0 = time.time()
+
+        dc = model.correct_depth(dc_init)
+        dc.update_all(r=r_nn)
+
+        loss, _ = min_eigval_loss(dc)
+        if not loss0:
+            loss0 = loss
+        losses.append(loss.item())
+        rospy.loginfo('loss - loss0 = %g' % (loss.item() - loss0.item()))
+        rospy.loginfo('Model parameters: p0=%f, p1=%f', model.p0.item(), model.p1.item())
+
+        # Optimization step
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # dc.update_all(r=r_nn)
+        rospy.logdebug('Optimization step took %.3f sec' % (time.time()-t0))
+
+        # dc.visualize(colors='inc_angles', normals=True)
+        stamp = rospy.Time.now()
+
+        # publish point cloud msgs
+        pc_init_msg = dc_to_msg(dc_init, stamp=stamp, frame='map')
+        pc_msg = dc_to_msg(dc, stamp=stamp, frame='map')
+        cloud_pub.publish(pc_init_msg)
+        corrected_cloud_pub.publish(pc_msg)
+
+        # publish viewpoints
+        vp = dc.vps[0]
+        br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), time=stamp, child="vp", parent="map")
+
+        # plot D vs gamma
+        plt.subplot(1, 2, 1)
+        plt.cla()
+        plt.plot(dc_init.depth.squeeze(), dc_init.inc_angles.squeeze(), '.', label='corrected cloud')
+        plt.plot(dc.depth.detach().squeeze(), dc.inc_angles.detach().squeeze(), '.', label='init cloud')
+        plt.legend()
+        plt.grid()
+        plt.xlabel('depth, [m]')
+        plt.ylabel('gamma, [rad]')
+
+        plt.subplot(1, 2, 2)
+        plt.cla()
+        plt.plot(losses)
+        plt.grid()
+        plt.ylabel('loss')
+        plt.xlabel('time, iters')
+
+        plt.draw()
+        plt.pause(0.01)
+
+
+if __name__ == '__main__':
+    main()

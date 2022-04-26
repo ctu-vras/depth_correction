@@ -46,20 +46,35 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
     # create flat point cloud (a wall)
-    cloud = np.zeros((N_pts, 3), dtype=np.float32)
-    cloud[:, [0, 1]] = np.random.rand(N_pts, 2) * 10 - 5  # 10 x 10 m
-    cloud[:, 2] = PTS_HEIGHT
-    cloud = unstructured_to_structured(np.asarray(cloud, dtype=np.float32), names=list('xyz'))
+    cloud1 = np.zeros((N_pts, 3), dtype=np.float32)
+    cloud1[:, [0, 1]] = np.random.rand(N_pts, 2) * 10 - 5  # 10 x 10 m
+    cloud1[:, 2] = PTS_HEIGHT
+    cloud1 = unstructured_to_structured(np.asarray(cloud1, dtype=np.float32), names=list('xyz'))
 
-    dc_init = DepthCloud.from_structured_array(cloud).to(device)
-    dc_init.update_all(r=r_nn)
+    dc_init1 = DepthCloud.from_structured_array(cloud1).to(device)
+    dc_init1.update_all(r=r_nn)
     # add disturbances
     p0, p1 = -0.01, -0.01
-    gama = dc_init.inc_angles
-    dc_init.depth = dc_init.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
+    gama = dc_init1.inc_angles
+    dc_init1.depth = dc_init1.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
+
+    cloud2 = np.zeros((N_pts, 3), dtype=np.float32)
+    cloud2[:, [0, 1]] = np.random.rand(N_pts, 2) * 10 - 5  # 10 x 10 m
+    cloud2[:, 2] = PTS_HEIGHT
+    offset = np.asarray([4, 0, 0])
+    cloud2 = cloud2 + offset
+    vps2 = np.zeros_like(cloud2) + offset
+    dc_init2 = DepthCloud.from_points(cloud2, vps2)
+    dc_init2.update_all(r=r_nn)
+    # add disturbances
+    p0, p1 = -0.01, -0.01
+    gama = dc_init1.inc_angles
+    dc_init2.depth = dc_init2.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
+
+    dc_init = DepthCloud.concatenate([dc_init1, dc_init2])
     # dc_init = filter_depth(dc_init, min=1, max=20, log=False)
     dc_init = filter_grid(dc_init, grid_res, keep='last')
-    dc_init.update_all(r=r_nn)
+    dc_init.update_all(r=r_nn, keep_neighbors=False)
 
     # dc_init.visualize(colors='min_eigval', normals=True)
 
@@ -73,7 +88,7 @@ def main():
         t0 = time.time()
 
         dc = model.correct_depth(dc_init)
-        dc.update_all(r=r_nn)
+        dc.update_all(r=r_nn, keep_neighbors=False)
 
         loss, _ = min_eigval_loss(dc)
         if not loss0:
@@ -100,14 +115,14 @@ def main():
         corrected_cloud_pub.publish(pc_msg)
 
         # publish viewpoints
-        vp = dc.vps[0]
-        br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), time=stamp, child="vp", parent="map")
+        for i, vp in enumerate([dc_init1.vps[0], dc_init2.vps[0]]):
+            br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), time=stamp, child="vp_%d" % i, parent="map")
 
         # plot D vs gamma
         plt.subplot(1, 2, 1)
         plt.cla()
-        plt.plot(dc_init.depth.squeeze(), dc_init.inc_angles.squeeze(), '.', label='corrected cloud')
-        plt.plot(dc.depth.detach().squeeze(), dc.inc_angles.detach().squeeze(), '.', label='init cloud')
+        plt.plot(dc_init.depth.squeeze(), dc_init.inc_angles.squeeze(), '.', label='init cloud')
+        plt.plot(dc.depth.detach().squeeze(), dc.inc_angles.detach().squeeze(), '.', label='corrected cloud')
         plt.legend()
         plt.grid()
         plt.xlabel('depth, [m]')

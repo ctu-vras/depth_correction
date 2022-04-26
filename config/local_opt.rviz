@@ -46,9 +46,11 @@ Visualization Manager:
       Frames:
         All Enabled: false
         map:
-          Value: true
-        vp:
           Value: false
+        vp_0:
+          Value: true
+        vp_1:
+          Value: true
       Marker Alpha: 1
       Marker Scale: 5
       Name: TF
@@ -57,7 +59,9 @@ Visualization Manager:
       Show Names: true
       Tree:
         map:
-          vp:
+          vp_0:
+            {}
+          vp_1:
             {}
       Update Interval: 0
       Value: true

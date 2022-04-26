@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.loss import min_eigval_loss
+from depth_correction.loss import min_eigval_loss, trace_loss
 from depth_correction.model import ScaledPolynomial, Polynomial
-from depth_correction.filters import filter_depth, filter_grid
+from depth_correction.filters import filter_depth, filter_grid, filter_eigenvalues
 from numpy.lib.recfunctions import unstructured_to_structured
 import rospy
 from sensor_msgs.msg import PointCloud2
@@ -17,7 +17,7 @@ import tf
 import time
 
 
-N_pts = 10000
+N_pts = 8000
 r_nn = 0.2
 LR = 1e-4
 grid_res = 0.05
@@ -49,12 +49,12 @@ def main():
     cloud1 = np.zeros((N_pts, 3), dtype=np.float32)
     cloud1[:, [0, 1]] = np.random.rand(N_pts, 2) * 10 - 5  # 10 x 10 m
     cloud1[:, 2] = PTS_HEIGHT
-    cloud1 = unstructured_to_structured(np.asarray(cloud1, dtype=np.float32), names=list('xyz'))
+    vps1 = np.zeros_like(cloud1)
 
-    dc_init1 = DepthCloud.from_structured_array(cloud1).to(device)
+    dc_init1 = DepthCloud.from_points(cloud1, vps1)
     dc_init1.update_all(r=r_nn)
     # add disturbances
-    p0, p1 = -0.01, -0.01
+    p0, p1 = -0.03, -0.03
     gama = dc_init1.inc_angles
     dc_init1.depth = dc_init1.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
 
@@ -67,13 +67,11 @@ def main():
     dc_init2 = DepthCloud.from_points(cloud2, vps2)
     dc_init2.update_all(r=r_nn)
     # add disturbances
-    p0, p1 = -0.01, -0.01
+    p0, p1 = -0.02, -0.04
     gama = dc_init1.inc_angles
     dc_init2.depth = dc_init2.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
 
     dc_init = DepthCloud.concatenate([dc_init1, dc_init2])
-    # dc_init = filter_depth(dc_init, min=1, max=20, log=False)
-    dc_init = filter_grid(dc_init, grid_res, keep='last')
     dc_init.update_all(r=r_nn, keep_neighbors=False)
 
     # dc_init.visualize(colors='min_eigval', normals=True)
@@ -82,20 +80,30 @@ def main():
     loss0 = None
     plt.figure()
     losses = []
+    metrics = []
+    train_neighbors = None
+    eigenvalue_bounds = [[0, None, (r_nn / 8) ** 2],
+                         [1, (r_nn / 4) ** 2, None]]
     while True:
         if rospy.is_shutdown():
             break
         t0 = time.time()
 
         dc = model.correct_depth(dc_init)
-        dc.update_all(r=r_nn, keep_neighbors=False)
+        # dc.update_all(r=r_nn, keep_neighbors=dc.neighbors is not None)
+        if train_neighbors is None:
+            dc.update_all(r=r_nn)
+            train_neighbors = dc.neighbors, dc.weights
+            train_masks = filter_eigenvalues(dc, eig_bounds=eigenvalue_bounds, only_mask=True, log=False)
+            print('Training on %.3f = %i / %i points.'
+                  % (train_masks.float().mean().item(),
+                     train_masks.sum().item(), train_masks.numel()))
+        else:
+            dc.neighbors, dc.weights = train_neighbors
+            dc.update_all(r=r_nn, keep_neighbors=True)
 
-        loss, _ = min_eigval_loss(dc)
-        if not loss0:
-            loss0 = loss
-        losses.append(loss.item())
-        rospy.loginfo('loss - loss0 = %g' % (loss.item() - loss0.item()))
-        rospy.loginfo('Model parameters: p0=%f, p1=%f', model.p0.item(), model.p1.item())
+        # loss, _ = min_eigval_loss(dc)
+        loss, _ = trace_loss(dc)
 
         # Optimization step
         optimizer.zero_grad()
@@ -104,6 +112,17 @@ def main():
 
         # dc.update_all(r=r_nn)
         rospy.logdebug('Optimization step took %.3f sec' % (time.time()-t0))
+
+        if not loss0:
+            loss0 = loss
+        losses.append(loss.item())
+        # rospy.loginfo('loss - loss0 = %g' % (loss.item() - loss0.item()))
+        # rospy.loginfo('Model parameters: p0=%f, p1=%f', model.p0.item(), model.p1.item())
+
+        l2_loss1 = (np.linalg.norm(dc.points.detach()[N_pts, :] - cloud1)) / N_pts
+        l2_loss2 = (np.linalg.norm(dc.points.detach()[N_pts:, :] - cloud2)) / N_pts
+        l2_loss = (l2_loss1 + l2_loss2) / 2.
+        metrics.append(l2_loss)
 
         # dc.visualize(colors='inc_angles', normals=True)
         stamp = rospy.Time.now()
@@ -121,12 +140,16 @@ def main():
         # plot D vs gamma
         plt.subplot(1, 2, 1)
         plt.cla()
-        plt.plot(dc_init.depth.squeeze(), dc_init.inc_angles.squeeze(), '.', label='init cloud')
-        plt.plot(dc.depth.detach().squeeze(), dc.inc_angles.detach().squeeze(), '.', label='corrected cloud')
-        plt.legend()
+        # plt.plot(dc_init.depth.squeeze(), dc_init.inc_angles.squeeze(), '.', label='init cloud')
+        # plt.plot(dc.depth.detach().squeeze(), dc.inc_angles.detach().squeeze(), '.', label='corrected cloud')
+        # plt.legend()
+        # plt.grid()
+        # plt.xlabel('depth, [m]')
+        # plt.ylabel('gamma, [rad]')
+        plt.plot(metrics)
         plt.grid()
-        plt.xlabel('depth, [m]')
-        plt.ylabel('gamma, [rad]')
+        plt.ylabel('l2 difference from gt')
+        plt.xlabel('time, iters')
 
         plt.subplot(1, 2, 2)
         plt.cla()

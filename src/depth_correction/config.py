@@ -176,7 +176,7 @@ class Config(Configurable):
         self.num_jobs = 0  # Allows debugging with fewer jobs.
         self.force = False   # Allow overwriting existing configs, etc.
 
-        self.pkg_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        self.pkg_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.enable_ros = False
         self.ros_master_port = 11513
 

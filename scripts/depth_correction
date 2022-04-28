@@ -26,14 +26,6 @@ class DepthCorrection(object):
         if self.float_type:
             rospy.loginfo('Ensure floating-point type: %s', self.float_type)
 
-        self.int_type = rospy.get_param('~int_type', None)
-        if self.int_type == 'int32':
-            self.int_type = torch.int32
-        elif self.int_type == 'int64':
-            self.int_type = torch.int64
-        if self.int_type:
-            rospy.loginfo('Ensure integer type: %s', self.int_type)
-
         self.model = load_model(rospy.get_param('~model/class'),
                                 rospy.get_param('~model/state_dict', None),
                                 self.device)
@@ -81,10 +73,6 @@ class DepthCorrection(object):
         rospy.logdebug("Received point cloud for depth correction")
         t = timer()
         with torch.no_grad():
-            # if self.float_type == torch.float64:
-            #     dc = DepthCloud.from_structured_array(input_cloud, dtype=np.float64)
-            # else:
-            #     dc = DepthCloud.from_structured_array(input_cloud)
             dc = DepthCloud.from_structured_array(input_cloud, dtype=self.float_type)
             dc.to(device=self.device)
             if self.min_depth or self.max_depth:

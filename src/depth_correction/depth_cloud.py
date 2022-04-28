@@ -15,7 +15,6 @@ __all__ = [
 ]
 
 
-# @timing
 def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None):
     """Create covariance matrices from multiple samples."""
     assert isinstance(x, torch.Tensor)
@@ -207,14 +206,12 @@ class DepthCloud(object):
         d = torch.linalg.norm(x.unsqueeze(dim=1) - x[self.neighbors], dim=-1)
         self.distances = d
 
-    # @timing
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
         self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
         # TODO: Add singleton dim where used.
 
-    @timing
     def update_dir_neighbors(self, k=None, r=None, angle=None):
         assert self.dirs is not None
         if angle is not None:
@@ -224,7 +221,6 @@ class DepthCloud(object):
         self.dir_distances, self.dir_neighbors = nearest_neighbors(self.dirs, self.dirs, k=k, r=r)
         self.dir_neighbor_weights = (self.dir_neighbors >= 0).float()
 
-    @timing
     def compute_dir_distances(self):
         assert self.dirs is not None
         assert self.dir_neighbors is not None
@@ -234,7 +230,6 @@ class DepthCloud(object):
     def update_dir_distances(self):
         self.distances = self.compute_dir_distances()
 
-    # @timing
     def filter_neighbors_normal_angle(self, max_angle):
         # TODO: Batch computation using neighbors tensor.
         assert isinstance(self.neighbors, (list, np.ndarray))
@@ -291,7 +286,6 @@ class DepthCloud(object):
 
         return result
 
-    # @timing
     def update_mean(self, invalid=0.0):
         w = self.weights.sum(dim=(-2, -1))[..., None]
         mean = (self.weights * self.get_neighbor_points()).sum(dim=-2) / w
@@ -320,7 +314,6 @@ class DepthCloud(object):
         nn = pts[self.neighbors]
         return nn
 
-    # @timing
     def update_cov(self, correction=1, invalid=0.0):
         cov = covs(self.get_neighbor_points(), weights=self.weights)
         self.cov = cov
@@ -332,7 +325,6 @@ class DepthCloud(object):
         cov = torch.stack(cov)
         self.cov = cov
 
-    # @timing
     def compute_eig(self, invalid=0.0):
         assert self.cov is not None
         # TODO: Switch to a faster cuda eigh implementation.
@@ -354,7 +346,6 @@ class DepthCloud(object):
         # eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov.to(device)[valid])
         # return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
 
-    # @timing
     def update_eig(self):
         self.eigvals, self.eigvecs = self.compute_eig()
 
@@ -379,7 +370,6 @@ class DepthCloud(object):
         inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
         self.inc_angles = inc_angles
 
-    # @timing
     def update_features(self):
         self.update_mean()
         self.update_cov()
@@ -389,7 +379,6 @@ class DepthCloud(object):
         # Keep incidence angles from the original observations?
         self.update_incidence_angles()
 
-    # @timing
     def update_all(self, k=None, r=None, keep_neighbors=False):
         self.update_points()
         if keep_neighbors:

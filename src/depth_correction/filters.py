@@ -150,7 +150,6 @@ def filter_eigenvalues(cloud: DepthCloud, eig_bounds: list, only_mask: bool=Fals
     return cloud
 
 
-@timing
 def filter_shadow_points(cloud: DepthCloud, angle_bounds: list, only_mask: bool=False, log: bool=False):
     """Filter shadow points from the cloud.
 

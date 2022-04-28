@@ -49,6 +49,7 @@ def create_initial_cloud(n_pts=10000, plane_vps_dist=1.2, r_nn=0.2, p0_disturb=-
     dc_init = DepthCloud.concatenate([dc_init1, dc_init2])
     dc_init.update_all(r=r_nn)
     dc_init = add_disturbance(dc_init, p0=p0_disturb, p1=p1_disturb)
+    # dc_init.update_all(r=r_nn)
     dc_init.update_points()
     dc_init = dc_init.detach()
 
@@ -74,14 +75,13 @@ def main():
     optimizer = torch.optim.Adam([model.p0], lr=rospy.get_param('~lr', 0.001))
 
     dc_init, clouds_gt, vps = create_initial_cloud(n_pts=n_pts, plane_vps_dist=1.0, r_nn=r_nn,
-                                                   p0_disturb=0.0, p1_disturb=0.0)
+                                                   p0_disturb=-0.03, p1_disturb=0.0)
     # dc_init.visualize(colors='min_eigval', normals=True)
 
     plt.figure()
     losses = []
     metrics = []
 
-    dc_init.update_all(r=r_nn)
     train_neighbors = dc_init.neighbors, dc_init.weights
 
     while True:

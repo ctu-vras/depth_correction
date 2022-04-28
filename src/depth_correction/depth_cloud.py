@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from .nearest_neighbors import ball_angle_to_distance, nearest_neighbors
 from .utils import map_colors, timing
+import matplotlib.colors
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
 from ros_numpy import msgify
@@ -429,7 +430,11 @@ class DepthCloud(object):
             pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
 
         if colors is not None:
-            pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors))
+            if colors in matplotlib.colors.BASE_COLORS:
+                colors = np.array(len(self) * [matplotlib.colors.BASE_COLORS[colors]])
+            elif not (isinstance(colors, np.ndarray) and colors.shape[1] == 3):
+                colors = self.get_colors(colors)
+            pcd.colors = o3d.utility.Vector3dVector(colors)
 
         return pcd
 

@@ -426,15 +426,9 @@ class DepthCloud(object):
 
         assert isinstance(vals, torch.Tensor)
         vals = vals.detach().float()
-        # min_val, max_val = torch.quantile(vals, torch.tensor([0.01, 0.99], dtype=vals.dtype))
-        # min_val, max_val = vals.min(), vals.max()
         valid = torch.isfinite(vals)
-        # min_val, max_val = vals[valid].min(), vals[valid].max()
         q = torch.tensor([0.01, 0.99], dtype=vals.dtype, device=vals.device)
         min_val, max_val = torch.quantile(vals[valid], q)
-        # print('min, max: %.6g, %.6g' % (min_val, max_val))
-        # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
-        # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
         colors = map_colors(vals, min_value=min_val, max_value=max_val)
         return colors
 

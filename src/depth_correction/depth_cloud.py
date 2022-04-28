@@ -201,6 +201,21 @@ class DepthCloud(object):
     def __add__(self, other):
         return DepthCloud.concatenate([self, other], dependent=True)
 
+    def __sub__(self, other):
+        assert isinstance(other, DepthCloud)
+        # TODO: Handle mixed precision.
+        # TODO: Keep point ordering.
+        x = self.get_points().detach().cpu().numpy()
+        y = other.get_points().detach().cpu().numpy()
+        map_x = dict((tuple(x), i) for i, x in enumerate(x))
+        map_y = dict((tuple(x), i) for i, x in enumerate(y))
+        keys_diff = set(map_x) - set(map_y)
+        if not keys_diff:
+            return DepthCloud()
+        idx = [map_x[k] for k in keys_diff]
+        ret = self[idx]
+        return ret
+
     def update_distances(self):
         assert self.neighbors is not None
         x = self.get_points()

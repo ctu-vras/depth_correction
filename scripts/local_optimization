@@ -8,20 +8,11 @@ import numpy as np
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.loss import min_eigval_loss, trace_loss
 from depth_correction.model import ScaledPolynomial, Polynomial
-from depth_correction.filters import filter_depth, filter_grid, filter_eigenvalues
-from numpy.lib.recfunctions import unstructured_to_structured
 import rospy
 from sensor_msgs.msg import PointCloud2
 from ros_numpy import msgify
 import tf
 import time
-
-
-N_pts = 8000
-r_nn = 0.2
-LR = 1e-4
-grid_res = 0.05
-PTS_HEIGHT = 1.2
 
 
 def dc_to_msg(dc, stamp, frame='map'):
@@ -32,46 +23,52 @@ def dc_to_msg(dc, stamp, frame='map'):
     return pc_msg
 
 
-def main():
-    rospy.init_node('depth_correction', anonymous=True)
-    cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2)
-    corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
-    br = tf.TransformBroadcaster()
-
-    # device = torch.device('cuda:0')
-    device = torch.device('cpu')
-    model = ScaledPolynomial().to(device)
-    # model = Polynomial().to(device)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-
+def create_initial_cloud(n_pts=16000, plane_vps_dist=1.2, r_nn=0.2, p0_disturb=-0.03, p1_disturb=-0.03):
     # create flat point cloud (a wall)
-    cloud1 = np.zeros((N_pts, 3), dtype=np.float32)
-    cloud1[:, [0, 1]] = np.random.rand(N_pts, 2) * 10 - 5  # 10 x 10 m
-    cloud1[:, 2] = PTS_HEIGHT
+    cloud1 = np.zeros((n_pts//2, 3), dtype=np.float32)
+    cloud1[:, [0, 1]] = np.random.rand(n_pts//2, 2) * 10 - 5  # 10 x 10 m
+    cloud1[:, 2] = plane_vps_dist
     vps1 = np.zeros_like(cloud1)
 
     dc_init1 = DepthCloud.from_points(cloud1, vps1)
     dc_init1.update_all(r=r_nn)
     # add disturbances
-    p0, p1 = -0.03, -0.03
-    gama = dc_init1.inc_angles
-    dc_init1.depth = dc_init1.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
 
-    cloud2 = np.zeros((N_pts, 3), dtype=np.float32)
-    cloud2[:, [0, 1]] = np.random.rand(N_pts, 2) * 10 - 5  # 10 x 10 m
-    cloud2[:, 2] = PTS_HEIGHT
+    gama = dc_init1.inc_angles
+    dc_init1.depth = dc_init1.depth / (1 - (p0_disturb * gama ** 2 + p1_disturb * gama ** 4))
+
+    cloud2 = np.zeros((n_pts//2, 3), dtype=np.float32)
+    cloud2[:, [0, 1]] = np.random.rand(n_pts//2, 2) * 10 - 5  # 10 x 10 m
+    cloud2[:, 2] = plane_vps_dist
     offset = np.asarray([4, 0, 0])
     cloud2 = cloud2 + offset
     vps2 = np.zeros_like(cloud2) + offset
     dc_init2 = DepthCloud.from_points(cloud2, vps2)
     dc_init2.update_all(r=r_nn)
     # add disturbances
-    p0, p1 = -0.02, -0.04
     gama = dc_init1.inc_angles
-    dc_init2.depth = dc_init2.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
+    dc_init2.depth = dc_init2.depth / (1 - (p0_disturb * gama ** 2 + p1_disturb * gama ** 4))
 
     dc_init = DepthCloud.concatenate([dc_init1, dc_init2])
+    return dc_init, cloud1, cloud2, vps1, vps2
+
+
+def main():
+    rospy.init_node('depth_correction', anonymous=True)
+    cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2)
+    corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
+    br = tf.TransformBroadcaster()
+
+    device = torch.device(rospy.get_param('~device', 'cpu'))
+    model = ScaledPolynomial() if rospy.get_param('~model') == 'ScaledPolynomial' else Polynomial()
+    model = model.to(device)
+    loss_fun = min_eigval_loss if rospy.get_param('~loss_fun') == 'min_eigval_loss' else trace_loss
+    r_nn = rospy.get_param('~r_nn', 0.2)
+    n_pts = rospy.get_param('~n_pts', 16000)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=rospy.get_param('~lr', 0.001))
+
+    dc_init, cloud1, cloud2, vps1, vps2 = create_initial_cloud(n_pts=n_pts, plane_vps_dist=1.2, r_nn=r_nn)
     dc_init.update_all(r=r_nn, keep_neighbors=False)
 
     # dc_init.visualize(colors='min_eigval', normals=True)
@@ -82,8 +79,7 @@ def main():
     losses = []
     metrics = []
     train_neighbors = None
-    eigenvalue_bounds = [[0, None, (r_nn / 8) ** 2],
-                         [1, (r_nn / 4) ** 2, None]]
+
     while True:
         if rospy.is_shutdown():
             break
@@ -94,34 +90,28 @@ def main():
         if train_neighbors is None:
             dc.update_all(r=r_nn)
             train_neighbors = dc.neighbors, dc.weights
-            train_masks = filter_eigenvalues(dc, eig_bounds=eigenvalue_bounds, only_mask=True, log=False)
-            print('Training on %.3f = %i / %i points.'
-                  % (train_masks.float().mean().item(),
-                     train_masks.sum().item(), train_masks.numel()))
         else:
             dc.neighbors, dc.weights = train_neighbors
             dc.update_all(r=r_nn, keep_neighbors=True)
 
-        # loss, _ = min_eigval_loss(dc)
-        loss, _ = trace_loss(dc)
+        loss, _ = loss_fun(dc)
 
         # Optimization step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # dc.update_all(r=r_nn)
         rospy.logdebug('Optimization step took %.3f sec' % (time.time()-t0))
 
         if not loss0:
             loss0 = loss
         losses.append(loss.item())
-        # rospy.loginfo('loss - loss0 = %g' % (loss.item() - loss0.item()))
-        # rospy.loginfo('Model parameters: p0=%f, p1=%f', model.p0.item(), model.p1.item())
+        rospy.loginfo('%s = %g' % (rospy.get_param('~loss_fun', 'loss'), loss.item()))
+        rospy.logdebug('Model parameters: p0=%f, p1=%f', model.p0.item(), model.p1.item())
 
-        l2_loss1 = (np.linalg.norm(dc.points.detach()[N_pts, :] - cloud1)) / N_pts
-        l2_loss2 = (np.linalg.norm(dc.points.detach()[N_pts:, :] - cloud2)) / N_pts
-        l2_loss = (l2_loss1 + l2_loss2) / 2.
+        l2_loss1 = (np.linalg.norm(dc.points.detach()[n_pts//2, :] - cloud1))
+        l2_loss2 = (np.linalg.norm(dc.points.detach()[n_pts//2:, :] - cloud2))
+        l2_loss = (l2_loss1 + l2_loss2) / (2. * n_pts)
         metrics.append(l2_loss)
 
         # dc.visualize(colors='inc_angles', normals=True)
@@ -134,7 +124,7 @@ def main():
         corrected_cloud_pub.publish(pc_msg)
 
         # publish viewpoints
-        for i, vp in enumerate([dc_init1.vps[0], dc_init2.vps[0]]):
+        for i, vp in enumerate([vps1[0], vps2[0]]):
             br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), time=stamp, child="vp_%d" % i, parent="map")
 
         # plot D vs gamma
@@ -155,7 +145,7 @@ def main():
         plt.cla()
         plt.plot(losses)
         plt.grid()
-        plt.ylabel('loss')
+        plt.ylabel(rospy.get_param('~loss_fun', 'loss'))
         plt.xlabel('time, iters')
 
         plt.draw()

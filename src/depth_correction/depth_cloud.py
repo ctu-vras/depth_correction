@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from .nearest_neighbors import ball_angle_to_distance, nearest_neighbors
 from .utils import map_colors, timing
+import matplotlib.colors
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
 from ros_numpy import msgify
@@ -15,7 +16,6 @@ __all__ = [
 ]
 
 
-# @timing
 def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None):
     """Create covariance matrices from multiple samples."""
     assert isinstance(x, torch.Tensor)
@@ -201,20 +201,33 @@ class DepthCloud(object):
     def __add__(self, other):
         return DepthCloud.concatenate([self, other], dependent=True)
 
+    def __sub__(self, other):
+        assert isinstance(other, DepthCloud)
+        # TODO: Handle mixed precision.
+        # TODO: Keep point ordering.
+        x = self.get_points().detach().cpu().numpy()
+        y = other.get_points().detach().cpu().numpy()
+        map_x = dict((tuple(x), i) for i, x in enumerate(x))
+        map_y = dict((tuple(x), i) for i, x in enumerate(y))
+        keys_diff = set(map_x) - set(map_y)
+        if not keys_diff:
+            return DepthCloud()
+        idx = [map_x[k] for k in keys_diff]
+        ret = self[idx]
+        return ret
+
     def update_distances(self):
         assert self.neighbors is not None
         x = self.get_points()
         d = torch.linalg.norm(x.unsqueeze(dim=1) - x[self.neighbors], dim=-1)
         self.distances = d
 
-    # @timing
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
         self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
         # TODO: Add singleton dim where used.
 
-    @timing
     def update_dir_neighbors(self, k=None, r=None, angle=None):
         assert self.dirs is not None
         if angle is not None:
@@ -224,7 +237,6 @@ class DepthCloud(object):
         self.dir_distances, self.dir_neighbors = nearest_neighbors(self.dirs, self.dirs, k=k, r=r)
         self.dir_neighbor_weights = (self.dir_neighbors >= 0).float()
 
-    @timing
     def compute_dir_distances(self):
         assert self.dirs is not None
         assert self.dir_neighbors is not None
@@ -234,7 +246,6 @@ class DepthCloud(object):
     def update_dir_distances(self):
         self.distances = self.compute_dir_distances()
 
-    # @timing
     def filter_neighbors_normal_angle(self, max_angle):
         # TODO: Batch computation using neighbors tensor.
         assert isinstance(self.neighbors, (list, np.ndarray))
@@ -291,7 +302,6 @@ class DepthCloud(object):
 
         return result
 
-    # @timing
     def update_mean(self, invalid=0.0):
         w = self.weights.sum(dim=(-2, -1))[..., None]
         mean = (self.weights * self.get_neighbor_points()).sum(dim=-2) / w
@@ -320,7 +330,6 @@ class DepthCloud(object):
         nn = pts[self.neighbors]
         return nn
 
-    # @timing
     def update_cov(self, correction=1, invalid=0.0):
         cov = covs(self.get_neighbor_points(), weights=self.weights)
         self.cov = cov
@@ -332,7 +341,6 @@ class DepthCloud(object):
         cov = torch.stack(cov)
         self.cov = cov
 
-    # @timing
     def compute_eig(self, invalid=0.0):
         assert self.cov is not None
         # TODO: Switch to a faster cuda eigh implementation.
@@ -354,7 +362,6 @@ class DepthCloud(object):
         # eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov.to(device)[valid])
         # return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
 
-    # @timing
     def update_eig(self):
         self.eigvals, self.eigvecs = self.compute_eig()
 
@@ -379,7 +386,6 @@ class DepthCloud(object):
         inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
         self.inc_angles = inc_angles
 
-    # @timing
     def update_features(self):
         self.update_mean()
         self.update_cov()
@@ -389,7 +395,6 @@ class DepthCloud(object):
         # Keep incidence angles from the original observations?
         self.update_incidence_angles()
 
-    # @timing
     def update_all(self, k=None, r=None, keep_neighbors=False):
         self.update_points()
         if keep_neighbors:
@@ -421,15 +426,9 @@ class DepthCloud(object):
 
         assert isinstance(vals, torch.Tensor)
         vals = vals.detach().float()
-        # min_val, max_val = torch.quantile(vals, torch.tensor([0.01, 0.99], dtype=vals.dtype))
-        # min_val, max_val = vals.min(), vals.max()
         valid = torch.isfinite(vals)
-        # min_val, max_val = vals[valid].min(), vals[valid].max()
         q = torch.tensor([0.01, 0.99], dtype=vals.dtype, device=vals.device)
         min_val, max_val = torch.quantile(vals[valid], q)
-        # print('min, max: %.6g, %.6g' % (min_val, max_val))
-        # colormap = torch.tensor([[0., 1., 0.], [1., 0., 0.]], dtype=torch.float64)
-        # colors = map_colors(vals, colormap, min_value=min_val, max_value=max_val)
         colors = map_colors(vals, min_value=min_val, max_value=max_val)
         return colors
 
@@ -440,7 +439,11 @@ class DepthCloud(object):
             pcd.normals = o3d.utility.Vector3dVector(self.normals.detach().cpu())
 
         if colors is not None:
-            pcd.colors = o3d.utility.Vector3dVector(self.get_colors(colors))
+            if colors in matplotlib.colors.BASE_COLORS:
+                colors = np.array(len(self) * [matplotlib.colors.BASE_COLORS[colors]])
+            elif not (isinstance(colors, np.ndarray) and colors.shape[1] == 3):
+                colors = self.get_colors(colors)
+            pcd.colors = o3d.utility.Vector3dVector(colors)
 
         return pcd
 

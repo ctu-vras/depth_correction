@@ -3,6 +3,7 @@
     <arg name="rviz" default="true"/>
     <arg name="model" default="ScaledPolynomial"/>
     <arg name="loss_fun" default="min_eigval_loss"/>
+    <arg name="optimization" default="true"/>
 
     <!-- ROSBAG -->
     <node name="local_optimization" pkg="depth_correction" type="local_optimization" output="screen">
@@ -10,9 +11,10 @@
             device: cpu
             model: $(arg model)
             loss_fun: $(arg loss_fun)
-            n_pts: 16000
+            n_pts: 10000
             r_nn: 0.2
             lr: 0.001
+            optimization: $(arg optimization)
         </rosparam>
     </node>
 

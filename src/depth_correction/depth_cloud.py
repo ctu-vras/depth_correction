@@ -1,5 +1,5 @@
 from __future__ import absolute_import, division, print_function
-from .nearest_neighbors import nearest_neighbors
+from .nearest_neighbors import ball_angle_to_distance, nearest_neighbors
 from .utils import map_colors, timing
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
@@ -69,7 +69,8 @@ class DepthCloud(object):
                      'points', 'mean', 'cov', 'eigvals', 'eigvecs',
                      'normals', 'inc_angles', 'trace',
                      'loss', 'mask']
-    not_sliced_fields = ['neighbors', 'weights', 'distances', 'neighbor_points']
+    not_sliced_fields = ['neighbors', 'weights', 'distances', 'neighbor_points',
+                         'dir_neighbors', 'dir_neighbor_weights', 'dir_distances']
     all_fields = sliced_fields + not_sliced_fields
 
     def __init__(self, vps=None, dirs=None, depth=None,
@@ -104,6 +105,12 @@ class DepthCloud(object):
         self.depth = depth
 
         # Dependent features
+        # Directional neighborhood (note that viewpoints are neglected).
+        self.dir_neighbors = None
+        self.dir_neighbor_weights = None
+        self.dir_distances = None
+
+        # Point positions, points = vps + depth * dirs.
         self.points = points
 
         # Nearest neighbor graph
@@ -205,6 +212,27 @@ class DepthCloud(object):
         assert self.points is not None
         self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
+        # TODO: Add singleton dim where used.
+
+    @timing
+    def update_dir_neighbors(self, k=None, r=None, angle=None):
+        assert self.dirs is not None
+        if angle is not None:
+            assert r is None
+            angle = torch.as_tensor(angle)
+            r = ball_angle_to_distance(angle)
+        self.dir_distances, self.dir_neighbors = nearest_neighbors(self.dirs, self.dirs, k=k, r=r)
+        self.dir_neighbor_weights = (self.dir_neighbors >= 0).float()
+
+    @timing
+    def compute_dir_distances(self):
+        assert self.dirs is not None
+        assert self.dir_neighbors is not None
+        d = torch.linalg.norm(self.dirs.unsqueeze(dim=1) - self.dirs[self.dir_neighbors], dim=-1)
+        return d
+
+    def update_dir_distances(self):
+        self.distances = self.compute_dir_distances()
 
     # @timing
     def filter_neighbors_normal_angle(self, max_angle):
@@ -452,20 +480,24 @@ class DepthCloud(object):
         for f in fields:
             # Collect field values from individual clouds.
             xs = [getattr(dc, f) for dc in clouds]
+            valid = [x is not None for x in xs]
+
             # Concatenate the values if present in all clouds.
-            if all([x is not None for x in xs]):
+            if all(valid):
                 # Shift indices by number of points in preceding clouds.
-                if f == 'neighbors':
+                if f in ('dir_neighbors', 'neighbors'):
                     sizes = [len(cloud) for cloud in clouds]
                     shift = [0] + list(np.cumsum(sizes[:-1]))
                     for i in range(len(xs)):
                         xs[i] += shift[i]
 
                 kwargs[f] = torch.concat(xs)
-            else:
-                # print('Field %s not available for some of %i clouds.'
-                #       % (f, len(clouds)))
-                pass
+
+            # Warn if clouds are heterogeneous.
+            elif any(valid):
+                print('Field %s not available for %i of %i clouds.'
+                      % (f, sum(valid), len(clouds)))
+
         dc = DepthCloud(**kwargs)
 
         return dc

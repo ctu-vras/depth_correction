@@ -5,8 +5,18 @@ from scipy.spatial import cKDTree
 import torch
 
 __all__ = [
-    'nearest_neighbors'
+    'ball_angle_to_distance',
+    'nearest_neighbors',
 ]
+
+
+def ball_angle_to_distance(angle, radius=1.0):
+    assert isinstance(angle, torch.Tensor)
+    angle = torch.clamp(angle, 0., torch.pi)
+    dist = torch.sqrt(2. * (1. - torch.cos(angle)))
+    if isinstance(radius, float) or radius != 1.0:
+        dist = radius * dist
+    return dist
 
 
 def nearest_neighbors(points, query, k=None, r=None, n_jobs=-1):

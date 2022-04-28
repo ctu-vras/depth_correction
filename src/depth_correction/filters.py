@@ -1,8 +1,10 @@
 from __future__ import absolute_import, division, print_function
 from .depth_cloud import DepthCloud
+from .utils import timing
 import numpy as np
 from numpy.lib.recfunctions import structured_to_unstructured
 import torch
+import torch.nn.functional as fun
 
 
 def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=False, log=False):
@@ -144,5 +146,61 @@ def filter_eigenvalues(cloud: DepthCloud, eig_bounds: list, only_mask: bool=Fals
               % (mask.double().mean(), mask.sum(), mask.numel()))
     if only_mask:
         return mask
+    cloud = cloud[mask]
+    return cloud
+
+
+@timing
+def filter_shadow_points(cloud: DepthCloud, angle_bounds: list, only_mask: bool=False, log: bool=False):
+    """Filter shadow points from the cloud.
+
+    Filter similar to https://wiki.ros.org/laser_filters#ScanShadowsFilter
+    bounding minimum and maximum angle among neighboring beams.
+
+    :param cloud:
+    :param angle_bounds:
+    :param only_mask:
+    :param log:
+    :return:
+    """
+    assert cloud.vps is not None
+    assert cloud.dir_neighbors is not None
+
+    # Sanitize angle bounds (make both valid).
+    if angle_bounds[0] is None or not (angle_bounds[0] >= 0.0):
+        angle_bounds[0] = 0.0
+    if angle_bounds[1] is None or not (angle_bounds[1] <= torch.pi):
+        angle_bounds[1] = torch.pi
+    angle_bounds = torch.as_tensor(angle_bounds)
+    assert isinstance(angle_bounds, torch.Tensor)
+
+    # TODO: Convert to cos and bound cos.
+    # cos_bounds = torch.cos(angle_bounds)
+
+    # Create vectors (viewpoint - x) and (neighbor - x).
+    x = cloud.get_points()
+    o = cloud.vps
+    ox = o.unsqueeze(dim=1) - x.unsqueeze(dim=1)
+    nx = x[cloud.dir_neighbors] - x.unsqueeze(dim=1)
+
+    # Compute angle between these vectors.
+    c = fun.cosine_similarity(ox, nx, dim=-1)
+    a = torch.acos(c)
+    # Sanitize invalid angles (put them within bounds).
+    invalid = (cloud.dir_neighbor_weights != 1.0)
+    a[invalid] = angle_bounds.mean()
+
+    # Compare minimum and maximum angles among neighbors to the bounds.
+    a_min = a.amin(dim=-1)
+    a_max = a.amax(dim=-1)
+    mask = (a_min >= angle_bounds[0]) & (a_max <= angle_bounds[1])
+
+    if log and mask is not None:
+        print('%.3f = %i / %i points kept (shadow points removed).'
+              % (mask.double().mean(), mask.sum(), mask.numel()))
+
+    if only_mask:
+        return only_mask
+
     cloud = cloud[mask]
     return cloud

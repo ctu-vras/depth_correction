@@ -4,6 +4,7 @@ from .config import Config
 from .depth_cloud import DepthCloud
 from .filters import filter_depth, filter_eigenvalues, filter_grid
 from .model import *
+import numpy as np
 import torch
 
 __all__ = [
@@ -21,12 +22,13 @@ def filtered_cloud(cloud, cfg: Config):
 
 
 def local_feature_cloud(cloud, cfg: Config):
-    # Convert to depth cloud and transform.
-    # cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
-    if cloud.dtype.names:
-        cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
-    else:
-        cloud = DepthCloud.from_points(cloud, dtype=cfg.numpy_float_type())
+    # Convert to depth cloud if needed.
+    if isinstance(cloud, np.ndarray):
+        if cloud.dtype.names:
+            cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
+        else:
+            cloud = DepthCloud.from_points(cloud, dtype=cfg.numpy_float_type())
+    assert isinstance(cloud, DepthCloud)
     cloud = cloud.to(device=cfg.device)
     # Find/update neighbors and estimate all features.
     cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
@@ -51,9 +53,7 @@ def global_cloud(clouds: (list, tuple),
             cloud = model(cloud)
         cloud = cloud.transform(poses[i])
         transformed_clouds.append(cloud)
-    cloud = DepthCloud.concatenate(transformed_clouds, True)
-    # cloud.visualize(colors='z')
-    # cloud.visualize(colors='inc_angles')
+    cloud = DepthCloud.concatenate(transformed_clouds, dependent=True)
     return cloud
 
 

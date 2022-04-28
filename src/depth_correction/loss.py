@@ -145,7 +145,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, reduction=Reducti
     assert cloud.eigvals is not None
 
     if mask is None:
-        loss = cloud.eigvals
+        loss = cloud.eigvals[:, 0]
     else:
         assert isinstance(mask, torch.Tensor)
         loss = cloud.eigvals[mask, 0]
@@ -155,7 +155,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, reduction=Reducti
         assert offset.eigvals is not None
         # Offset the loss using trace from the offset cloud.
         if mask is None:
-            loss = loss - offset.eigvals
+            loss = loss - offset.eigvals[:, 0]
         else:
             loss = loss - offset.eigvals[mask, 0]
         # Ensure positive loss.

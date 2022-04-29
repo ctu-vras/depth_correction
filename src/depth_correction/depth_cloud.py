@@ -1,6 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from .nearest_neighbors import ball_angle_to_distance, nearest_neighbors
-from .utils import map_colors, timing
+from .utils import covs, map_colors, timing, trace
 import matplotlib.colors
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
@@ -10,51 +10,8 @@ import torch
 import open3d as o3d  # used for normals estimation and visualization
 
 __all__ = [
-    'covs',
     'DepthCloud',
 ]
-
-
-def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None):
-    """Create covariance matrices from multiple samples."""
-    assert isinstance(x, torch.Tensor)
-    assert obs_axis != var_axis
-    assert weights is None or isinstance(weights, torch.Tensor)
-
-    # Use sum of provided weights or number of observation for normalization.
-    if weights is not None:
-        w = weights.sum(dim=obs_axis, keepdim=True)
-    else:
-        w = x.shape[obs_axis]
-
-    # Center the points if requested.
-    if center:
-        if weights is not None:
-            xm = (weights * x).sum(dim=obs_axis, keepdim=True) / w
-        else:
-            xm = x.mean(dim=obs_axis, keepdim=True)
-        xc = x - xm
-    else:
-        xc = x
-
-    # Construct possibly weighted xx = x * x^T.
-    var_axis_2 = var_axis + 1 if var_axis >= 0 else var_axis - 1
-    xx = xc.unsqueeze(var_axis) * xc.unsqueeze(var_axis_2)
-    if weights is not None:
-        xx = weights.unsqueeze(var_axis) * xx
-
-    # Compute weighted average of x * x^T to get cov.
-    if obs_axis < var_axis and obs_axis < 0:
-        obs_axis -= 1
-    elif obs_axis > var_axis and obs_axis > 0:
-        obs_axis += 1
-    xx = xx.sum(dim=obs_axis)
-    if correction:
-        w = w - 1
-    w = w.clamp(1e-6, None)
-    xx = xx / w
-
-    return xx
 
 
 class DepthCloud(object):
@@ -330,6 +287,20 @@ class DepthCloud(object):
         pts = self.get_points()
         nn = pts[self.neighbors]
         return nn
+
+    def vp_spread(self):
+        assert self.vps is not None
+        assert self.neighbors is not None
+        cov = covs(self.vps[self.neighbors], weights=self.weights, center=True)
+        tr = trace(cov)
+        return tr
+
+    def dir_spread(self):
+        assert self.dirs is not None
+        assert self.neighbors is not None
+        cov = covs(self.dirs[self.neighbors], weights=self.weights, center=True)
+        tr = trace(cov)
+        return tr
 
     def update_cov(self, correction=1, invalid=0.0):
         cov = covs(self.get_neighbor_points(), weights=self.weights)

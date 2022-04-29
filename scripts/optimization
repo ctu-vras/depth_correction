@@ -84,37 +84,44 @@ def angle_depth_cloud(n_pts=10000, plane_vps_dist=1.2, r_nn=0.2, random_vps=Fals
     return dc, [pts1, pts2], [vps1, vps2], dc_offset
 
 
-def depth_cloud_from_mesh(r_nn=0.2, mesh_name='simple_cave_01'):
+def depth_cloud_from_mesh(r_nn=0.2, n_vps=5, mesh_name='simple_cave_01'):
     from pytorch3d.ops import sample_points_from_meshes
     from pytorch3d.io import load_obj
     from pytorch3d.structures import Meshes
 
-    pts, faces, _ = load_obj(os.path.join(os.path.dirname(__file__), '../data/meshes/%s.obj' % mesh_name))
-    mesh = Meshes(verts=[pts], faces=[faces.verts_idx])
+    pts_gt, faces, _ = load_obj(os.path.join(os.path.dirname(__file__), '../data/meshes/%s.obj' % mesh_name))
+    mesh = Meshes(verts=[pts_gt], faces=[faces.verts_idx])
 
-    pts = sample_points_from_meshes(mesh, 10000000).squeeze().numpy()
-    X, Y, Z = pts[:, 0], pts[:, 1], pts[:, 2]
-    pts = pts[np.logical_and(np.logical_and(np.logical_and(X >= -8, X <= 8),
-                                            np.logical_and(Y >= -8, Y <= 8)),
-                                            np.logical_and(Z >= -0.1, Z <= 4))]
-    n_pts = len(pts)
+    pts_gt = sample_points_from_meshes(mesh, 1_000_000).squeeze().numpy()
+    X, Y, Z = pts_gt[:, 0], pts_gt[:, 1], pts_gt[:, 2]
+    size = 20
+    pts_gt = pts_gt[np.logical_and(np.logical_and(np.logical_and(X >= -size/2, X <= size/2),
+                                                  np.logical_and(Y >= -size/2, Y <= size/2)),
+                                                  np.logical_and(Z >= -1.0, Z <= 4))]
+    n_pts = len(pts_gt)
     rospy.loginfo('Number of points: %d' % n_pts)
 
-    vps1 = np.zeros([n_pts // 2, 3]) + np.array([2, 2.5, 3.0])
-    vps2 = np.zeros([n_pts // 2, 3]) + np.array([-2, 2.5, 4.0])
+    pts = []
+    dcs = []
+    vps = []
+    for n in range(n_vps):
+        pts1 = pts_gt[np.random.choice(range(n_pts), n_pts // n_vps)]
 
-    pts1 = pts[np.random.choice(range(n_pts), n_pts // 2)]
-    pts2 = pts[np.random.choice(range(n_pts), n_pts // 2)]
+        vps1 = pts_gt[np.random.choice(range(n_pts))]
+        vps1[2] += np.random.choice(np.linspace(0, 5, 50))
+        vps1 = vps1 + np.zeros_like(pts1)
 
-    dc1 = DepthCloud.from_points(pts1, vps=vps1)
-    dc2 = DepthCloud.from_points(pts2, vps=vps2)
-    dc1.update_all(r=r_nn)
-    dc2.update_all(r=r_nn)
+        dc1 = DepthCloud.from_points(pts1, vps=vps1)
+        dc1.update_all(r=r_nn)
 
-    dc = DepthCloud.concatenate([dc1, dc2], fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=True)
+        pts.append(pts1)
+        vps.append(vps1)
+        dcs.append(dc1)
+
+    dc = DepthCloud.concatenate(dcs, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=True)
     dc_offset = dc.copy()
 
-    return dc, [pts1, pts2], [vps1, vps2], dc_offset
+    return dc, pts, vps, dc_offset
 
 
 def create_environment(name='angle', n_pts=10000, r_nn=0.2, p0_disturb=0.0, p1_disturb=0.0):
@@ -150,7 +157,7 @@ def main():
     # optimizer = torch.optim.Adam(model.parameters(), lr=rospy.get_param('~lr', 0.001))
     optimizer = torch.optim.Adam([model.p0], lr=rospy.get_param('~lr', 0.001))
 
-    dc_init, pts_gt, vps, dc_offset = create_environment(name=rospy.get_param('~env_type', 'angle'),
+    dc_init, pts_gt, vps, dc_offset = create_environment(name=rospy.get_param('~env_type', 'mesh'),
                                                          n_pts=n_pts, r_nn=r_nn,
                                                          p0_disturb=-0.03, p1_disturb=0.0)
 

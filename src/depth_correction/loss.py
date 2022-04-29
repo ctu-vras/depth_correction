@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
-from .utils import timing
+from .utils import timing, trace
 from enum import Enum
 import numpy as np
 from numpy.polynomial import Polynomial
@@ -14,7 +14,6 @@ __all__ = [
     'neighbor_cov',
     'neighbor_fun',
     'reduce',
-    'trace',
     'trace_loss',
 ]
 
@@ -23,11 +22,6 @@ class Reduction(Enum):
     NONE = 'none'
     MEAN = 'mean'
     SUM = 'sum'
-
-
-def trace(x, dim1=-2, dim2=-1):
-    tr = x.diagonal(dim1=dim1, dim2=dim2).sum(dim=-1)
-    return tr
 
 
 def reduce(x, reduction=Reduction.MEAN, weights=None, only_finite=False, skip_nans=False):

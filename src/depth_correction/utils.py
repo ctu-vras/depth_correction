@@ -11,13 +11,12 @@ from timeit import default_timer as timer
 import torch
 import traceback
 
-
 __all__ = [
     'map_colors',
     'timer',
     'timing',
+    'trace',
 ]
-
 
 poses_sources = list(PoseProvider)
 models = list(Model)
@@ -87,6 +86,11 @@ def timing(f):
             print('%s %.6f s' % (f.__name__, t1 - t0))
 
     return timing_wrapper
+
+
+def trace(x, dim1=-2, dim2=-1):
+    tr = x.diagonal(dim1=dim1, dim2=dim2).sum(dim=-1)
+    return tr
 
 
 class Table:

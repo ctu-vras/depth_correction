@@ -12,6 +12,7 @@ import torch
 import traceback
 
 __all__ = [
+    'cov',
     'map_colors',
     'timer',
     'timing',
@@ -86,6 +87,48 @@ def timing(f):
             print('%s %.6f s' % (f.__name__, t1 - t0))
 
     return timing_wrapper
+
+
+def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None):
+    """Create covariance matrices from multiple samples."""
+    assert isinstance(x, torch.Tensor)
+    assert obs_axis != var_axis
+    assert weights is None or isinstance(weights, torch.Tensor)
+
+    # Use sum of provided weights or number of observation for normalization.
+    if weights is not None:
+        w = weights.sum(dim=obs_axis, keepdim=True)
+    else:
+        w = x.shape[obs_axis]
+
+    # Center the points if requested.
+    if center:
+        if weights is not None:
+            xm = (weights * x).sum(dim=obs_axis, keepdim=True) / w
+        else:
+            xm = x.mean(dim=obs_axis, keepdim=True)
+        xc = x - xm
+    else:
+        xc = x
+
+    # Construct possibly weighted xx = x * x^T.
+    var_axis_2 = var_axis + 1 if var_axis >= 0 else var_axis - 1
+    xx = xc.unsqueeze(var_axis) * xc.unsqueeze(var_axis_2)
+    if weights is not None:
+        xx = weights.unsqueeze(var_axis) * xx
+
+    # Compute weighted average of x * x^T to get cov.
+    if obs_axis < var_axis and obs_axis < 0:
+        obs_axis -= 1
+    elif obs_axis > var_axis and obs_axis > 0:
+        obs_axis += 1
+    xx = xx.sum(dim=obs_axis)
+    if correction:
+        w = w - 1
+    w = w.clamp(1e-6, None)
+    xx = xx / w
+
+    return xx
 
 
 def trace(x, dim1=-2, dim2=-1):

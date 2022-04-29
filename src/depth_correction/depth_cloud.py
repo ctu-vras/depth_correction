@@ -307,6 +307,36 @@ class DepthCloud(object):
         tr = trace(cov)
         return tr
 
+    def vp_spread_to_depth(self):
+        assert self.vps is not None
+        assert self.neighbors is not None
+        d = self.depth.squeeze(dim=1)
+        w = self.weights.squeeze(dim=2)
+        w_sum = w.sum(dim=-1)
+        mean_depth = (w * d[self.neighbors]).sum(dim=-1) / w_sum
+        spread = torch.sqrt(self.vp_spread())
+        ret = spread / mean_depth
+        return ret
+
+    def vp_dist_to_depth(self, mode='mean'):
+        assert self.vps is not None
+        assert self.neighbors is not None
+        assert mode in ('max', 'mean')
+        d = self.depth.squeeze(dim=1)
+        w = self.weights.squeeze(dim=2)
+        w_sum = w.sum(dim=-1)
+        mean_depth = (w * d[self.neighbors]).sum(dim=-1) / w_sum
+        vps = self.vps[self.neighbors]
+        mean_vp = (w[..., None] * vps).sum(dim=-2) / w_sum[..., None]
+        if mode == 'mean':
+            vp_dists = torch.linalg.norm(vps - mean_vp[:, None], dim=-1)
+            vp_dist = (w * vp_dists).sum(dim=-1) / w_sum
+        elif mode == 'max':
+            # TODO: Max distance instead of mean.
+            raise NotImplementedError('Max mode not implemented.')
+        d2d = vp_dist / mean_depth
+        return d2d
+
     def update_cov(self, correction=1, invalid=0.0):
         cov = covs(self.get_neighbor_points(), weights=self.weights)
         self.cov = cov

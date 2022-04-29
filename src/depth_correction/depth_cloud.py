@@ -146,12 +146,17 @@ class DepthCloud(object):
         return dc
 
     def __getitem__(self, item):
-        # TODO: Allow slicing neighbors etc. (need squeezing).
         kwargs = {}
-        for f in DepthCloud.sliced_fields:
-            x = getattr(self, f)
-            if x is not None:
-                kwargs[f] = x[item]
+        # Filter fields if item is a non-empty list of strings.
+        if isinstance(item, list) and len(item) > 0 and isinstance(item[0], str):
+            for f in item:
+                kwargs[f] = getattr(self, f)
+        else:
+            # TODO: Allow slicing neighbors etc. (need squeezing).
+            for f in DepthCloud.sliced_fields:
+                x = getattr(self, f)
+                if x is not None:
+                    kwargs[f] = x[item]
         dc = DepthCloud(**kwargs)
         return dc
 

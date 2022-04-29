@@ -25,7 +25,7 @@ def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None
     if weights is not None:
         w = weights.sum(dim=obs_axis, keepdim=True)
     else:
-        w = x.shape[obs_axis]
+        w = torch.as_tensor(x.shape[obs_axis])
 
     # Center the points if requested.
     if center:

@@ -64,10 +64,11 @@ class DepthCloud(object):
     is enough to create a snapshot.
     """
     # Fields kept during slicing cloud[index].
-    sliced_fields = ['vps', 'dirs', 'depth',
-                     'points', 'mean', 'cov', 'eigvals', 'eigvecs',
-                     'normals', 'inc_angles', 'trace',
-                     'loss', 'mask']
+    source_fields = ['vps', 'dirs', 'depth']
+    sliced_fields = (source_fields
+                     + ['points', 'mean', 'cov', 'eigvals', 'eigvecs',
+                        'normals', 'inc_angles', 'trace',
+                        'loss', 'mask'])
     not_sliced_fields = ['neighbors', 'weights', 'distances', 'neighbor_points',
                          'dir_neighbors', 'dir_neighbor_weights', 'dir_distances']
     all_fields = sliced_fields + not_sliced_fields
@@ -475,10 +476,13 @@ class DepthCloud(object):
         return cloud
 
     @staticmethod
-    def concatenate(clouds, dependent=False):
-        # TODO: Concatenate neighbors and distances, shift indices as necessary.
-        # fields = DepthCloud.sliced_fields if dependent else ['vps', 'dirs', 'depth']
-        fields = DepthCloud.all_fields if dependent else ['vps', 'dirs', 'depth']
+    def concatenate(clouds, fields=None, dependent=False):
+        if not fields:
+            if dependent:
+                fields = DepthCloud.all_fields
+            else:
+                fields = DepthCloud.source_fields
+        # TODO: Resize neighbors and related matrices.
         kwargs = {}
         for f in fields:
             # Collect field values from individual clouds.

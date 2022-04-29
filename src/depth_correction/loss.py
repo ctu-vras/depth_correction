@@ -152,8 +152,9 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, reduction=Reducti
             loss = loss - offset.eigvals[:, 0]
         else:
             loss = loss - offset.eigvals[mask, 0]
-        # Ensure positive loss.
-        loss = torch.relu(loss)
+
+    # Ensure positive loss.
+    loss = torch.relu(loss)
 
     if sqrt:
         loss = torch.sqrt(loss)
@@ -204,8 +205,9 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
             loss = loss - trace(offset.cov)
         else:
             loss = loss - trace(offset.cov[mask])
-        # Ensure positive loss.
-        loss = torch.relu(loss)
+
+    # Ensure positive loss.
+    loss = torch.relu(loss)
 
     if sqrt:
         loss = torch.sqrt(loss)

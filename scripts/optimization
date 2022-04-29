@@ -1,0 +1,232 @@
+#! /usr/bin/env python
+
+from __future__ import absolute_import, division, print_function
+
+import matplotlib.pyplot as plt
+import torch
+import numpy as np
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.loss import min_eigval_loss, trace_loss
+from depth_correction.model import ScaledPolynomial, Polynomial
+import rospy
+from sensor_msgs.msg import PointCloud2
+from ros_numpy import msgify
+import tf
+import time
+import os
+
+
+def dc_to_msg(dc, stamp, frame='map'):
+    cloud = DepthCloud.to_structured_array(dc)
+    pc_msg = msgify(PointCloud2, cloud)
+    pc_msg.header.frame_id = frame
+    pc_msg.header.stamp = stamp
+    return pc_msg
+
+
+def add_disturbance(dc, p0=-0.03, p1=0.0):
+    gama = dc.inc_angles
+    dc.depth = dc.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
+    return dc
+
+
+def rotate_pts(p, origin=(0, 0, 0), degrees=0.0):
+    angle = np.deg2rad(degrees)
+    # Rz = np.array([[np.cos(angle), -np.sin(angle), 0],
+    #               [np.sin(angle), np.cos(angle), 0],
+    #               [0, 0, 1]])
+    Ry = np.array([[np.cos(angle), 0, np.sin(angle)],
+                   [0, 1, 0],
+                   [-np.sin(angle), 0, np.cos(angle)]])
+    # Rx = np.array([[1, 0, 0],
+    #                [0, np.cos(angle), -np.sin(angle)],
+    #                [0, np.sin(angle), np.cos(angle)]])
+    o = np.atleast_3d(origin)
+    p = np.atleast_3d(p)
+    return np.squeeze((Ry @ (p.T - o.T) + o.T).T)
+
+
+def angle_depth_cloud(n_pts=10000, plane_vps_dist=1.2, r_nn=0.2, random_vps=False, degrees=-60.0):
+    # create flat point cloud (a wall)
+    pts_gt = np.zeros((n_pts, 3), dtype=np.float64)
+    pts_gt[:, [0, 1]] = np.concatenate([np.random.rand(n_pts // 2, 2) * 5,
+                                        np.random.rand(n_pts // 2, 2) * 5 + np.array([-5, 0])])
+    pts_gt[:, 2] = plane_vps_dist
+
+    if random_vps:
+        vps1 = pts_gt[np.random.choice(range(n_pts // 2))]
+        vps1[2] = 0.0
+        vps1 = vps1 + np.zeros([n_pts // 2, 3])
+
+        vps2 = pts_gt[np.random.choice(range(n_pts // 2, n_pts))]
+        vps2[2] = 0.0
+        vps2 = vps2 + np.zeros([n_pts // 2, 3])
+    else:
+        vps1 = np.zeros([n_pts // 2, 3]) + np.array([2, 2.5, 0])
+        vps2 = np.zeros([n_pts // 2, 3]) + np.array([-2, 2.5, 0])
+
+    if degrees != 0.0:
+        rot_origin, rot_angle = (0, 0, plane_vps_dist), degrees
+        vps2 = rotate_pts(vps2, origin=rot_origin, degrees=rot_angle)
+        pts_gt[n_pts // 2:] = rotate_pts(pts_gt[n_pts // 2:], origin=rot_origin, degrees=rot_angle)
+
+    pts1 = pts_gt[np.random.choice(range(n_pts), n_pts // 2)]
+    pts2 = pts_gt[np.random.choice(range(n_pts), n_pts // 2)]
+
+    dc1 = DepthCloud.from_points(pts1, vps=vps1)
+    dc2 = DepthCloud.from_points(pts2, vps=vps2)
+    dc1.update_all(r=r_nn)
+    dc2.update_all(r=r_nn)
+
+    dc = DepthCloud.concatenate([dc1, dc2], fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=True)
+    return dc, [pts1, pts2], [vps1, vps2]
+
+
+def depth_cloud_from_mesh(n_pts=10000, mesh_name='simple_cave_01'):
+    from pytorch3d.ops import sample_points_from_meshes
+    from pytorch3d.io import load_obj
+    from pytorch3d.structures import Meshes
+
+    pts, faces, _ = load_obj(os.path.join(os.path.dirname(__file__), '../data/meshes/%s.obj' % mesh_name))
+    mesh = Meshes(verts=[pts], faces=[faces.verts_idx])
+
+    pts = sample_points_from_meshes(mesh, n_pts).squeeze().numpy()
+    vps = np.zeros_like(pts)
+    assert pts.shape == (n_pts, 3)
+
+    dc = DepthCloud.from_points(pts=pts, vps=vps)
+    return dc, [pts], [vps]
+
+
+def create_environment(n_pts=10000, r_nn=0.2, p0_disturb=0.0, p1_disturb=0.0):
+    dc, pts, vps = angle_depth_cloud(n_pts=n_pts, r_nn=r_nn, degrees=rospy.get_param('~angle_degrees', 0.0))
+    # dc, pts, vps = depth_cloud_from_mesh(n_pts=n_pts)
+
+    dc_offset = dc.copy()
+    # dc_offset = None
+    dc.update_all(r=r_nn)
+
+    dc = add_disturbance(dc, p0=p0_disturb, p1=p1_disturb)
+    dc.update_all(r=r_nn)
+    dc = dc.detach()
+
+    return dc, pts, vps, dc_offset
+
+
+def main():
+    rospy.init_node('depth_correction', anonymous=True, log_level=rospy.DEBUG)
+    cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2)
+    corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
+    br = tf.TransformBroadcaster()
+
+    device = torch.device(rospy.get_param('~device', 'cpu'))
+    model = ScaledPolynomial() if rospy.get_param('~model', 'ScaledPolynomial') == 'ScaledPolynomial' else Polynomial()
+    model = model.to(device)
+    loss_fun = min_eigval_loss if rospy.get_param('~loss_fun', 'min_eigval_loss') == 'min_eigval_loss' else trace_loss
+    r_nn = rospy.get_param('~r_nn', 0.2)
+    n_pts = rospy.get_param('~n_pts', 10000)
+
+    # optimizer = torch.optim.Adam(model.parameters(), lr=rospy.get_param('~lr', 0.001))
+    optimizer = torch.optim.Adam([model.p0], lr=rospy.get_param('~lr', 0.001))
+
+    dc_init, pts_gt, vps, dc_offset = create_environment(n_pts=n_pts, r_nn=r_nn,
+                                                         p0_disturb=-0.03, p1_disturb=0.0)
+
+    # dc_init.visualize(colors='min_eigval', normals=True)
+
+    plt.figure()
+    losses = []
+    metrics = []
+
+    train_neighbors = dc_init.neighbors, dc_init.weights
+
+    while True:
+        if rospy.is_shutdown():
+            break
+        t0 = time.time()
+
+        # use model to correct the distortion (hopefully)
+        dc = model(dc_init)
+
+        dc.neighbors, dc.weights = train_neighbors
+        dc.update_all(keep_neighbors=True)
+
+        loss, _ = loss_fun(dc, offset=dc_offset)
+
+        # Optimization step
+        if rospy.get_param('~backprop', True):
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            rospy.logdebug('Optimization step took %.3f sec' % (time.time()-t0))
+
+        losses.append(loss.item())
+        rospy.loginfo('%s = %g' % (rospy.get_param('~loss_fun', 'loss'), loss.item()))
+        rospy.logdebug('Model parameters: p0=%f, p1=%f', model.p0.item(), model.p1.item())
+
+        l2_loss = 0.0
+        for i, pts in enumerate(pts_gt):
+            n = pts.shape[0]
+            l2_loss += np.linalg.norm(dc.points.detach()[i*n:(i+1)*n, :] - pts) / n
+        l2_loss /= len(pts_gt)
+        metrics.append(l2_loss)
+
+        # publish point cloud msgs
+        stamp = rospy.Time.now()
+        pc_init_msg = dc_to_msg(dc_init, stamp=stamp, frame='map')
+        pc_msg = dc_to_msg(dc, stamp=stamp, frame='map')
+        cloud_pub.publish(pc_init_msg)
+        corrected_cloud_pub.publish(pc_msg)
+
+        # publish viewpoints
+        for i, vp in enumerate(vps):
+            vp = vp[0]
+            br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), time=stamp, child="vp_%d" % i, parent="map")
+
+        # plot D vs gamma
+        plt.subplot(2, 2, 1)
+        plt.cla()
+        plt.plot(metrics)
+        plt.grid()
+        plt.ylabel('L2 difference from gt')
+        plt.xlabel('time, iters')
+
+        plt.subplot(2, 2, 2)
+        plt.cla()
+        plt.plot(losses)
+        plt.grid()
+        plt.ylabel(rospy.get_param('~loss_fun', 'loss'))
+        plt.xlabel('time, iters')
+
+        plt.subplot(2, 2, 3)
+        plt.cla()
+        plt.plot(pts_gt[0][:, 1], pts_gt[0][:, 2], '.', label='Z gt 1')
+        if len(pts_gt) > 1:
+            plt.plot(pts_gt[1][:, 1], pts_gt[1][:, 2], '.', label='Z gt 2')
+        plt.plot(dc_init.points.detach().squeeze()[:, 1], dc_init.points.detach().squeeze()[:, 2], '.',
+                 label='Z initial', color='r')
+        plt.plot(dc.points.detach().squeeze()[:, 1], dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+        plt.grid()
+        plt.ylabel('Z, [m]')
+        plt.xlabel('Y, [m]')
+        plt.legend()
+
+        plt.subplot(2, 2, 4)
+        plt.cla()
+        plt.plot(pts_gt[0][:, 0], pts_gt[0][:, 2], '.', label='Z gt 1')
+        if len(pts_gt) > 1:
+            plt.plot(pts_gt[1][:, 0], pts_gt[1][:, 2], '.', label='Z gt 2')
+        plt.plot(dc_init.points.detach().squeeze()[:, 0], dc_init.points.detach().squeeze()[:, 2], '.',
+                 label='Z initial', color='r')
+        plt.plot(dc.points.detach().squeeze()[:, 0], dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+        plt.grid()
+        plt.ylabel('Z, [m]')
+        plt.xlabel('X, [m]')
+        plt.legend()
+
+        plt.draw()
+        plt.pause(0.01)
+
+
+if __name__ == '__main__':
+    main()

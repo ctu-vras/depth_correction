@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="rviz" default="true" doc="Whether to run RViz or not"/>
+    <arg name="model" default="ScaledPolynomial" doc="Depth correction model to use"/>
+    <arg name="loss_fun" default="min_eigval_loss" doc="One of ['trace_loss', 'min_eigval_loss']"/>
+    <arg name="backprop" default="true" doc="If to run backward pass or use just the base model"/>
+    <arg name="angle_degrees" default="0.0" doc="Simulated 'angular' environment shape"/>
+
+    <node name="optimization" pkg="depth_correction" type="optimization" output="screen">
+        <rosparam subst_value="true">
+            device: cpu
+            model: $(arg model)
+            loss_fun: $(arg loss_fun)
+            n_pts: 10000
+            r_nn: 0.2
+            lr: 0.001
+            backprop: $(arg backprop)
+            angle_degrees: $(arg angle_degrees)
+        </rosparam>
+    </node>
+
+    <!-- RVIZ -->
+    <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz"
+          args="-d $(dirname)/../config/local_opt.rviz"/>
+</launch>

@@ -44,7 +44,6 @@ slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_*_{loss
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
 
 
-# def map_colors(values, colormap=cm.nipy_spectral, min_value=None, max_value=None):
 def map_colors(values, colormap=cm.gist_rainbow, min_value=None, max_value=None):
     if not isinstance(values, torch.Tensor):
         values = torch.tensor(values)

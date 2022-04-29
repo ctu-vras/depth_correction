@@ -1,16 +1,17 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
 from .depth_cloud import DepthCloud
-from .filters import filter_eigenvalues, filter_shadow_points
+from .filters import filter_eigenvalues, filter_shadow_points, filter_vp_dist_to_depth, within_bounds
 from .model import load_model
 from .preproc import *
-from .utils import timer, timing
 from glob import glob
-import matplotlib
+# import matplotlib
 # matplotlib.use('Agg')
+from matplotlib import cm
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial import Polynomial
+import open3d as o3d
 import torch
 
 
@@ -77,44 +78,66 @@ def plot_depth_bias(ds, cfg: Config):
         model = None
 
     clouds = []
-    # clouds_corr = []
     poses = []
     for cloud, pose in ds:
-        cloud = DepthCloud.from_structured_array(cloud, np.float64)
         cloud = filtered_cloud(cloud, cfg)
+        cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
 
-        tmp = local_feature_cloud(cloud, cfg)
-        print('Max. incidence angle (original): %.3f' % torch.rad2deg(cloud.inc_angles.max()))
-        tmp.visualize(colors='inc_angles')
+        # Shadow filter?
+        if cfg.shadow_angle_bounds:
+            cloud.update_dir_neighbors(angle=cfg.shadow_neighborhood_angle)
+            cloud = filter_shadow_points(cloud, cfg.shadow_angle_bounds, only_mask=False, log=True)
+            # shadow = tmp - cloud
+            # o3d.visualization.draw_geometries([shadow.to_point_cloud(colors='r'),
+            #                                    cloud.to_point_cloud(colors='b')],
+            #                                   window_name='Shadow Points', point_show_normal=False)
 
-        cloud.update_dir_neighbors(angle=np.deg2rad(1.0))
-        cloud = filter_shadow_points(cloud, np.deg2rad([5., 180.]), only_mask=False, log=True)
-        cloud = local_feature_cloud(cloud, cfg)
-        print('Max. incidence angle (shadow filtered): %.3f' % torch.rad2deg(cloud.inc_angles.max()))
-        cloud.visualize(colors='inc_angles')
-
+        cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
         clouds.append(cloud)
         poses.append(torch.as_tensor(pose))
 
-    cloud = global_cloud(clouds, None, poses)
-    # cloud.visualize(colors='inc_angles')
-    # cloud.visualize(colors='z')
-    cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-    # cloud.visualize(colors='min_eigval')
-    # cloud.visualize(colors=torch.sqrt(cloud.eigvals[:, 0]))
+    # offset_cloud = DepthCloud.concatenate(clouds, fields=DepthCloud.source_fields + ['cov', 'eigvals'])
 
-    if cfg.model_state_dict:
+    cloud = global_cloud(clouds, None, poses)
+    cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
+
+    cloud.mask = torch.ones((len(cloud),), dtype=torch.bool)
+    # Enforce minimum direction and viewpoint spread for bias estimation.
+    # cloud.visualize(colors=cloud.dir_spread(), window_name='Direction Spread')
+    cloud.mask &= within_bounds(cloud.dir_spread(), min=0.25, log_variable='dir_spread')
+    # cloud.visualize(colors=cloud.vp_spread(), window_name='Viewpoint Spread')
+    # cloud.mask &= within_bounds(cloud.vp_spread(), min=25.0, log_variable='vp_spread')
+    vals = cloud.vp_spread_to_depth()
+    # print(vals.mean().item(), vals.std().item())
+    # cloud.visualize(colors=vals, window_name='Viewpoint Spread to Depth')
+    cloud.mask &= within_bounds(vals, min=0.5, log_variable='vp_spread_to_depth')
+
+    # Use only planar regions for bias estimation.
+    if cfg.eigenvalue_bounds:
+        cloud.mask = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=True)
+
+    print('%.3f = %i / %i points kept (all filters).'
+          % (cloud.mask.float().mean(), cloud.mask.sum(), cloud.mask.numel()))
+    cloud.visualize(window_name='Point Mask', colors=cloud.mask, colormap=cm.viridis)
+
+    extract = cloud[cloud.mask]
+    extract.update_all(k=cfg.nn_k, r=cfg.nn_r)
+    extract.mask = torch.ones((len(extract),), dtype=torch.bool)
+    extract.mask &= within_bounds(extract.dir_spread(), min=0.25, log_variable='dir_spread')
+    # cloud.mask &= within_bounds(cloud.vp_spread(), min=25.0, log_variable='vp_spread')
+    vals = extract.vp_spread_to_depth()
+    extract.mask &= within_bounds(vals, min=0.5, log_variable='vp_spread_to_depth')
+
+    print('%.3f = %i / %i extracted points kept (all filters).'
+          % (extract.mask.float().mean(), extract.mask.sum(), extract.mask.numel()))
+    extract.visualize(window_name='Extracted Point Mask', colors=extract.mask, colormap=cm.viridis)
+
+    return
+
+    if model is not None:
         cloud_corr = global_cloud(clouds, model, poses)
         cloud_corr.update_all(k=cfg.nn_k, r=cfg.nn_r)
         # cloud.visualize(colors=torch.sqrt(cloud_corr.eigvals[:, 0]))
-
-    # Select planar regions to estimate bias.
-    if cfg.eigenvalue_bounds:
-        mask = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=True)
-        # cloud.mask = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=True)
-        cloud.visualize(colors=mask)
-
-    # return
 
     # Visualize plane distance to incidence angle.
     # TODO: Compare using plane fit for low incidence angle?
@@ -151,17 +174,15 @@ def demo():
     # cfg.dataset = 'asl_laser'
     cfg.dataset = 'semantic_kitti'
     # Load config from file.
-    # cfg_path = None
-    cfg_path = glob('%s/gen/%s_*/ground_truth*ScaledPolynomial*/split_*/best.yaml' % (cfg.pkg_dir, cfg.dataset))[0]
+    cfg_path = None
+    # cfg_path = glob('%s/gen/%s_*/ground_truth*ScaledPolynomial*/split_*/best.yaml' % (cfg.pkg_dir, cfg.dataset))[0]
     if cfg_path:
         print(cfg_path)
         cfg.from_yaml(cfg_path)
     elif cfg.dataset == 'asl_laser':
-        cfg.data_step = 5
         cfg.grid_res = 0.1
         cfg.nn_r = 0.2
     elif cfg.dataset == 'semantic_kitti':
-        cfg.data_step = 10
         cfg.grid_res = 0.2
         cfg.nn_r = 0.4
     else:
@@ -169,17 +190,13 @@ def demo():
 
     if cfg.dataset == 'asl_laser':
         from data.asl_laser import Dataset, dataset_names
+        cfg.data_step = 5
     elif cfg.dataset == 'semantic_kitti':
         from data.semantic_kitti import Dataset, dataset_names
         cfg.min_depth = 3.0
+        cfg.data_step = 5
 
-    # cfg.eigenvalue_bounds = [[0, None, (cfg.nn_r / 8)**2],
-    #                          [1, (cfg.nn_r / 4)**2, None]]
-    # cfg.eigenvalue_bounds = []
-
-    # Print non-default parameters.
-    # for k, v in cfg.non_default().items():
-    #     print('%s: %s' % (k, v))
+    cfg.eigenvalue_bounds = []
 
     for name in dataset_names:
         print(name)

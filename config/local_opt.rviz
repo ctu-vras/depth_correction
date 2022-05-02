@@ -51,6 +51,10 @@ Visualization Manager:
           Value: true
         vp_1:
           Value: true
+        vp_2:
+          Value: true
+        vp_3:
+          Value: true
       Marker Alpha: 1
       Marker Scale: 5
       Name: TF
@@ -62,6 +66,10 @@ Visualization Manager:
           vp_0:
             {}
           vp_1:
+            {}
+          vp_2:
+            {}
+          vp_3:
             {}
       Update Interval: 0
       Value: true
@@ -181,7 +189,7 @@ Visualization Manager:
       Position:
         X: 0
         Y: 20
-        Z: 1.2000000476837158
+        Z: 0
       Roll: 3.1415927410125732
       Target Frame: map
       Yaw: 1.5707963705062866

@@ -12,11 +12,17 @@
             model: $(arg model)
             loss_fun: $(arg loss_fun)
             n_pts: 10000
+            n_vps: 4
             r_nn: 0.2
             lr: 0.001
             backprop: $(arg backprop)
-            angle_degrees: 0.0
+            angle_degrees: 40.0
             env_type: $(arg env_type)
+            env_size: 20
+            p0_disturb: -0.05
+            p1_disturb: 0.0
+            monotonous_model: true
+            visualize_clouds: false
         </rosparam>
     </node>
 

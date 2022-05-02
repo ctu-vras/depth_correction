@@ -294,49 +294,47 @@ class DepthCloud(object):
         nn = pts[self.neighbors]
         return nn
 
-    def vp_spread(self):
+    def vp_dispersion(self):
         assert self.vps is not None
         assert self.neighbors is not None
         cov = covs(self.vps[self.neighbors], weights=self.weights, center=True)
-        tr = trace(cov)
+        tr = trace(cov)  # total variation
         return tr
 
-    def dir_spread(self):
+    def dir_dispersion(self):
         assert self.dirs is not None
         assert self.neighbors is not None
         cov = covs(self.dirs[self.neighbors], weights=self.weights, center=True)
-        tr = trace(cov)
+        tr = trace(cov)  # total variation
         return tr
 
-    def vp_spread_to_depth(self):
-        assert self.vps is not None
+    def mean_depth(self):
         assert self.neighbors is not None
         d = self.depth.squeeze(dim=1)
         w = self.weights.squeeze(dim=2)
         w_sum = w.sum(dim=-1)
-        mean_depth = (w * d[self.neighbors]).sum(dim=-1) / w_sum
-        spread = torch.sqrt(self.vp_spread())
-        ret = spread / mean_depth
+        ret = (w * d[self.neighbors]).sum(dim=-1) / w_sum
+        return ret
+
+    def mean_vp_dist(self):
+        assert self.vps is not None
+        assert self.neighbors is not None
+        w = self.weights.squeeze(dim=2)
+        w_sum = w.sum(dim=-1)
+        vps = self.vps[self.neighbors]
+        mean_vp = (w[..., None] * vps).sum(dim=-2) / w_sum[..., None]
+        vp_dists = torch.linalg.norm(vps - mean_vp[:, None], dim=-1)
+        vp_dist = (w * vp_dists).sum(dim=-1) / w_sum
+        return vp_dist
+        # TODO: Max distance instead of mean.
+
+    def vp_dispersion_to_depth2(self):
+        ret = self.vp_dispersion() / self.mean_depth()**2
         return ret
 
     def vp_dist_to_depth(self, mode='mean'):
-        assert self.vps is not None
-        assert self.neighbors is not None
-        assert mode in ('max', 'mean')
-        d = self.depth.squeeze(dim=1)
-        w = self.weights.squeeze(dim=2)
-        w_sum = w.sum(dim=-1)
-        mean_depth = (w * d[self.neighbors]).sum(dim=-1) / w_sum
-        vps = self.vps[self.neighbors]
-        mean_vp = (w[..., None] * vps).sum(dim=-2) / w_sum[..., None]
-        if mode == 'mean':
-            vp_dists = torch.linalg.norm(vps - mean_vp[:, None], dim=-1)
-            vp_dist = (w * vp_dists).sum(dim=-1) / w_sum
-        elif mode == 'max':
-            # TODO: Max distance instead of mean.
-            raise NotImplementedError('Max mode not implemented.')
-        d2d = vp_dist / mean_depth
-        return d2d
+        ret = self.mean_vp_dist() / self.mean_depth()
+        return ret
 
     def update_cov(self, correction=1, invalid=0.0):
         cov = covs(self.get_neighbor_points(), weights=self.weights)

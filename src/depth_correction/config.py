@@ -200,8 +200,18 @@ class Config(Configurable):
         self.nn_r = 0.2
 
         # Depth correction
-        self.eigenvalue_bounds = [[0,               None, (self.nn_r / 8)**2],
+        self.shadow_neighborhood_angle = 0.017453  # 1 deg
+        # self.shadow_angle_bounds = [np.deg2rad(5.), None]
+        self.shadow_angle_bounds = None
+        self.dir_dispersion_bounds = [0.09, None]
+        self.vp_dispersion_bounds = [0.36, None]
+        # self.vp_dispersion_to_depth2_bounds = [0.2, None]
+        self.vp_dispersion_to_depth2_bounds = None
+        # self.vp_dist_to_depth_bounds = [0.5, None]
+        self.vp_dist_to_depth_bounds = None
+        self.eigenvalue_bounds = [[0,               None, (self.nn_r / 4)**2],
                                   [1, (self.nn_r / 4)**2,               None]]
+        # self.eigenvalue_bounds = []
 
         # Data
         self.dataset = 'asl_laser'

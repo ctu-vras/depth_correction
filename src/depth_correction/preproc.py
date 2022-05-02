@@ -60,6 +60,7 @@ def global_cloud(clouds: (list, tuple),
     """
     transformed_clouds = []
     for i, cloud in enumerate(clouds):
+        # Model updates the cloud using its mask.
         if model is not None:
             cloud = model(cloud)
         cloud = cloud.transform(poses[i])

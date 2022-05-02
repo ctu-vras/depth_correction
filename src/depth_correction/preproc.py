@@ -2,7 +2,7 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
 from .depth_cloud import DepthCloud
-from .filters import filter_depth, filter_eigenvalues, filter_grid, filter_shadow_points
+from .filters import filter_depth, filter_eigenvalues, filter_grid, filter_shadow_points, within_bounds
 from .model import *
 import numpy as np
 import torch
@@ -10,6 +10,7 @@ import torch
 __all__ = [
     'filtered_cloud',
     'global_cloud',
+    'global_cloud_mask',
     'global_clouds',
     'local_feature_cloud',
 ]
@@ -65,6 +66,31 @@ def global_cloud(clouds: (list, tuple),
         transformed_clouds.append(cloud)
     cloud = DepthCloud.concatenate(transformed_clouds, dependent=True)
     return cloud
+
+
+def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
+
+    # Construct point mask from global cloud filters.
+    if mask is None:
+        mask = torch.ones((len(cloud),), dtype=torch.bool)
+    else:
+        print('%.3f = %i / %i points kept (previous filters).'
+              % (mask.double().mean(), mask.sum(), mask.numel()))
+
+    # Enforce bound on eigenvalues (done for local clouds).
+    # if cfg.eigenvalue_bounds:
+    #     mask &= filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+    # Enforce minimum direction and viewpoint spread for bias estimation.
+    if cfg.dir_dispersion_bounds:
+        # cloud.visualize(colors=cloud.dir_dispersion(), window_name='Direction dispersion')
+        mask &= within_bounds(cloud.dir_dispersion(), bounds=cfg.dir_dispersion_bounds, log_variable='dir dispersion')
+    if cfg.vp_dispersion_bounds:
+        # cloud.visualize(colors=cloud.vp_dispersion(), window_name='Viewpoint dispersion')
+        mask &= within_bounds(cloud.vp_dispersion(), bounds=cfg.vp_dispersion_bounds, log_variable='vp dispersion')
+    if cfg.vp_dispersion_to_depth2_bounds:
+        mask &= within_bounds(cloud.vp_dispersion_to_depth2(), bounds=cfg.vp_dispersion_to_depth2_bounds,
+                              log_variable='vp dispersion to depth2')
+    return mask
 
 
 def global_clouds(clouds, model, poses):

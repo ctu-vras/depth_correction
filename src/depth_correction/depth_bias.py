@@ -1,7 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
 from .depth_cloud import DepthCloud
-from .filters import filter_eigenvalues, filter_shadow_points, filter_vp_dist_to_depth, within_bounds
 from .model import load_model
 from .preproc import *
 from glob import glob
@@ -70,7 +69,6 @@ def plot_fit(x, y, y_corr=None, x_label='x', y_label='y', x_lims=None, y_lims=No
 
 def plot_depth_bias(ds, cfg: Config):
 
-    print()
     print(ds.path)
     if cfg.model_state_dict:
         model = load_model(cfg=cfg, eval_mode=True)
@@ -79,20 +77,9 @@ def plot_depth_bias(ds, cfg: Config):
 
     clouds = []
     poses = []
-    for cloud, pose in ds:
+    for cloud, pose in ds[::cfg.data_step]:
         cloud = filtered_cloud(cloud, cfg)
-        cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
-
-        # Shadow filter?
-        if cfg.shadow_angle_bounds:
-            cloud.update_dir_neighbors(angle=cfg.shadow_neighborhood_angle)
-            cloud = filter_shadow_points(cloud, cfg.shadow_angle_bounds, only_mask=False, log=True)
-            # shadow = tmp - cloud
-            # o3d.visualization.draw_geometries([shadow.to_point_cloud(colors='r'),
-            #                                    cloud.to_point_cloud(colors='b')],
-            #                                   window_name='Shadow Points', point_show_normal=False)
-
-        cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
+        cloud = local_feature_cloud(cloud, cfg)
         clouds.append(cloud)
         poses.append(torch.as_tensor(pose))
 
@@ -100,37 +87,17 @@ def plot_depth_bias(ds, cfg: Config):
 
     cloud = global_cloud(clouds, None, poses)
     cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-
-    cloud.mask = torch.ones((len(cloud),), dtype=torch.bool)
-    # Enforce minimum direction and viewpoint spread for bias estimation.
-    # cloud.visualize(colors=cloud.dir_spread(), window_name='Direction Spread')
-    cloud.mask &= within_bounds(cloud.dir_spread(), min=0.25, log_variable='dir_spread')
-    # cloud.visualize(colors=cloud.vp_spread(), window_name='Viewpoint Spread')
-    # cloud.mask &= within_bounds(cloud.vp_spread(), min=25.0, log_variable='vp_spread')
-    vals = cloud.vp_spread_to_depth()
-    # print(vals.mean().item(), vals.std().item())
-    # cloud.visualize(colors=vals, window_name='Viewpoint Spread to Depth')
-    cloud.mask &= within_bounds(vals, min=0.5, log_variable='vp_spread_to_depth')
-
-    # Use only planar regions for bias estimation.
-    if cfg.eigenvalue_bounds:
-        cloud.mask = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=True)
-
+    cloud.mask = global_cloud_mask(cloud, cloud.mask, cfg)
     print('%.3f = %i / %i points kept (all filters).'
           % (cloud.mask.float().mean(), cloud.mask.sum(), cloud.mask.numel()))
     cloud.visualize(window_name='Point Mask', colors=cloud.mask, colormap=cm.viridis)
 
-    extract = cloud[cloud.mask]
-    extract.update_all(k=cfg.nn_k, r=cfg.nn_r)
-    extract.mask = torch.ones((len(extract),), dtype=torch.bool)
-    extract.mask &= within_bounds(extract.dir_spread(), min=0.25, log_variable='dir_spread')
-    # cloud.mask &= within_bounds(cloud.vp_spread(), min=25.0, log_variable='vp_spread')
-    vals = extract.vp_spread_to_depth()
-    extract.mask &= within_bounds(vals, min=0.5, log_variable='vp_spread_to_depth')
-
-    print('%.3f = %i / %i extracted points kept (all filters).'
-          % (extract.mask.float().mean(), extract.mask.sum(), extract.mask.numel()))
-    extract.visualize(window_name='Extracted Point Mask', colors=extract.mask, colormap=cm.viridis)
+    # extracted = cloud[cloud.mask]
+    # extracted.update_all(k=cfg.nn_k, r=cfg.nn_r)
+    # extracted.mask = global_cloud_mask(extracted, extracted.mask, cfg)
+    # print('%.3f = %i / %i extracted points kept (all filters).'
+    #       % (extracted.mask.float().mean(), extracted.mask.sum(), extracted.mask.numel()))
+    # extracted.visualize(window_name='Extracted Point Mask', colors=extracted.mask, colormap=cm.viridis)
 
     return
 
@@ -190,18 +157,16 @@ def demo():
 
     if cfg.dataset == 'asl_laser':
         from data.asl_laser import Dataset, dataset_names
-        cfg.data_step = 5
     elif cfg.dataset == 'semantic_kitti':
         from data.semantic_kitti import Dataset, dataset_names
         cfg.min_depth = 3.0
-        cfg.data_step = 5
 
-    cfg.eigenvalue_bounds = []
+    # cfg.eigenvalue_bounds = []
 
     for name in dataset_names:
+        print()
         print(name)
         ds = Dataset(name)
-        ds = ds[::cfg.data_step]
         plot_depth_bias(ds, cfg)
 
 

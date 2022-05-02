@@ -488,6 +488,8 @@ class DepthCloud(object):
                 fields = DepthCloud.all_fields
             else:
                 fields = DepthCloud.source_fields
+        else:
+            assert not dependent
         # TODO: Resize neighbors and related matrices.
         kwargs = {}
         for f in fields:

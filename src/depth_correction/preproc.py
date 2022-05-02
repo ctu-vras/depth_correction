@@ -2,7 +2,7 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
 from .depth_cloud import DepthCloud
-from .filters import filter_depth, filter_eigenvalues, filter_grid
+from .filters import filter_depth, filter_eigenvalues, filter_grid, filter_shadow_points
 from .model import *
 import numpy as np
 import torch
@@ -30,10 +30,20 @@ def local_feature_cloud(cloud, cfg: Config):
             cloud = DepthCloud.from_points(cloud, dtype=cfg.numpy_float_type())
     assert isinstance(cloud, DepthCloud)
     cloud = cloud.to(device=cfg.device)
+
+    # Remove shadow points.
+    if cfg.shadow_angle_bounds:
+        cloud.update_dir_neighbors(angle=cfg.shadow_neighborhood_angle)
+        cloud = filter_shadow_points(cloud, cfg.shadow_angle_bounds, log=cfg.log_filters)
+
     # Find/update neighbors and estimate all features.
     cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
+
     # Select planar regions to correct in prediction phase.
-    cloud.mask = filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+    if cfg.eigenvalue_bounds:
+        if cloud.mask is None:
+            cloud.mask = torch.ones((len(cloud),), dtype=torch.bool)
+        cloud.mask = cloud.mask & filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
     return cloud
 
 

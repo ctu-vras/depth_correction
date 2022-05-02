@@ -2,10 +2,9 @@ from __future__ import absolute_import, division, print_function
 from argparse import ArgumentParser
 from copy import deepcopy
 from datetime import datetime
-# from enum import Enum
-import numpy  # needed in eval
+import numpy as np
 import os
-import torch  # needed in eval
+import torch
 import yaml
 
 __all__ = [
@@ -264,10 +263,10 @@ class Config(Configurable):
         self.from_dict(kwargs)
 
     def numpy_float_type(self):
-        return eval('numpy.%s' % self.float_type)
+        return getattr(np, self.float_type)
 
     def torch_float_type(self):
-        return eval('torch.%s' % self.float_type)
+        return getattr(torch, self.float_type)
 
     def sanitize(self):
         if isinstance(self.eigenvalue_bounds, str):

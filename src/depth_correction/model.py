@@ -56,11 +56,11 @@ def load_model(class_name: str=None,
 
 
 class BaseModel(torch.nn.Module):
+
     def __init__(self, device=torch.device('cpu')):
         super(BaseModel, self).__init__()
         self.device = device
 
-    # @timing
     def forward(self, dc: DepthCloud) -> DepthCloud:
         dc = self.correct_depth(dc, dc.mask)
         return dc

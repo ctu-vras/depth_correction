@@ -1,6 +1,5 @@
 from __future__ import absolute_import, division, print_function
 from .depth_cloud import DepthCloud
-from .utils import timing
 import numpy as np
 from numpy.lib.recfunctions import structured_to_unstructured
 import torch

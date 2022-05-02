@@ -71,12 +71,12 @@ class DepthCloud(object):
         self.points = points
 
         # Nearest neighbor graph
-        self.neighbors = None
+        self.neighbors = neighbors
         # Expanded nearest neighbor weights (some may be invalid)
-        self.weights = None
-        self.distances = None
+        self.weights = weights
+        self.distances = distances
         # Expanded neighbor points
-        self.neighbor_points = None
+        self.neighbor_points = neighbor_points
 
         # Neighborhood features
         self.mean = mean

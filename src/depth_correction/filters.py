@@ -68,13 +68,17 @@ def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=
     return filtered
 
 
-def within_bounds(x, min=None, max=None, log_variable=None):
+def within_bounds(x, min=None, max=None, bounds=None, log_variable=None):
     """Mask of x being within bounds  min <= x <= max."""
     if not isinstance(x, torch.Tensor):
         x = torch.tensor(x)
     assert isinstance(x, torch.Tensor)
 
     keep = torch.ones((x.numel(),), dtype=torch.bool, device=x.device)
+
+    if bounds:
+        assert min is None and max is None
+        min, max = bounds
 
     if min is not None and min > -float('inf'):
         if not isinstance(min, torch.Tensor):

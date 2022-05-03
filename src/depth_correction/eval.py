@@ -2,10 +2,10 @@ from __future__ import absolute_import, division, print_function
 from .config import Config, loss_eval_csv, PoseCorrection, slam_eval_bag, slam_eval_csv, slam_poses_csv
 from .filters import filter_eigenvalues
 from .io import append
-from .loss import min_eigval_loss, trace_loss
-from .model import *
-from .preproc import *
-from .ros import *
+from .loss import loss_by_name
+from .model import load_model
+from .preproc import filtered_cloud, local_feature_cloud, global_cloud
+from .ros import publish_data
 from argparse import ArgumentParser
 import numpy as np
 import os
@@ -35,7 +35,7 @@ def eval_loss(cfg: Config):
     if cfg.pose_correction != PoseCorrection.none:
         print('Pose deltas not used.')
 
-    loss_fun = eval(cfg.loss)
+    loss_fun = loss_by_name(cfg.loss)
     assert callable(loss_fun)
 
     # TODO: Process individual sequences separately.
@@ -127,8 +127,9 @@ def eval_slam(cfg: Config):
         else:
             cli_args.append('depth_correction:=false')
 
-        keys_from_cfg = ['min_depth', 'max_depth', 'grid_res', 'nn_k', 'nn_r', 'eigenvalue_bounds', 'model_class',
-                         'model_state_dict', 'slam', 'slam_eval_csv', 'slam_poses_csv', 'rviz']
+        keys_from_cfg = ['min_depth', 'max_depth', 'grid_res',
+                         'nn_k', 'nn_r', 'shadow_neighborhood_angle', 'shadow_angle_bounds', 'eigenvalue_bounds',
+                         'model_class', 'model_state_dict', 'slam', 'slam_eval_csv', 'slam_poses_csv', 'rviz']
         cfg_args = cfg.to_roslaunch_args(keys=keys_from_cfg)
         cli_args += cfg_args
 
@@ -163,7 +164,7 @@ def eval_slam_all(cfg: Config):
             eval_cfg.val_poses_path = []
             eval_cfg.test_poses_path = []
             eval_cfg.slam = slam
-            # eval_cfg.slam_eval_bag = slam_eval_csv(cfg.log_dir, slam)
+            # eval_cfg.slam_eval_bag = slam_eval_bag(cfg.log_dir, slam)
             eval_cfg.slam_eval_bag = None  # Don't record for now.
             eval_cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam, suffix)
             if len(names) == 1:

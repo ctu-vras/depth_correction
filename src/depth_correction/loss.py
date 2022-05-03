@@ -10,6 +10,7 @@ import torch
 
 __all__ = [
     'batch_loss',
+    'loss_by_name',
     'min_eigval_loss',
     'neighbor_cov',
     'neighbor_fun',
@@ -220,6 +221,11 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
 
     loss = reduce(loss, reduction=reduction)
     return loss, cloud
+
+
+def loss_by_name(name):
+    assert name in ('min_eigval_loss', 'trace_loss')
+    return globals()[name]
 
 
 def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):

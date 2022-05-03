@@ -1,8 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
-from .filters import filter_eigenvalues
-from .loss import min_eigval_loss, trace_loss
-from .model import *
+from .loss import loss_by_name
+from .model import load_model, model_by_name
 from .preproc import *
 from .ros import *
 from .transform import *
@@ -32,10 +31,7 @@ def train(cfg: Config):
         from data.asl_laser import Dataset
     elif cfg.dataset == 'semantic_kitti':
         from data.semantic_kitti import Dataset
-    assert cfg.loss in ('min_eigval_loss', 'trace_loss')
-    # if cfg.loss == 'min_eigval_loss':
-    #     loss = min_eigval_loss
-    loss_fun = eval(cfg.loss)
+    loss_fun = loss_by_name(cfg.loss)
     print(cfg.loss, loss_fun.__name__)
     print(cfg.loss_kwargs)
 
@@ -181,8 +177,7 @@ def train(cfg: Config):
             if train_neighbors[i] is None:
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
                 train_neighbors[i] = cloud.neighbors, cloud.weights
-                train_masks[i] = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True,
-                                                    log=cfg.log_filters)
+                train_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
                 print('Training on %.3f = %i / %i points.'
                       % (train_masks[i].float().mean().item(),
                          train_masks[i].sum().item(), train_masks[i].numel()))
@@ -219,7 +214,7 @@ def train(cfg: Config):
             if val_neighbors[i] is None:
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
                 val_neighbors[i] = cloud.neighbors, cloud.weights
-                val_masks[i] = filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+                val_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
                 print('Validating on %.3f = %i / %i points.'
                       % (val_masks[i].float().mean().item(),
                          val_masks[i].sum().item(), val_masks[i].numel()))

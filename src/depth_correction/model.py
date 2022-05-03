@@ -9,6 +9,7 @@ __all__ = [
     'InvCos',
     'Linear',
     'load_model',
+    'model_by_name',
     'Polynomial',
     'ScaledPolynomial',
     'ScaledInvCos',
@@ -38,7 +39,7 @@ def load_model(class_name: str=None,
     if isinstance(device, str):
         device = torch.device(device)
 
-    Class = eval(class_name)
+    Class = model_by_name(class_name)
     model = Class()
     assert isinstance(model, BaseModel)
 
@@ -226,3 +227,8 @@ class ScaledInvCos(BaseModel):
 
     def __str__(self):
         return 'ScaledInvCos(%.6g)' % (self.p0.item(),)
+
+
+def model_by_name(name):
+    assert name in ('BaseModel', 'InvCos', 'Linear', 'Polynomial', 'ScaledInvCos', 'ScaledPolynomial')
+    return globals()[name]

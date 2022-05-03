@@ -88,8 +88,6 @@ class Configurable(object):
         return remainder
 
     def from_rosparam(self, prefix='~'):
-        print()
-        print('Configuration read from ROS parameters:')
         import rospy
         for k in self:
             name = prefix + k
@@ -97,8 +95,7 @@ class Configurable(object):
                 self[k] = rospy.get_param(name, self[k])
                 if isinstance(self[k], str):
                     self[k] = yaml.safe_load(self[k])
-                print('%s: %s (%s)' % (k, self[k], type(self[k]).__name__))
-        print()
+                # print('%s: %s (%s)' % (k, self[k], type(self[k]).__name__))
 
     def to_dict(self):
         return vars(self)

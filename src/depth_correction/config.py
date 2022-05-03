@@ -11,6 +11,7 @@ import yaml
 __all__ = [
     'Config',
     'fix_bounds',
+    'nonempty',
     'PoseCorrection',
     'PoseProvider',
     'SLAM',
@@ -21,6 +22,10 @@ __all__ = [
 def fix_bounds(bounds):
     bounds = [float(x) if x is not None and np.isfinite(x) else float('nan') for x in bounds]
     return bounds
+
+
+def nonempty(iterable):
+    return filter(bool, iterable)
 
 
 # https://stackoverflow.com/a/10814662
@@ -38,8 +43,11 @@ class Configurable(object):
 
     DEFAULT = object()
 
-    def __getitem__(self, name):
-        return getattr(self, name)
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
 
     def __iter__(self):
         return iter(self.to_dict().keys())
@@ -48,7 +56,7 @@ class Configurable(object):
         old = self.to_dict()
         for k, v in d.items():
             if k in old:
-                setattr(self, k, v)
+                self[k] = v
 
     def from_yaml(self, path):
         if isinstance(path, str):
@@ -90,8 +98,8 @@ class Configurable(object):
 
     def diff(self, cfg):
         d = {}
-        for k in cfg:
-            if cfg[k] != self[k]:
+        for k in self:
+            if self[k] != cfg[k]:
                 d[k] = self[k]
         return d
 
@@ -316,6 +324,12 @@ class Config(Configurable):
         desc = 'g%.2f' % self.grid_res
         return desc
 
+    def get_shadow_filter_desc(self):
+        desc = ''
+        if self.shadow_angle_bounds:
+            desc = 's%.3g_%.3g-%.3g' % tuple([self.shadow_neighborhood_angle] + self.shadow_angle_bounds)
+        return desc
+
     def get_nn_desc(self):
         desc = ''
         if self.nn_k:
@@ -338,6 +352,24 @@ class Config(Configurable):
             desc = 'none'
         return desc
 
+    def get_dir_dispersion_desc(self):
+        desc = ''
+        if self.dir_dispersion_bounds:
+            desc = 'dd_%.3g-%.3g' % tuple(fix_bounds(self.dir_dispersion_bounds))
+        return desc
+
+    def get_vp_dispersion_desc(self):
+        desc = ''
+        if self.vp_dispersion_bounds:
+            desc = 'vpd_%.3g-%.3g' % tuple(fix_bounds(self.vp_dispersion_bounds))
+        return desc
+
+    def get_vp_dispersion_to_depth2_desc(self):
+        desc = ''
+        if self.vp_dispersion_to_depth2_bounds:
+            desc = 'vpdd_%.3g-%.3g' % tuple(fix_bounds(self.vp_dispersion_to_depth2_bounds))
+        return desc
+
     def get_loss_desc(self):
         desc = self.loss
         loss_kwargs = '_'.join('%s_%s' % (k, v) for k, v in self.loss_kwargs.items())
@@ -347,7 +379,11 @@ class Config(Configurable):
 
     def get_log_dir(self):
         self.sanitize()
-        name = '_'.join([self.dataset, self.get_depth_filter_desc(), self.get_grid_filter_desc()])
+        parts = [self.dataset,
+                 self.get_depth_filter_desc(),
+                 self.get_grid_filter_desc(),
+                 self.get_shadow_filter_desc()]
+        name = '_'.join(nonempty(parts))
         dir = os.path.join(self.pkg_dir, 'gen', name)
         return dir
 

@@ -177,8 +177,7 @@ def train(cfg: Config):
             if train_neighbors[i] is None:
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
                 train_neighbors[i] = cloud.neighbors, cloud.weights
-                train_masks[i] = filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True,
-                                                    log=cfg.log_filters)
+                train_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
                 print('Training on %.3f = %i / %i points.'
                       % (train_masks[i].float().mean().item(),
                          train_masks[i].sum().item(), train_masks[i].numel()))
@@ -215,7 +214,7 @@ def train(cfg: Config):
             if val_neighbors[i] is None:
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
                 val_neighbors[i] = cloud.neighbors, cloud.weights
-                val_masks[i] = filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+                val_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
                 print('Validating on %.3f = %i / %i points.'
                       % (val_masks[i].float().mean().item(),
                          val_masks[i].sum().item(), val_masks[i].numel()))

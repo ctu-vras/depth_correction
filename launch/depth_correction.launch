@@ -4,6 +4,8 @@
     <arg name="output" default="corrected_cloud" doc="Output corrected cloud topic."/>
     <arg name="nn_k" default="" doc="Nearest neighbor count."/>
     <arg name="nn_r" default="0.2" doc="Nearest neighbor radius."/>
+    <arg name="shadow_neighborhood_angle" default="0.017453" doc="Shadow neighborhood angle."/>
+    <arg name="shadow_angle_bounds" default="[0.087266, 3.141592]" doc="Shadow angle bounds for neighbors."/>
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"
          doc="Eigenvalue bounds for correcting depth."/>
     <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
@@ -18,10 +20,12 @@
                 state_dict: '$(arg model_state_dict)'
             device: '$(arg device)'
             float_type: float64
-            max_age: 1.0
+            max_age: 2.0
             publish_filtered: false
             nn_k: '$(arg nn_k)'
             nn_r: '$(arg nn_r)'
+            shadow_neighborhood_angle: $(arg shadow_neighborhood_angle)
+            shadow_angle_bounds: $(arg shadow_angle_bounds)
             eigenvalue_bounds: $(arg eigenvalue_bounds)
         </rosparam>
         <remap from="input" to="$(arg input)"/>

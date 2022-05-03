@@ -1,68 +1,32 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from depth_correction.depth_cloud import DepthCloud
-from depth_correction.filters import filter_depth, filter_eigenvalue, filter_grid
+from depth_correction.config import Config
 from depth_correction.model import BaseModel, load_model
+from depth_correction.preproc import local_feature_cloud
 from depth_correction.utils import timing
-import numpy as np
 from ros_numpy import msgify, numpify
 import rospy
 from sensor_msgs.msg import PointCloud2
 import torch
 from timeit import default_timer as timer
-import yaml
 
 
 class DepthCorrection(object):
     def __init__(self):
-        self.device = torch.device(rospy.get_param('~device', 'cpu'))
-        self.float_type = rospy.get_param('~float_type', None)
-        if self.float_type == 'float32':
-            # self.float_type = torch.float32
-            self.float_type = np.float32
-        elif self.float_type == 'float64':
-            # self.float_type = torch.float64
-            self.float_type = np.float64
-        if self.float_type:
-            rospy.loginfo('Ensure floating-point type: %s', self.float_type)
-
-        self.model = load_model(rospy.get_param('~model/class'),
-                                rospy.get_param('~model/state_dict', None),
-                                self.device)
-
+        self.cfg = Config()
+        self.cfg.from_rosparam()
         self.max_age = rospy.get_param('~max_age', 1.0)
-        self.nn_k = rospy.get_param('~nn_k', None)
-        self.nn_k = int(self.nn_k) if self.nn_k else None
-        self.nn_r = rospy.get_param('~nn_r', 0.15)
-        self.nn_r = float(self.nn_r) if self.nn_r else None
 
-        # Point-wise and grid-based filtering.
-        self.min_depth = rospy.get_param('~min_depth', None)
-        self.max_depth = rospy.get_param('~max_depth', None)
-        self.grid_res = rospy.get_param('~grid_res', None)
-        publish_filtered = self.min_depth or self.max_depth or self.grid_res
+        self.model = load_model(cfg=self.cfg)
+
+        publish_filtered = any([self.cfg.min_depth, self.cfg.max_depth, self.cfg.grid_res])
         self.publish_filtered = rospy.get_param('~publish_filtered', publish_filtered)
-
-        # Eigenvalue bounds as [[eigenvalue number, mininum, maximum], [...]]
-        self.eigenvalue_bounds = rospy.get_param('~eigenvalue_bounds', [])
-        if not self.eigenvalue_bounds:
-            self.eigenvalue_bounds = []
-        if isinstance(self.eigenvalue_bounds, str):
-            rospy.logwarn('Converting eigenvalue bounds from string to dict.')
-            self.eigenvalue_bounds = yaml.safe_load(self.eigenvalue_bounds)
-        for bounds in self.eigenvalue_bounds:
-            assert len(bounds) == 3
-            for i in (1, 2):
-                if not (isinstance(bounds[i], (float, int)) and -float('inf') < bounds[i] < float('inf')):
-                    bounds[i] = None
-        rospy.logwarn('Eigenvalue bounds: %s', self.eigenvalue_bounds)
 
         if self.publish_filtered:
             self.filtered_pub = rospy.Publisher('filtered_cloud', PointCloud2, queue_size=2)
         self.corrected_pub = rospy.Publisher('output', PointCloud2, queue_size=2)
         self.cloud_sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
 
-    @timing
     def correct_depth(self, input_msg):
         assert isinstance(input_msg, PointCloud2)
         input_cloud = numpify(input_msg)
@@ -73,12 +37,8 @@ class DepthCorrection(object):
         rospy.logdebug("Received point cloud for depth correction")
         t = timer()
         with torch.no_grad():
-            dc = DepthCloud.from_structured_array(input_cloud, dtype=self.float_type)
-            dc.to(device=self.device)
-            if self.min_depth or self.max_depth:
-                dc = filter_depth(dc, min=self.min_depth, max=self.max_depth, log=True)
-            if self.grid_res:
-                dc = filter_grid(dc, self.grid_res, keep='last', log=True)
+            # Assume that depth and grid filters are run earlier.
+            dc = local_feature_cloud(input_cloud, self.cfg)
 
             if self.publish_filtered and self.filtered_pub.get_num_connections() > 0:
                 filtered_cloud = dc.to_structured_array()
@@ -86,13 +46,7 @@ class DepthCorrection(object):
                 filtered_msg.header = input_msg.header
                 self.filtered_pub.publish(filtered_msg)
 
-            dc.update_all(k=self.nn_k, r=self.nn_r)
-            # Select points to correct with the mask.
-            mask = None
-            for eig, min, max in self.eigenvalue_bounds:
-                eig_mask = filter_eigenvalue(dc, eig, min=min, max=max, only_mask=True, log=True)
-                mask = eig_mask if mask is None else (mask & eig_mask)
-            dc = self.model.correct_depth(dc, mask)
+            dc = self.model(dc)
             dc.update_points()
 
         rospy.logdebug("Processed cloud in %.3f sec" % (timer() - t))
@@ -102,7 +56,6 @@ class DepthCorrection(object):
         output_msg.header = input_msg.header
         return output_msg
 
-    # @timing
     def process_cloud(self, input_msg):
         assert isinstance(input_msg, PointCloud2)
 
@@ -111,12 +64,7 @@ class DepthCorrection(object):
             rospy.logwarn('Skipping message %.3f s > %.3f s old.', age, self.max_age)
             return
 
-        # Make a shortcut for pass-through model.
-        if type(self.model) is BaseModel:
-            rospy.loginfo('Publishing input cloud for pass-through model.')
-            output_msg = input_msg
-        else:
-            output_msg = self.correct_depth(input_msg)
+        output_msg = self.correct_depth(input_msg)
         self.corrected_pub.publish(output_msg)
 
 

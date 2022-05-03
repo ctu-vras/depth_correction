@@ -255,6 +255,13 @@ def dataset_to_cloud(ds, min_depth=None, max_depth=None, grid_res=None, k=None, 
     return cloud
 
 
+def l2_loss(dc1, dc2):
+    assert dc1.points is not None
+    assert dc2.points is not None
+    assert len(dc1.points) == len(dc2.points)
+    return torch.linalg.norm(dc1.points - dc2.points) / len(dc1.points)
+
+
 def demo():
     from data.asl_laser import Dataset
     # ds = Dataset('apartment')

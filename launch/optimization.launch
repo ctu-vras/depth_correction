@@ -4,7 +4,8 @@
     <arg name="model" default="ScaledPolynomial" doc="Depth correction model to use"/>
     <arg name="loss_fun" default="min_eigval_loss" doc="One of ['trace_loss', 'min_eigval_loss']"/>
     <arg name="backprop" default="true" doc="If to run backward pass or use just the base model"/>
-    <arg name="env_type" default="angle" doc="Simulated environment type: ['angle' or 'mesh']"/>
+    <arg name="env_type" default="angle" doc="Simulated environment type: 'angle' or mesh name
+                                                       stored in 'depth_correction/data/meshes/' folder"/>
 
     <node name="optimization" pkg="depth_correction" type="optimization" output="screen">
         <rosparam subst_value="true">
@@ -16,12 +17,14 @@
             r_nn: 0.2
             lr: 0.001
             backprop: $(arg backprop)
-            angle_degrees: 40.0
             env_type: $(arg env_type)
-            env_size: 20
-            p0_disturb: -0.05
+            env_size: 10
+            angle_degrees: 0.0
+            pts_sampled_from_mesh: 10000000
+            p0_disturb: -0.03
             p1_disturb: 0.0
             monotonous_model: true
+            plots: true
             visualize_clouds: false
         </rosparam>
     </node>

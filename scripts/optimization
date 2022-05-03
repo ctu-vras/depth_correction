@@ -1,23 +1,26 @@
 #! /usr/bin/env python
 
 from __future__ import absolute_import, division, print_function
-
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.loss import min_eigval_loss, trace_loss
+from depth_correction.loss import min_eigval_loss, trace_loss, l2_loss
 from depth_correction.model import ScaledPolynomial, Polynomial
+from depth_correction.filters import filter_eigenvalues
 import rospy
 from sensor_msgs.msg import PointCloud2
 from ros_numpy import msgify
 import tf
 import time
 import os
+from matplotlib import cm
 
 
 def dc_to_msg(dc, stamp, frame='map'):
-    cloud = DepthCloud.to_structured_array(dc)
+    colors = dc.eigvals.detach()[:, 0]
+    # colors = dc.mask
+    cloud = DepthCloud.to_structured_array(dc, colors=dc.get_colors(colors, colormap=cm.viridis))
     pc_msg = msgify(PointCloud2, cloud)
     pc_msg.header.frame_id = frame
     pc_msg.header.stamp = stamp
@@ -48,6 +51,7 @@ def rotate_pts(p, origin=(0, 0, 0), degrees=0.0):
 
 def angle_point_cloud(n_pts=10000, size=10.0, degrees=0.0):
     # create flat point cloud (a wall)
+    np.random.seed(135)
     pts_gt = np.zeros((n_pts, 3), dtype=np.float64)
     pts_gt[:, [0, 1]] = np.concatenate([np.random.rand(n_pts // 2, 2) * (size/2),
                                         np.random.rand(n_pts // 2, 2) * (size/2) + np.array([-size/2, 0])])
@@ -59,15 +63,21 @@ def angle_point_cloud(n_pts=10000, size=10.0, degrees=0.0):
     return pts_gt
 
 
-def point_cloud_from_mesh(size=20.0, mesh_name='simple_cave_01'):
+def point_cloud_from_mesh(mesh_name='simple_cave_01', size=20.0, pts_to_sample=10_000_000):
     from pytorch3d.ops import sample_points_from_meshes
     from pytorch3d.io import load_obj
     from pytorch3d.structures import Meshes
 
-    pts_gt, faces, _ = load_obj(os.path.join(os.path.dirname(__file__), '../data/meshes/%s.obj' % mesh_name))
+    mesh_path = os.path.join(os.path.dirname(__file__), '../data/meshes/%s.obj' % mesh_name)
+
+    if not os.path.exists(mesh_path):
+        raise FileExistsError('Mesh file %s does not exist' % mesh_path)
+
+    pts_gt, faces, _ = load_obj(mesh_path)
     mesh = Meshes(verts=[pts_gt], faces=[faces.verts_idx])
 
-    pts_gt = sample_points_from_meshes(mesh, 10_000_000).squeeze().numpy()
+    torch.random.manual_seed(135)
+    pts_gt = sample_points_from_meshes(mesh, pts_to_sample).squeeze().numpy()
     X, Y, Z = pts_gt[:, 0], pts_gt[:, 1], pts_gt[:, 2]
     pts_gt = pts_gt[np.logical_and(np.logical_and(np.logical_and(X >= -size/2, X <= size/2),
                                                   np.logical_and(Y >= -size/2, Y <= size/2)),
@@ -78,23 +88,26 @@ def point_cloud_from_mesh(size=20.0, mesh_name='simple_cave_01'):
     return pts_gt
 
 
-def create_environment(name='angle', n_pts=10000, n_vps=4, size=20, r_nn=0.2, p0_disturb=0.0, p1_disturb=0.0):
+def create_environment(name='angle', n_pts=40000, n_vps=4, size=20, r_nn=0.2, eigval_bounds=None,
+                       p0_disturb=0.0, p1_disturb=0.0):
     if name == 'angle':
-        pts_gt = angle_point_cloud(n_pts=n_pts, size=size, degrees=rospy.get_param('~angle_degrees', 0.0))
-    elif name == 'mesh':
-        pts_gt = point_cloud_from_mesh(size=size)
+        pts_gt = angle_point_cloud(n_pts=n_pts, size=size,
+                                   degrees=rospy.get_param('~angle_degrees', 0.0))
     else:
-        raise ValueError('Currently supported environment types: ["angle", "mesh"]')
-
+        pts_gt = point_cloud_from_mesh(mesh_name=name, size=size,
+                                       pts_to_sample=rospy.get_param('~pts_sampled_from_mesh', 10_000_000))
     pts = []
     dcs = []
     vps = []
+    # np.random.seed(135)
     for n in range(n_vps):
         pts1 = pts_gt[np.random.choice(range(n_pts), n_pts // n_vps)]
 
-        vps1 = pts_gt[np.random.choice(range(n_pts))]
-        vps1[2] += np.random.choice(np.linspace(0.0, 2.0, 50))
+        # vps1 = pts1[np.random.choice(range(len(pts1)))]
+        vps1 = pts_gt[np.random.choice(range(len(pts_gt)))]
+        vps1[2] += np.random.uniform(0.1, 2.)
         vps1 = vps1 + np.zeros_like(pts1)
+        assert vps1.shape == pts1.shape
 
         dc1 = DepthCloud.from_points(pts1, vps=vps1)
         dc1.update_all(r=r_nn)
@@ -103,14 +116,13 @@ def create_environment(name='angle', n_pts=10000, n_vps=4, size=20, r_nn=0.2, p0
         vps.append(vps1)
         dcs.append(dc1)
 
-    dc = DepthCloud.concatenate(dcs, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=True)
+    dc = DepthCloud.concatenate(dcs, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=False)
     dc_offset = dc.copy()
 
     dc.update_all(r=r_nn)
 
     dc = add_disturbance(dc, p0=p0_disturb, p1=p1_disturb)
     dc.update_all(r=r_nn)
-    dc = dc.detach()
 
     return dc, pts, vps, dc_offset
 
@@ -131,13 +143,22 @@ def main():
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=rospy.get_param('~lr', 0.001))
 
-    dc_init, pts_gt, vps, dc_offset = create_environment(name=rospy.get_param('~env_type', 'mesh'),
-                                                         n_pts=rospy.get_param('~n_pts', 10000),
-                                                         r_nn=rospy.get_param('~r_nn', 0.2),
+    r_nn = rospy.get_param('~r_nn', 0.2)
+    eigenvalue_bounds = [[0, None, (r_nn / 8) ** 2],
+                         [1, (r_nn / 4) ** 2, None]]
+
+    dc_init, pts_gt, vps, dc_offset = create_environment(name=rospy.get_param('~env_type', 'angle'),
+                                                         n_pts=rospy.get_param('~n_pts', 100000),
+                                                         r_nn=r_nn,
                                                          n_vps=rospy.get_param('~n_vps', 4),
-                                                         size=rospy.get_param('~env_size', 20),
+                                                         size=rospy.get_param('~env_size', 10),
+                                                         eigval_bounds=eigenvalue_bounds,
                                                          p0_disturb=rospy.get_param('~p0_disturb', -0.03),
                                                          p1_disturb=rospy.get_param('~p1_disturb', 0.0))
+
+    dc_init.mask = filter_eigenvalues(dc_init, eig_bounds=eigenvalue_bounds, only_mask=True, log=True)
+    dc_init = dc_init.detach()
+
     plt.figure()
     losses = []
     metrics = []
@@ -154,7 +175,11 @@ def main():
         dc.neighbors, dc.weights = train_neighbors
         dc.update_all(keep_neighbors=True)
 
-        loss, _ = loss_fun(dc, offset=dc_offset)
+        loss_correction, _ = loss_fun(dc, offset=dc_offset)
+
+        l2_regularization = l2_loss(dc, dc_init)
+        rospy.logdebug('L2 loss from original (not corrected) cloud: %g' % l2_regularization)
+        loss = loss_correction + 0.01 * l2_regularization
 
         # Optimization step
         if rospy.get_param('~backprop', True):
@@ -163,16 +188,18 @@ def main():
             optimizer.step()
             rospy.logdebug('Optimization step took %.3f sec' % (time.time()-t0))
 
+        loss = loss.detach()
         losses.append(loss.item())
         rospy.loginfo('%s = %g' % (rospy.get_param('~loss_fun', 'loss'), loss.item()))
         rospy.logdebug('Model parameters: p0=%f, p1=%f', model.p0.item(), model.p1.item())
 
-        l2_loss = 0.0
+        l2_metric = 0.0
         for i, pts in enumerate(pts_gt):
             n = pts.shape[0]
-            l2_loss += np.linalg.norm(dc.points.detach()[i*n:(i+1)*n, :] - pts) / n
-        l2_loss /= len(pts_gt)
-        metrics.append(l2_loss)
+            l2_metric += torch.linalg.norm(dc.points.detach()[i*n:(i+1)*n, :] - pts) / n
+        l2_metric /= len(pts_gt)
+        metrics.append(l2_metric)
+        rospy.logdebug('L2 difference from ground truth: %g' % l2_metric)
 
         # publish point cloud msgs
         stamp = rospy.Time.now()
@@ -187,53 +214,54 @@ def main():
             br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), time=stamp, child="vp_%d" % i, parent="map")
 
         # visualization
-        t0 = time.time()
-        plt.subplot(2, 2, 1)
-        plt.cla()
-        plt.plot(metrics)
-        plt.grid()
-        plt.ylabel('L2 difference from gt')
-        plt.xlabel('time, iters')
-
-        plt.subplot(2, 2, 2)
-        plt.cla()
-        plt.plot(losses)
-        plt.grid()
-        plt.ylabel(rospy.get_param('~loss_fun', 'loss'))
-        plt.xlabel('time, iters')
-
-        if rospy.get_param('~visualize_clouds', False):
-            plt.subplot(2, 2, 3)
+        if rospy.get_param('~plots', False):
+            t0 = time.time()
+            plt.subplot(2, 2, 1)
             plt.cla()
-            plt.plot(pts_gt[0][:, 1], pts_gt[0][:, 2], '.', label='Z gt 1')
-            if len(pts_gt) > 1:
-                plt.plot(pts_gt[1][:, 1], pts_gt[1][:, 2], '.', label='Z gt 2')
-            plt.plot(dc_init.points.detach().squeeze()[:, 1],
-                     dc_init.points.detach().squeeze()[:, 2], '.', label='Z initial', color='r')
-            plt.plot(dc.points.detach().squeeze()[:, 1],
-                     dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+            plt.plot(metrics)
             plt.grid()
-            plt.ylabel('Z, [m]')
-            plt.xlabel('Y, [m]')
-            plt.legend()
+            plt.ylabel('L2 difference from gt')
+            plt.xlabel('time, iters')
 
-            plt.subplot(2, 2, 4)
+            plt.subplot(2, 2, 2)
             plt.cla()
-            plt.plot(pts_gt[0][:, 0], pts_gt[0][:, 2], '.', label='Z gt 1')
-            if len(pts_gt) > 1:
-                plt.plot(pts_gt[1][:, 0], pts_gt[1][:, 2], '.', label='Z gt 2')
-            plt.plot(dc_init.points.detach().squeeze()[:, 0],
-                     dc_init.points.detach().squeeze()[:, 2], '.', label='Z initial', color='r')
-            plt.plot(dc.points.detach().squeeze()[:, 0],
-                     dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+            plt.plot(losses)
             plt.grid()
-            plt.ylabel('Z, [m]')
-            plt.xlabel('X, [m]')
-            plt.legend()
+            plt.ylabel(rospy.get_param('~loss_fun', 'loss'))
+            plt.xlabel('time, iters')
 
-        plt.draw()
-        plt.pause(0.01)
-        rospy.logdebug('Visualization took: %.3f' % (time.time() - t0))
+            if rospy.get_param('~visualize_clouds', False):
+                plt.subplot(2, 2, 3)
+                plt.cla()
+                plt.plot(pts_gt[0][:, 1], pts_gt[0][:, 2], '.', label='Z gt 1')
+                if len(pts_gt) > 1:
+                    plt.plot(pts_gt[1][:, 1], pts_gt[1][:, 2], '.', label='Z gt 2')
+                plt.plot(dc_init.points.detach().squeeze()[:, 1],
+                         dc_init.points.detach().squeeze()[:, 2], '.', label='Z initial', color='r')
+                plt.plot(dc.points.detach().squeeze()[:, 1],
+                         dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+                plt.grid()
+                plt.ylabel('Z, [m]')
+                plt.xlabel('Y, [m]')
+                plt.legend()
+
+                plt.subplot(2, 2, 4)
+                plt.cla()
+                plt.plot(pts_gt[0][:, 0], pts_gt[0][:, 2], '.', label='Z gt 1')
+                if len(pts_gt) > 1:
+                    plt.plot(pts_gt[1][:, 0], pts_gt[1][:, 2], '.', label='Z gt 2')
+                plt.plot(dc_init.points.detach().squeeze()[:, 0],
+                         dc_init.points.detach().squeeze()[:, 2], '.', label='Z initial', color='r')
+                plt.plot(dc.points.detach().squeeze()[:, 0],
+                         dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+                plt.grid()
+                plt.ylabel('Z, [m]')
+                plt.xlabel('X, [m]')
+                plt.legend()
+
+            plt.draw()
+            plt.pause(0.01)
+            rospy.logdebug('Visualization took: %.3f' % (time.time() - t0))
 
 
 if __name__ == '__main__':

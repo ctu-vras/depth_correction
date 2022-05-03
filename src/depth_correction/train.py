@@ -1,8 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
-from .filters import filter_eigenvalues
-from .loss import min_eigval_loss, trace_loss
-from .model import *
+from .loss import loss_by_name
+from .model import load_model, model_by_name
 from .preproc import *
 from .ros import *
 from .transform import *
@@ -32,10 +31,7 @@ def train(cfg: Config):
         from data.asl_laser import Dataset
     elif cfg.dataset == 'semantic_kitti':
         from data.semantic_kitti import Dataset
-    assert cfg.loss in ('min_eigval_loss', 'trace_loss')
-    # if cfg.loss == 'min_eigval_loss':
-    #     loss = min_eigval_loss
-    loss_fun = eval(cfg.loss)
+    loss_fun = loss_by_name(cfg.loss)
     print(cfg.loss, loss_fun.__name__)
     print(cfg.loss_kwargs)
 

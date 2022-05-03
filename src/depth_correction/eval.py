@@ -127,8 +127,9 @@ def eval_slam(cfg: Config):
         else:
             cli_args.append('depth_correction:=false')
 
-        keys_from_cfg = ['min_depth', 'max_depth', 'grid_res', 'nn_k', 'nn_r', 'eigenvalue_bounds', 'model_class',
-                         'model_state_dict', 'slam', 'slam_eval_csv', 'slam_poses_csv', 'rviz']
+        keys_from_cfg = ['min_depth', 'max_depth', 'grid_res',
+                         'nn_k', 'nn_r', 'shadow_neighborhood_angle', 'shadow_angle_bounds', 'eigenvalue_bounds',
+                         'model_class', 'model_state_dict', 'slam', 'slam_eval_csv', 'slam_poses_csv', 'rviz']
         cfg_args = cfg.to_roslaunch_args(keys=keys_from_cfg)
         cli_args += cfg_args
 

@@ -26,6 +26,8 @@
     <arg name="depth_correction" default="false"/>
     <arg name="nn_k" default=""/>
     <arg name="nn_r" default="0.2"/>
+    <arg name="shadow_neighborhood_angle" default="0.017453"/>
+    <arg name="shadow_angle_bounds" default="[0.087266, 3.141592]"/>
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"/>
     <arg name="model_class" default="BaseModel"/>
     <arg name="model_state_dict" default=""/>
@@ -68,6 +70,8 @@
             <arg name="output" value="corrected_cloud"/>
             <arg name="nn_k" value="$(arg nn_k)"/>
             <arg name="nn_r" value="$(arg nn_r)"/>
+            <arg name="shadow_neighborhood_angle" value="$(arg shadow_neighborhood_angle)"/>
+            <arg name="shadow_angle_bounds" value="$(arg shadow_angle_bounds)"/>
             <arg name="eigenvalue_bounds" value="$(arg eigenvalue_bounds)"/>
             <arg name="model_class" value="$(arg model_class)"/>
             <arg name="model_state_dict" value="$(arg model_state_dict)"/>

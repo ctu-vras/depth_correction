@@ -87,8 +87,44 @@ class Configurable(object):
 
         return remainder
 
+    def from_rosparam(self, prefix='~'):
+        print()
+        print('Configuration read from ROS parameters:')
+        import rospy
+        for k in self:
+            name = prefix + k
+            if rospy.has_param(name):
+                self[k] = rospy.get_param(name, self[k])
+                if isinstance(self[k], str):
+                    self[k] = yaml.safe_load(self[k])
+                print('%s: %s (%s)' % (k, self[k], type(self[k]).__name__))
+        print()
+
     def to_dict(self):
         return vars(self)
+
+    def to_roslaunch_args(self, non_default=False, keys=None):
+        if not keys:
+            if non_default:
+                keys = self.non_default().keys()
+            else:
+                keys = self.to_dict().keys()
+
+        args = []
+        for k in keys:
+            v = yaml.safe_dump(self[k], default_flow_style=True)
+            v = v.strip('\n')
+            v = v.strip('\n...')
+            arg = '%s:=%s' % (k, v)
+            args.append(arg)
+
+        return args
+
+    def from_roslaunch_args(self, args):
+        for arg in args:
+            assert isinstance(arg, str)
+            k, v = arg.split(':=', maxsplit=1)
+            self[k] = yaml.safe_load(v)
 
     def to_yaml(self, path=None):
         if path is None:
@@ -390,9 +426,24 @@ class Config(Configurable):
 
 def test():
     cfg = Config()
+
     cfg.from_dict({'nn_k': 5, 'grid_res': 0.5})
+    assert cfg.nn_k == 5
+    assert cfg.grid_res == 0.5
+
     cfg.from_args(['--nn-k', '10'])
-    print(cfg.non_default())
+    assert cfg.nn_k == 10
+
+    cfg.from_roslaunch_args(['nn_r:=.inf'])
+    assert cfg.nn_r == float('inf')
+
+    value = [[0, None, 1.0], [1, 1.0, float('inf')]]
+    cfg.eigenvalue_bounds = value
+    args = cfg.to_roslaunch_args(keys=['eigenvalue_bounds'])
+    assert args[0] == 'eigenvalue_bounds:=[[0, null, 1.0], [1, 1.0, .inf]]'
+
+    cfg.from_roslaunch_args(args)
+    assert cfg.eigenvalue_bounds == value
 
 
 def main():

@@ -3,12 +3,13 @@ from .config import (
     Config,
     Loss,
     Model,
+    nonempty,
     PoseCorrection,
     PoseProvider,
     SLAM,
     slam_eval_bag,
     slam_eval_csv,
-    slam_poses_csv
+    slam_poses_csv,
 )
 from argparse import ArgumentParser
 from collections import deque
@@ -246,12 +247,16 @@ def train_and_eval_all(base_cfg: Config=None):
         cfg.train_names = train_names
         cfg.val_names = val_names
         cfg.test_names = test_names
+        parts = [pose_provider,
+                 cfg.model_class,
+                 cfg.get_nn_desc(),
+                 cfg.get_eigval_bounds_desc(),
+                 cfg.get_dir_dispersion_desc(),
+                 cfg.get_vp_dispersion_desc(),
+                 cfg.get_vp_dispersion_to_depth2_desc(),
+                 cfg.get_loss_desc()]
         cfg.log_dir = os.path.join(cfg.log_dir,
-                                   '_'.join([pose_provider,
-                                             cfg.model_class,
-                                             cfg.get_nn_desc(),
-                                             cfg.get_eigval_bounds_desc(),
-                                             cfg.get_loss_desc()]),
+                                   '_'.join(nonempty(parts)),
                                    'split_%i' % i_split)
         print('Log dir: %s' % cfg.log_dir)
         if os.path.exists(cfg.log_dir):

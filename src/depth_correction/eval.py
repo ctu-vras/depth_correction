@@ -10,7 +10,6 @@ from argparse import ArgumentParser
 import numpy as np
 import os
 import torch
-from torch.utils.tensorboard import SummaryWriter
 
 
 def eval_loss(cfg: Config):
@@ -114,35 +113,25 @@ def eval_slam(cfg: Config):
             # name += '_step_%i' % cfg.data_step
             name += '_end_500_step_1'
         print('SLAM evaluation on %s started.' % name)
-        # print(cfg.to_yaml())
 
         cli_args = [slam_eval_launch]
         cli_args.append('dataset:=%s' % name)
         if poses_path:
             cli_args.append('dataset_poses_path:=%s' % poses_path)
         cli_args.append('odom:=true')
-        cli_args.append('rviz:=true' if cfg.rviz else 'rviz:=false')
-        cli_args.append('slam:=%s' % cfg.slam)
-        cli_args.append('slam_eval_csv:=%s' % cfg.slam_eval_csv)
         if cfg.slam_eval_bag:
             cli_args.append('record:=true')
             cli_args.append('bag:=%s' % cfg.slam_eval_bag.format(name=name.replace('/', '_')))
-        if cfg.slam_poses_csv:
-            cli_args.append('slam_poses_csv:=%s' % cfg.slam_poses_csv)
-        cli_args.append('min_depth:=%.3f' % cfg.min_depth)
-        cli_args.append('max_depth:=%.3f' % cfg.max_depth)
-        cli_args.append('grid_res:=%.3f' % cfg.grid_res)
         if cfg.model_class != 'BaseModel':
             cli_args.append('depth_correction:=true')
         else:
             cli_args.append('depth_correction:=false')
-        # Reset nearest neighbor spec.
-        cli_args.append('nn_k:=%i' % cfg.nn_k if cfg.nn_k else 'nn_k:=')
-        cli_args.append('nn_r:=%.3f' % cfg.nn_r if cfg.nn_r else 'nn_r:=')
-        # Pass eigenvalue bounds to launch.
-        cli_args.append('eigenvalue_bounds:=%s' % cfg.eigenvalue_bounds)
-        cli_args.append('model_class:=%s' % cfg.model_class)
-        cli_args.append('model_state_dict:=%s' % cfg.model_state_dict)
+
+        keys_from_cfg = ['min_depth', 'max_depth', 'grid_res', 'nn_k', 'nn_r', 'eigenvalue_bounds', 'model_class',
+                         'model_state_dict', 'slam', 'slam_eval_csv', 'slam_poses_csv', 'rviz']
+        cfg_args = cfg.to_roslaunch_args(keys=keys_from_cfg)
+        cli_args += cfg_args
+
         # print(cli_args)
         roslaunch_args = cli_args[1:]
         roslaunch_file = [(roslaunch.rlutil.resolve_launch_arguments(cli_args)[0], roslaunch_args)]

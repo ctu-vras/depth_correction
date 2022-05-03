@@ -9,11 +9,17 @@ import yaml
 
 __all__ = [
     'Config',
+    'fix_bounds',
     'PoseCorrection',
     'PoseProvider',
     'SLAM',
     'ValueEnum',
 ]
+
+
+def fix_bounds(bounds):
+    bounds = [float(x) if x is not None and np.isfinite(x) else float('nan') for x in bounds]
+    return bounds
 
 
 # https://stackoverflow.com/a/10814662
@@ -269,22 +275,37 @@ class Config(Configurable):
         return getattr(torch, self.float_type)
 
     def sanitize(self):
+        if isinstance(self.shadow_angle_bounds, str):
+            self.shadow_angle_bounds = yaml.safe_load(self.shadow_angle_bounds)
+        self.shadow_angle_bounds = self.shadow_angle_bounds or []
+        self.shadow_angle_bounds = fix_bounds(self.shadow_angle_bounds)
+
         if isinstance(self.eigenvalue_bounds, str):
             self.eigenvalue_bounds = yaml.safe_load(self.eigenvalue_bounds)
-
         eigenvalue_bounds = []
         for i, min, max in self.eigenvalue_bounds:
             if not isinstance(i, int) or i < 0:
                 continue
-            if not (isinstance(min, float) and -float('inf') < min < float('inf')):
-                min = float('nan')
-            if not (isinstance(max, float) and -float('inf') < max < float('inf')):
-                max = float('nan')
+            min, max = fix_bounds([min, max])
             eigenvalue_bounds.append([i, min, max])
         if eigenvalue_bounds != self.eigenvalue_bounds:
             print('eigenvalue_bounds: %s -> %s' % (self.eigenvalue_bounds, eigenvalue_bounds))
-
         self.eigenvalue_bounds = eigenvalue_bounds
+
+        if isinstance(self.dir_dispersion_bounds, str):
+            self.dir_dispersion_bounds = yaml.safe_load(self.dir_dispersion_bounds)
+        self.dir_dispersion_bounds = self.dir_dispersion_bounds or []
+        self.dir_dispersion_bounds = fix_bounds(self.dir_dispersion_bounds)
+
+        if isinstance(self.vp_dispersion_bounds, str):
+            self.vp_dispersion_bounds = yaml.safe_load(self.vp_dispersion_bounds)
+        self.vp_dispersion_bounds = self.vp_dispersion_bounds or []
+        self.vp_dispersion_bounds = fix_bounds(self.vp_dispersion_bounds)
+
+        if isinstance(self.vp_dispersion_to_depth2_bounds, str):
+            self.vp_dispersion_to_depth2_bounds = yaml.safe_load(self.vp_dispersion_to_depth2_bounds)
+        self.vp_dispersion_to_depth2_bounds = self.vp_dispersion_to_depth2_bounds or []
+        self.vp_dispersion_to_depth2_bounds = fix_bounds(self.vp_dispersion_to_depth2_bounds)
 
     def get_depth_filter_desc(self):
         desc = 'd%.0f-%.0f' % (self.min_depth, self.max_depth)

@@ -125,6 +125,7 @@ class DepthCloud(object):
 
     def update_points(self):
         self.points = self.to_points()
+        self.neighbor_points = None
 
     def get_points(self):
         if self.points is None:
@@ -189,7 +190,6 @@ class DepthCloud(object):
         assert self.points is not None
         self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
-        self.neighbor_points = None
         # TODO: Add singleton dim where used.
 
     def update_dir_neighbors(self, k=None, r=None, angle=None):
@@ -288,11 +288,6 @@ class DepthCloud(object):
         if self.neighbor_points is None:
             self.update_neighbor_points()
         return self.neighbor_points
-
-    def neighbor_points(self):
-        pts = self.get_points()
-        nn = pts[self.neighbors]
-        return nn
 
     def vp_dispersion(self):
         assert self.vps is not None
@@ -464,7 +459,7 @@ class DepthCloud(object):
         #     vis.update_renderer()
         # o3d.visualization.draw_geometries_with_key_callbacks([pcd], window_name=window_name, {ord('c'): cb})
 
-    def to_structured_array(self):
+    def to_structured_array(self, colors=None):
         pts = unstructured_to_structured(np.asarray(self.get_points().detach().cpu().numpy(), dtype=np.float32),
                                          names=list('xyz'))
         vps = unstructured_to_structured(np.asarray(self.vps.detach().cpu().numpy(), dtype=np.float32),
@@ -478,6 +473,9 @@ class DepthCloud(object):
             loss = unstructured_to_structured(np.asarray(self.loss.detach().cpu().numpy(), dtype=np.float32),
                                               names=['loss'])
             parts.append(loss)
+        if colors is not None:
+            rgb = unstructured_to_structured(np.asarray(colors, dtype=np.float32), names=['r', 'g', 'b'])
+            parts.append(rgb)
         cloud = merge_arrays(parts, flatten=True)
         return cloud
 

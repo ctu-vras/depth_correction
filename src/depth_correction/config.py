@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 from argparse import ArgumentParser
 from copy import deepcopy
 from datetime import datetime
+from math import radians
 import numpy as np
 import os
 import torch
@@ -206,8 +207,8 @@ class Config(Configurable):
 
         # Depth correction
         self.shadow_neighborhood_angle = 0.017453  # 1 deg
-        # self.shadow_angle_bounds = [np.deg2rad(5.), None]
-        self.shadow_angle_bounds = None
+        self.shadow_angle_bounds = [radians(5.), None]
+        # self.shadow_angle_bounds = None
         self.dir_dispersion_bounds = [0.09, None]
         self.vp_dispersion_bounds = [0.36, None]
         # self.vp_dispersion_to_depth2_bounds = [0.2, None]

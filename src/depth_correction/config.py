@@ -228,12 +228,9 @@ class Config(Configurable):
         self.ros_master_port = 11513
 
         self.slam = SLAM.norlab_icp_mapper
-        self.model = None
         self.model_class = Model.ScaledPolynomial
-        self.model_state_dict = None
-        # self.dtype = np.float64
+        self.model_state_dict = ''
         self.float_type = 'float64'
-        # self.device = torch.device('cpu')
         self.device = 'cpu'
 
         # Cloud preprocessing
@@ -242,22 +239,22 @@ class Config(Configurable):
         # self.grid_res = 0.05
         self.grid_res = 0.1
         # Neighborhood
-        self.nn_k = None
+        self.nn_k = 0
         # self.nn_r = 0.15
         self.nn_r = 0.2
 
         # Depth correction
         self.shadow_neighborhood_angle = 0.017453  # 1 deg
-        self.shadow_angle_bounds = [radians(5.), None]
+        self.shadow_angle_bounds = [radians(5.), float('inf')]
         # self.shadow_angle_bounds = None
-        self.dir_dispersion_bounds = [0.09, None]
-        self.vp_dispersion_bounds = [0.36, None]
+        self.dir_dispersion_bounds = [0.09, float('inf')]
+        self.vp_dispersion_bounds = [0.36, float('inf')]
         # self.vp_dispersion_to_depth2_bounds = [0.2, None]
-        self.vp_dispersion_to_depth2_bounds = None
+        self.vp_dispersion_to_depth2_bounds = []
         # self.vp_dist_to_depth_bounds = [0.5, None]
-        self.vp_dist_to_depth_bounds = None
-        self.eigenvalue_bounds = [[0,               None, (self.nn_r / 4)**2],
-                                  [1, (self.nn_r / 4)**2,               None]]
+        self.vp_dist_to_depth_bounds = []
+        self.eigenvalue_bounds = [[0,      -float('inf'), (self.nn_r / 4)**2],
+                                  [1, (self.nn_r / 4)**2,       float('inf')]]
         # self.eigenvalue_bounds = []
 
         # Data

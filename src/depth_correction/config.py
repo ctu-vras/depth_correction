@@ -69,26 +69,50 @@ for slam in SLAM:
     setattr(PoseProvider, slam, slam)
 
 
-def loss_eval_csv(log_dir: str, loss: str):
-    path = os.path.join(log_dir, 'loss_eval_%s.csv' % loss)
+def loss_eval_csv(log_dir: str, loss: str, subset: str=None):
+    if subset:
+        path = 'loss_eval_{loss}_{subset}.csv'.format(loss=loss, subset=subset)
+    else:
+        path = 'loss_eval_{loss}.csv'.format(loss=loss)
+    if log_dir:
+        path = os.path.join(log_dir, path)
     return path
 
 
-def slam_eval_csv(log_dir: str, slam: str, subset: str):
-    path = os.path.join(log_dir, 'slam_eval_%s_%s.csv' % (slam, subset))
+def slam_eval_csv(log_dir: str, slam: str, subset: str=None):
+    if subset:
+        path = 'slam_eval_{slam}_{subset}.csv'.format(slam=slam, subset=subset)
+    else:
+        path = 'slam_eval_{slam}.csv'.format(slam=slam)
+    if log_dir:
+        path = os.path.join(log_dir, path)
+    return path
+
+
+def loss_eval_csv(log_dir: str, loss: str, subset: str=None):
+    if subset:
+        path = 'loss_eval_{loss}_{subset}.csv'.format(loss=loss, subset=subset)
+    else:
+        path = 'loss_eval_{loss}.csv'.format(loss=loss)
+    if log_dir:
+        path = os.path.join(log_dir, path)
     return path
 
 
 def slam_eval_bag(log_dir: str, slam: str):
-    path = os.path.join(log_dir, 'slam_eval_%s.bag' % slam)
+    path = 'slam_eval_{slam}.bag'.format(slam=slam)
+    if log_dir:
+        path = os.path.join(log_dir, path)
     return path
 
 
 def slam_poses_csv(log_dir: str, name: str, slam: str):
     if name:
-        path = os.path.join(log_dir, name, 'slam_poses_%s.csv' % slam)
+        path = os.path.join(name, 'slam_poses_{slam}.csv'.format(slam=slam))
     else:
-        path = os.path.join(log_dir, 'slam_poses_%s.csv' % slam)
+        path = os.path.join('slam_poses_{slam}.csv'.format(slam=slam))
+    if log_dir:
+        path = os.path.join(log_dir, path)
     return path
 
 
@@ -105,9 +129,11 @@ class Config(Configurable):
         self.force = False   # Allow overwriting existing configs, etc.
 
         self.pkg_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        self.out_dir = os.path.join(self.pkg_dir, 'gen')
         self.enable_ros = False
         self.ros_master_port = 11513
 
+        self.pose_provider = PoseProvider.ground_truth
         self.slam = SLAM.norlab_icp_mapper
         self.model_class = Model.ScaledPolynomial
         self.model_state_dict = ''
@@ -169,8 +195,7 @@ class Config(Configurable):
 
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
-        self.log_dir = os.path.join(self.pkg_dir, 'gen',
-                                    datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        self.log_dir = os.path.join(self.out_dir, datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         self.loss_eval_csv = None
         self.slam_eval_csv = None
         self.slam_eval_bag = None
@@ -288,15 +313,37 @@ class Config(Configurable):
             desc += '_' + loss_kwargs
         return desc
 
-    def get_log_dir(self):
+    def get_preproc_desc(self):
         self.sanitize()
         parts = [self.dataset,
                  self.get_depth_filter_desc(),
                  self.get_grid_filter_desc(),
                  self.get_shadow_filter_desc()]
-        name = '_'.join(nonempty(parts))
-        dir = os.path.join(self.pkg_dir, 'gen', name)
+        desc = '_'.join(nonempty(parts))
+        return desc
+
+    def get_preproc_dir(self):
+        dir = os.path.join(self.out_dir, self.get_preproc_desc())
         return dir
+
+    def get_exp_desc(self):
+        parts = [self.pose_provider,
+                 self.model_class,
+                 self.get_nn_desc(),
+                 self.get_eigval_bounds_desc(),
+                 self.get_dir_dispersion_desc(),
+                 self.get_vp_dispersion_desc(),
+                 self.get_vp_dispersion_to_depth2_desc(),
+                 self.get_loss_desc()]
+        desc = '_'.join(nonempty(parts))
+        return desc
+
+    def get_exp_dir(self):
+        dir = os.path.join(self.get_preproc_desc(), self.get_exp_desc())
+        return dir
+
+    def get_log_dir(self):
+        return self.get_preproc_dir()
 
 
 def test():

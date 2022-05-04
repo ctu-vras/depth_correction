@@ -13,16 +13,10 @@ import torch
 
 
 def eval_loss(cfg: Config):
-    """Evaluate loss of model on test sequences.
+    """Evaluate loss on test sequences.
 
     :param cfg:
     """
-    os.makedirs(cfg.log_dir, exist_ok=True)
-    cfg_path = os.path.join(cfg.log_dir, 'eval_loss.yaml')
-    if os.path.exists(cfg_path):
-        print('Config %s already exists.' % cfg_path)
-    else:
-        cfg.to_yaml(cfg_path)
 
     assert cfg.dataset in ('asl_laser', 'semantic_kitti')
     if cfg.dataset == 'asl_laser':
@@ -91,14 +85,12 @@ def eval_loss_all(cfg: Config):
 
 
 def eval_slam(cfg: Config):
+    """Evaluate SLAM on test sequences.
+
+    :param cfg:
+    """
     import roslaunch
     slam_eval_launch = os.path.join(Config().pkg_dir, 'launch', 'slam_eval.launch')
-
-    cfg_path = os.path.join(cfg.log_dir, 'eval_slam.yaml')
-    if os.path.exists(cfg_path):
-        print('Config %s already exists.' % cfg_path)
-    else:
-        cfg.to_yaml(cfg_path)
 
     assert cfg.slam_eval_csv
     assert not cfg.slam_poses_csv or len(cfg.test_names) == 1

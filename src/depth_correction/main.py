@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .config import (
     Config,
     Loss,
+    loss_eval_csv,
     Model,
     nonempty,
     PoseCorrection,
@@ -75,7 +76,21 @@ def cmd_out(cmd):
     return out, err
 
 
-def eval_baselines(base_cfg: Config=None):
+def eval_slam_baselines(base_cfg: Config=None):
+    """Evaluate SLAM baselines (without depth correction).
+
+    Generate config for each (sequence, slam) pair and evaluate given config.
+
+    Log directory for both inputs and outputs:
+        <out_dir>/<preproc>/<sequence>
+    Inputs:
+        <log_dir>/slam_eval_<slam>.yaml
+    Outputs:
+        <log_dir>/slam_poses_<slam>.csv
+        <log_dir>/slam_eval_<slam>.csv
+
+    :param base_cfg: Config with common parameters.
+    """
 
     imported_module = importlib.import_module("data.%s" % base_cfg.dataset)
     dataset_names = getattr(imported_module, "dataset_names")
@@ -84,55 +99,56 @@ def eval_baselines(base_cfg: Config=None):
     base_cfg.log_dir = base_cfg.get_log_dir()
 
     # Generate SLAM poses as well.
-    for i_exp, (slam, name) in enumerate(product(SLAM, ds)):
+    for i_exp, (name, slam) in enumerate(product(ds, SLAM)):
 
         if base_cfg.launch_prefix and i_exp >= base_cfg.num_jobs:
             print('Maximum number of jobs scheduled.')
-            print()
             break
 
-        port = base_cfg.ros_master_port + i_exp
-        print('Generating config:')
-        print('slam: %s' % slam)
-        print('dataset: %s' % name)
-        print('port: %i' % port)
+        print()
+        print('Generating config...')
+        print('Dataset: %s' % name)
+        print('SLAM: %s' % slam)
 
-        eval_cfg = base_cfg.copy()
-        assert isinstance(eval_cfg, Config)
-        eval_cfg.log_dir = eval_cfg.get_log_dir()
-        os.makedirs(eval_cfg.log_dir, exist_ok=True)
-        eval_cfg.model_class = 'BaseModel'
-        eval_cfg.model_state_dict = ''
-        eval_cfg.ros_master_port = port
-        eval_cfg.log_dir = os.path.join(base_cfg.log_dir, name)
-        os.makedirs(eval_cfg.log_dir, exist_ok=True)
-        eval_cfg.train_names = []
-        eval_cfg.val_names = []
-        eval_cfg.test_names = [name]
-        eval_cfg.slam = slam
+        cfg = base_cfg.copy()
+        assert isinstance(cfg, Config)
+        cfg.log_dir = os.path.join(base_cfg.get_preproc_dir(), name)
+        os.makedirs(cfg.log_dir, exist_ok=True)
+        cfg.model_class = 'BaseModel'
+        cfg.model_state_dict = ''
+        cfg.ros_master_port = base_cfg.ros_master_port + i_exp
+        print('Port: %i' % cfg.ros_master_port)
+
+        cfg.train_names = []
+        cfg.val_names = []
+        cfg.test_names = [name]
+        cfg.slam = slam
         # CSV files will be generated (for all slams and losses).
-        eval_cfg.slam_eval_csv = slam_eval_csv(eval_cfg.log_dir, slam, 'test')
-        os.makedirs(os.path.dirname(eval_cfg.slam_eval_csv), exist_ok=True)
+        # eval_cfg.slam_eval_csv = slam_eval_csv(eval_cfg.log_dir, slam, 'test')
+        cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam)
+        os.makedirs(os.path.dirname(cfg.slam_eval_csv), exist_ok=True)
 
         # Output bag files from evaluation.
-        eval_cfg.slam_eval_bag = slam_eval_bag(eval_cfg.log_dir, slam)
-        os.makedirs(os.path.dirname(eval_cfg.slam_eval_bag), exist_ok=True)
+        cfg.slam_eval_bag = slam_eval_bag(cfg.log_dir, slam)
+        os.makedirs(os.path.dirname(cfg.slam_eval_bag), exist_ok=True)
 
         # Output SLAM poses to structure within log dir.
-        eval_cfg.slam_poses_csv = slam_poses_csv(base_cfg.log_dir, name, slam)
-        os.makedirs(os.path.dirname(eval_cfg.slam_poses_csv), exist_ok=True)
+        cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, None, slam)
+        os.makedirs(os.path.dirname(cfg.slam_poses_csv), exist_ok=True)
+
+        # Save config for debug and possibly for scheduling (via launch_prefix).
+        cfg_path = os.path.join(cfg.log_dir, 'slam_eval_%s.yaml' % slam)
+        if os.path.exists(cfg_path):
+            print('Skipping existing config %s.' % cfg_path)
+            continue
+        cfg.to_yaml(cfg_path)
 
         if base_cfg.launch_prefix:
-            # Save config and schedule batch job (via launch_prefix).
-            # cfg_path = os.path.join(cfg.log_dir, name, 'slam_eval_%s.yaml' % slam)
-            cfg_path = os.path.join(eval_cfg.log_dir, 'slam_eval_%s.yaml' % slam)
-            if os.path.exists(cfg_path):
-                print('Skipping existing config %s.' % cfg_path)
-                continue
-            eval_cfg.to_yaml(cfg_path)
-            launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam).split(' ')
-            cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'loss_and_slam_all']
+            launch_prefix = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam)
+            launch_prefix = launch_prefix.split(' ')
+            cmd = launch_prefix + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'eval_slam']
             print('Command line:', cmd)
+            print('Log dir:', cfg.log_dir)
             print()
             out, err = cmd_out(cmd)
             print('Output:', out)
@@ -142,7 +158,81 @@ def eval_baselines(base_cfg: Config=None):
         else:
             # Avoid using ROS in global namespace to allow using scheduler.
             from .eval import eval_slam
-            eval_slam(cfg=eval_cfg)
+            eval_slam(cfg=cfg)
+
+
+def eval_loss_baselines(base_cfg: Config=None):
+    """Evaluate loss baselines (without depth correction).
+
+    Generate config for each (sequence, loss) pair and evaluate given config.
+
+    Log directory for both inputs and outputs:
+        <out_dir>/<preproc>/<sequence>
+    Inputs:
+        <log_dir>/loss_eval_<loss>.yaml
+    Outputs:
+        <log_dir>/loss_eval_<loss>.csv
+
+    :param base_cfg: Config with common parameters.
+    """
+
+    imported_module = importlib.import_module("data.%s" % base_cfg.dataset)
+    dataset_names = getattr(imported_module, "dataset_names")
+    ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
+
+    base_cfg.log_dir = base_cfg.get_log_dir()
+
+    # Generate SLAM poses as well.
+    for i_exp, (name, loss) in enumerate(product(ds, Loss)):
+
+        if base_cfg.launch_prefix and i_exp >= base_cfg.num_jobs:
+            print('Maximum number of jobs scheduled.')
+            break
+
+        print()
+        print('Generating config...')
+        print('Dataset: %s' % name)
+        print('Loss: %s' % loss)
+
+        cfg = base_cfg.copy()
+        assert isinstance(cfg, Config)
+        cfg.log_dir = os.path.join(base_cfg.get_preproc_dir(), name)
+        os.makedirs(cfg.log_dir, exist_ok=True)
+        cfg.model_class = 'BaseModel'
+        cfg.model_state_dict = ''
+        cfg.ros_master_port = base_cfg.ros_master_port + i_exp
+        print('Port: %i' % cfg.ros_master_port)
+
+        cfg.train_names = []
+        cfg.val_names = []
+        cfg.test_names = [name]
+        cfg.loss = loss
+        cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss)
+        os.makedirs(os.path.dirname(cfg.loss_eval_csv), exist_ok=True)
+
+        # Save config for debug and possibly for scheduling (via launch_prefix).
+        cfg_path = os.path.join(cfg.log_dir, 'loss_eval_{loss}.yaml'.format(loss=loss))
+        if os.path.exists(cfg_path):
+            print('Skipping existing config %s.' % cfg_path)
+            continue
+        cfg.to_yaml(cfg_path)
+
+        if base_cfg.launch_prefix:
+            launch_prefix = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, loss=loss)
+            launch_prefix = launch_prefix.split(' ')
+            cmd = launch_prefix + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'eval_loss']
+            print('Command line:', cmd)
+            print('Log dir:', cfg.log_dir)
+            print()
+            out, err = cmd_out(cmd)
+            print('Output:', out)
+            print('Error:', err)
+            print()
+
+        else:
+            # Avoid using ROS in global namespace to allow using scheduler.
+            from .eval import eval_loss
+            eval_loss(cfg=cfg)
 
 
 def eval_baselines_all(base_cfg: Config=None):
@@ -168,8 +258,6 @@ def eval_baselines_all(base_cfg: Config=None):
 
         eval_cfg = base_cfg.copy()
         assert isinstance(eval_cfg, Config)
-        eval_cfg.log_dir = eval_cfg.get_log_dir()
-        os.makedirs(eval_cfg.log_dir, exist_ok=True)
         eval_cfg.model_class = 'BaseModel'
         eval_cfg.model_state_dict = ''
         eval_cfg.ros_master_port = port
@@ -394,7 +482,11 @@ def run_from_cmdline():
 
     verb = args.args[0]
     arg = args.args[1] if len(args.args) >= 2 else None
-    if verb == 'eval_baselines':
+    if verb == 'eval_loss_baselines':
+        eval_loss_baselines(cmd_cfg)
+    elif verb == 'eval_slam_baselines':
+        eval_slam_baselines(cmd_cfg)
+    elif verb == 'eval_baselines':
         # eval_baselines(cmd_cfg)
         eval_baselines_all(cmd_cfg)
     elif verb == 'train_and_eval_all':

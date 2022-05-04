@@ -12,10 +12,10 @@
     <arg name="cloud" default="cloud"/>
     <arg name="lidar_frame" default="lidar"/>
     <arg name="odom_frame" default="odom" doc="Odometry frame, leave empty for no odometry."/>
-    <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"
-         doc="Odometry covariance diagonal, Euler angles and translation variances."/>
-<!--    <arg name="odom_cov" default="[0.0001, 0.0001, 0.0001, 0.0025, 0.0025, 0.0025]"-->
+<!--    <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"-->
 <!--         doc="Odometry covariance diagonal, Euler angles and translation variances."/>-->
+    <arg name="odom_cov" default="[0.0001, 0.0001, 0.0001, 0.0025, 0.0025, 0.0025]"
+         doc="Odometry covariance diagonal, Euler angles and translation variances."/>
     <arg name="slam_eval_csv" default="slam_eval.csv"/>
     <arg name="slam_poses_csv" default="slam_poses.csv"/>
     <arg name="required" default="true"/>

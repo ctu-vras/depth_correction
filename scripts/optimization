@@ -7,7 +7,10 @@ import numpy as np
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.loss import min_eigval_loss, trace_loss, l2_loss
 from depth_correction.model import ScaledPolynomial, Polynomial
-from depth_correction.filters import filter_eigenvalues
+from depth_correction.filters import filter_eigenvalues, filter_grid
+from depth_correction.preproc import filtered_cloud, local_feature_cloud
+from depth_correction.config import Config
+from data.semantic_kitti import Dataset
 import rospy
 from sensor_msgs.msg import PointCloud2
 from ros_numpy import msgify
@@ -16,6 +19,7 @@ import time
 import os
 from matplotlib import cm
 from copy import deepcopy
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 
 
 class Optimization(object):
@@ -32,14 +36,16 @@ class Optimization(object):
         self.vis = rospy.get_param('~plots', True)
         self.vis_clouds = rospy.get_param('~visualize_clouds', True)
         self.lr = rospy.get_param('~lr', 0.001)
-        self.name = rospy.get_param('~env_type', 'angle')
+        self.env_type = rospy.get_param('~env_type', 'simple_cave_01')
         self.n_pts = rospy.get_param('~n_pts', 100000)
         self.n_vps = rospy.get_param('~n_vps', 4)
         self.env_size = rospy.get_param('~env_size', 20)
-        self.disturb = {'p0': rospy.get_param('~p0_disturb', -0.03),
-                        'p1': rospy.get_param('~p1_disturb', 0.0)}
+        self.distor = {'p0': rospy.get_param('~p0_distor', -0.03),
+                       'p1': rospy.get_param('~p1_distor', 0.0)}
         self.angle_degrees = rospy.get_param('~angle_degrees', 0.0)
         self.mesh_pts_to_sample = rospy.get_param('~pts_sampled_from_mesh', 10_000_000)
+        self.cfg = Config()
+        self.cfg.from_yaml(os.path.join(os.path.dirname(__file__), '..', 'config/gen/baseline_params.yaml'))
         if rospy.get_param('~monotonous_model', True):
             self.optimizer = torch.optim.Adam([self.model.p0], lr=self.lr)
         else:
@@ -49,22 +55,19 @@ class Optimization(object):
         #                           [1, (self.r_nn / 4) ** 2, None]]
         self.eigenvalue_bounds = []
         self.l2_reg_weight = rospy.get_param('~l2_reg_weight', 0.0)
-        self.dc_init, \
-        self.pts_gt, \
-        self.vps, \
-        self.dc_offset = self.create_environment()
+        if self.env_type == 'kitti':
+            self.dc_init, self.pts_gt, self.vps, self.dc_offset = self.create_environment_from_kitti()
+        else:
+            self.dc_init, self.pts_gt, self.vps, self.dc_offset = self.create_environment()
 
-        self.dc_init = self.add_disturbance(self.dc_init, p0=self.disturb['p0'], p1=self.disturb['p1'])
-        self.dc_init.update_all(r=self.r_nn)
-
-        self.dc_init.mask = filter_eigenvalues(self.dc_init, eig_bounds=self.eigenvalue_bounds, only_mask=True, log=True)
         self.dc_init = self.dc_init.detach()
 
     @staticmethod
-    def dc_to_msg(dc, stamp, frame='map'):
+    def dc_to_msg(dc, stamp, frame='map', grid_res=0.5):
         # # colors = dc.eigvals.detach()[:, 0]
         # colors = dc.mask
         # cloud = DepthCloud.to_structured_array(dc, colors=dc.get_colors(colors, colormap=cm.viridis))
+        dc = filter_grid(dc, grid_res=grid_res, keep='first')
         cloud = DepthCloud.to_structured_array(dc)
         pc_msg = msgify(PointCloud2, cloud)
         pc_msg.header.frame_id = frame
@@ -72,7 +75,7 @@ class Optimization(object):
         return pc_msg
 
     @staticmethod
-    def add_disturbance(dc, p0=-0.03, p1=0.0):
+    def add_distortion(dc, p0=-0.03, p1=0.0):
         gama = dc.inc_angles
         dc.depth = dc.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
         return dc
@@ -132,44 +135,76 @@ class Optimization(object):
         rospy.loginfo('Number of points sampled and filtered from mesh: %d' % n_pts)
         return pts_gt
 
+    def create_environment_from_kitti(self, name='09_start_311_end_313_step_1'):
+        ds = Dataset(name)
+
+        dcs_list = []
+        vps_list = []
+        poses = []
+        for pts, pose in ds:
+            dc = filtered_cloud(pts, self.cfg)
+            dc = local_feature_cloud(dc, self.cfg)
+            dcs_list.append(dc)
+            poses.append(torch.as_tensor(pose))
+            vps_list.append(pose[:3, 3])
+
+        dcs_transformed_list = []
+        for i, dc1 in enumerate(dcs_list):
+            dc1 = dc1.transform(poses[i])
+            dc1.update_all(r=self.r_nn)
+
+            dcs_transformed_list.append(dc1)
+        dc = DepthCloud.concatenate(dcs_transformed_list, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=False)
+        dc_offset = dc.copy()
+        dc.update_all(r=self.r_nn)
+
+        pts_gt = None
+
+        return dc, pts_gt, vps_list, dc_offset
+
     def create_environment(self):
-        if self.name == 'angle':
-            pts_gt = self.angle_point_cloud(n_pts=self.n_pts, size=self.env_size,
-                                            degrees=self.angle_degrees)
+        if self.env_type == 'angle':
+            pts = self.angle_point_cloud(n_pts=self.n_pts, size=self.env_size,
+                                         degrees=self.angle_degrees)
         else:
-            pts_gt = self.point_cloud_from_mesh(mesh_name=self.name, size=self.env_size,
-                                                pts_to_sample=self.mesh_pts_to_sample)
-        pts = []
-        dcs = []
-        vps = []
-        # np.random.seed(135)
+            pts = self.point_cloud_from_mesh(mesh_name=self.env_type, size=self.env_size,
+                                             pts_to_sample=self.mesh_pts_to_sample)
+            self.n_pts = len(pts)
+        dcs_list = []
+        pts_list = []
+        vps_list = []
+        np.random.seed(135)
         for n in range(self.n_vps):
-            pts1 = pts_gt[np.random.choice(range(self.n_pts), self.n_pts // self.n_vps)]
+            pts1 = pts[np.random.choice(range(self.n_pts), self.n_pts // self.n_vps)]
 
             vps1 = deepcopy(pts1[np.random.choice(range(len(pts1)))])
             vps1[2] += np.random.uniform(0.1, 2.)
-            vps1 = vps1 + np.zeros_like(pts1)
-            assert vps1.shape == pts1.shape
 
-            dc1 = DepthCloud.from_points(pts1, vps=vps1)
+            dc1 = DepthCloud.from_points(pts1, vps=vps1 + np.zeros_like(pts1))
             dc1.update_all(r=self.r_nn)
 
-            pts.append(pts1)
-            vps.append(vps1)
-            dcs.append(dc1)
+            pts_list.append(pts1)
+            vps_list.append(vps1)
+            dcs_list.append(dc1)
 
-        dc = DepthCloud.concatenate(dcs, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=False)
+        pts = np.concatenate(pts_list, axis=0)
+        dc = DepthCloud.concatenate(dcs_list, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=False)
+
         dc_offset = dc.copy()
-
         dc.update_all(r=self.r_nn)
 
-        return dc, pts, vps, dc_offset
+        dc = self.add_distortion(dc, p0=self.distor['p0'], p1=self.distor['p1'])
+        dc.update_all(r=self.r_nn)
+
+        dc.mask = filter_eigenvalues(dc, eig_bounds=self.eigenvalue_bounds, only_mask=True, log=True)
+
+        return dc, pts, vps_list, dc_offset
 
     def run(self):
         plt.figure()
         losses = []
         l2_metrics = []
-        train_neighbors = self.dc_init.neighbors, self.dc_init.weights
+        train_neighbors = deepcopy((self.dc_init.neighbors, self.dc_init.weights))
 
         while True:
             if rospy.is_shutdown():
@@ -200,15 +235,13 @@ class Optimization(object):
             rospy.loginfo('%s = %g' % (rospy.get_param('~loss_fun', 'loss'), loss.item()))
             rospy.logdebug('Model parameters: p0=%f, p1=%f', self.model.p0.item(), self.model.p1.item())
 
-            l2_metric = 0.0
-            for i, pts in enumerate(self.pts_gt):
-                n = pts.shape[0]
-                l2_metric += torch.linalg.norm(dc.points.detach()[i * n:(i + 1) * n, :] - pts) / n
-            l2_metric /= len(self.pts_gt)
-            l2_metrics.append(l2_metric)
-            rospy.logdebug('L2 difference from ground truth: %g' % l2_metric)
+            if self.pts_gt is not None:
+                l2_metric = torch.linalg.norm(dc.points.detach() - self.pts_gt) / len(self.pts_gt)
+                l2_metrics.append(l2_metric)
+                rospy.logdebug('L2 difference from ground truth: %g' % l2_metric)
 
             # publish point cloud msgs
+            t0 = time.time()
             stamp = rospy.Time.now()
             pc_init_msg = self.dc_to_msg(self.dc_init, stamp=stamp, frame='map')
             pc_msg = self.dc_to_msg(dc, stamp=stamp, frame='map')
@@ -217,15 +250,18 @@ class Optimization(object):
 
             # publish viewpoints
             for i, vp in enumerate(self.vps):
-                vp = vp[0]
                 self.br.sendTransform((vp[0], vp[1], vp[2]), (0, 0, 0, 1), time=stamp, child="vp_%d" % i, parent="map")
+            rospy.logdebug('Data publishing took %.3f sec' % (time.time() - t0))
 
             # visualization
             if self.vis:
-                self.visualize(l2_metrics, losses, dc)
+                t0 = time.time()
+                self.visualize(l2_metrics, losses, dc, map_step=8)
+                rospy.logdebug('Visualization took: %.3f' % (time.time() - t0))
 
-    def visualize(self, l2_metrics, losses, dc):
-        t0 = time.time()
+    def visualize(self, l2_metrics, losses, dc, map_step=1):
+        np.random.seed(135)
+
         plt.subplot(2, 2, 1)
         plt.cla()
         plt.plot(l2_metrics)
@@ -237,41 +273,60 @@ class Optimization(object):
         plt.cla()
         plt.plot(losses)
         plt.grid()
-        plt.ylabel(rospy.get_param('~loss_fun', 'loss'))
+        plt.ylabel(rospy.get_param('~loss_fun', 'loss') + '+ l2_regularization')
         plt.xlabel('time, iters')
 
         if self.vis_clouds:
             plt.subplot(2, 2, 3)
             plt.cla()
-            plt.plot(self.pts_gt[0][:, 1], self.pts_gt[0][:, 2], '.', label='Z gt 1')
-            if len(self.pts_gt) > 1:
-                plt.plot(self.pts_gt[1][:, 1], self.pts_gt[1][:, 2], '.', label='Z gt 2')
-            plt.plot(self.dc_init.points.detach().squeeze()[:, 1],
-                     self.dc_init.points.detach().squeeze()[:, 2], '.', label='Z initial', color='r')
-            plt.plot(dc.points.detach().squeeze()[:, 1],
-                     dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+
+            pts_to_plot = self.dc_init.points.detach().squeeze()
+            idxs = np.random.choice(range(len(pts_to_plot)), len(pts_to_plot) // map_step)
+            pts_to_plot = pts_to_plot[idxs]
+            plt.plot(pts_to_plot[:, 1], pts_to_plot[:, 2], '.', label='Z initial', color='r')
+
+            if self.pts_gt is not None:
+                pts_to_plot = self.pts_gt
+                pts_to_plot = pts_to_plot[idxs]
+                plt.plot(pts_to_plot[:, 1], pts_to_plot[:, 2], '.', label='Z gt')
+
+            pts_to_plot = dc.points.detach().squeeze()
+            pts_to_plot = pts_to_plot[idxs]
+            plt.plot(pts_to_plot[:, 1], pts_to_plot[:, 2], '.', label='Z corrected', color='g')
+
             plt.grid()
             plt.ylabel('Z, [m]')
             plt.xlabel('Y, [m]')
             plt.legend()
+            if self.env_type == 'kitti':
+                plt.axis('equal')
 
             plt.subplot(2, 2, 4)
             plt.cla()
-            plt.plot(self.pts_gt[0][:, 0], self.pts_gt[0][:, 2], '.', label='Z gt 1')
-            if len(self.pts_gt) > 1:
-                plt.plot(self.pts_gt[1][:, 0], self.pts_gt[1][:, 2], '.', label='Z gt 2')
-            plt.plot(self.dc_init.points.detach().squeeze()[:, 0],
-                     self.dc_init.points.detach().squeeze()[:, 2], '.', label='Z initial', color='r')
-            plt.plot(dc.points.detach().squeeze()[:, 0],
-                     dc.points.detach().squeeze()[:, 2], '.', label='Z corrected', color='g')
+
+            pts_to_plot = self.dc_init.points.detach().squeeze()
+            idxs = np.random.choice(range(len(pts_to_plot)), len(pts_to_plot) // map_step)
+            pts_to_plot = pts_to_plot[idxs]
+            plt.plot(pts_to_plot[:, 0], pts_to_plot[:, 2], '.', label='Z initial', color='r')
+
+            if self.pts_gt is not None:
+                pts_to_plot = self.pts_gt
+                pts_to_plot = pts_to_plot[idxs]
+                plt.plot(pts_to_plot[:, 0], pts_to_plot[:, 2], '.', label='Z gt')
+
+            pts_to_plot = dc.points.detach().squeeze()
+            pts_to_plot = pts_to_plot[idxs]
+            plt.plot(pts_to_plot[:, 0], pts_to_plot[:, 2], '.', label='Z corrected', color='g')
+
             plt.grid()
             plt.ylabel('Z, [m]')
             plt.xlabel('X, [m]')
             plt.legend()
+            if self.env_type == 'kitti':
+                plt.axis('equal')
 
         plt.draw()
         plt.pause(0.01)
-        rospy.logdebug('Visualization took: %.3f' % (time.time() - t0))
 
 
 def main():

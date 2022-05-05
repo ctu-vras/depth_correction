@@ -261,13 +261,6 @@ def train_and_eval_all(base_cfg: Config=None):
         cfg.ros_master_port = base_cfg.ros_master_port + i_exp
         print('Port: %i' % cfg.ros_master_port)
 
-        # Allow correction of individual pose if poses are provided by SLAM.
-        if pose_provider != PoseProvider.ground_truth:
-            cfg.train_poses_path = [slam_poses_csv(cfg.log_dir, name, pose_provider) for name in train_names]
-            cfg.val_poses_path = [slam_poses_csv(cfg.log_dir, name, pose_provider) for name in val_names]
-            cfg.test_poses_path = [slam_poses_csv(cfg.log_dir, name, pose_provider) for name in test_names]
-            cfg.pose_correction = PoseCorrection.pose
-
         cfg.pose_provider = pose_provider
         cfg.model_class = model
         cfg.loss = loss
@@ -277,6 +270,13 @@ def train_and_eval_all(base_cfg: Config=None):
         cfg.log_dir = os.path.join(cfg.get_exp_dir(), 'split_%i' % i_split)
         print('Log dir: %s' % cfg.log_dir)
         os.makedirs(cfg.log_dir, exist_ok=True)
+
+        # Allow correction of individual pose if poses are provided by SLAM.
+        if cfg.pose_provider != PoseProvider.ground_truth:
+            cfg.train_poses_path = [slam_poses_csv(cfg.log_dir, name, cfg.pose_provider) for name in cfg.train_names]
+            cfg.val_poses_path = [slam_poses_csv(cfg.log_dir, name, cfg.pose_provider) for name in cfg.val_names]
+            cfg.test_poses_path = [slam_poses_csv(cfg.log_dir, name, cfg.pose_provider) for name in cfg.test_names]
+            cfg.pose_correction = PoseCorrection.pose
 
         if base_cfg.launch_prefix:
             # Save config and schedule batch job (via launch_prefix).
@@ -375,13 +375,7 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
             eval_slam_all(cfg)
 
 
-def run_all():
-    eval_loss_baselines()
-    eval_slam_baselines()
-    train_and_eval_all()
-
-
-def run_from_cmdline():
+def main():
     argv = sys.argv[1:]
     print('Command-line arguments:')
     for arg in argv:
@@ -411,9 +405,6 @@ def run_from_cmdline():
         eval_loss_baselines(cmd_cfg)
     elif verb == 'eval_slam_baselines':
         eval_slam_baselines(cmd_cfg)
-    elif verb == 'eval_baselines':
-        # eval_baselines(cmd_cfg)
-        eval_baselines_all(cmd_cfg)
     elif verb == 'train_and_eval_all':
         train_and_eval_all(cmd_cfg)
     elif verb == 'eval':
@@ -423,10 +414,6 @@ def run_from_cmdline():
     elif verb == 'print_config':
         print(Config().to_yaml())
         print()
-
-
-def main():
-    run_from_cmdline()
 
 
 if __name__ == '__main__':

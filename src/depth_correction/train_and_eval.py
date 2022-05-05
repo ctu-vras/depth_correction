@@ -11,7 +11,7 @@ def train_and_eval(cfg: Config):
     eval_slam_all(best_cfg)
 
 
-def run_from_cmdline():
+def main():
     parser = ArgumentParser()
     parser.add_argument('--config', '-c', type=str, required=True)
     args = parser.parse_args()
@@ -24,10 +24,6 @@ def run_from_cmdline():
     print('Training and evaluating...')
     train_and_eval(cfg)
     print('Training and evaluating finished.')
-
-
-def main():
-    run_from_cmdline()
 
 
 if __name__ == '__main__':

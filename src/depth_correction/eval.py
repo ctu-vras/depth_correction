@@ -80,7 +80,7 @@ def eval_loss_all(cfg: Config):
             eval_cfg.val_poses_path = []
             eval_cfg.test_poses_path = []
             eval_cfg.loss = loss
-            eval_cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss)
+            eval_cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss, suffix)
             eval_loss(cfg=eval_cfg)
 
 
@@ -159,10 +159,11 @@ def eval_slam_all(cfg: Config):
             # eval_cfg.slam_eval_bag = slam_eval_bag(cfg.log_dir, slam)
             eval_cfg.slam_eval_bag = None  # Don't record for now.
             eval_cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam, suffix)
-            if len(names) == 1:
-                eval_cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, names[0], slam)
-            else:
-                eval_cfg.slam_poses_csv = None
+            # if len(names) == 1:
+            #     eval_cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, names[0], slam)
+            # else:
+            #     eval_cfg.slam_poses_csv = None
+            eval_cfg.slam_poses_csv = None
             eval_slam(cfg=eval_cfg)
 
 

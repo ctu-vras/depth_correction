@@ -253,7 +253,7 @@ def train_and_eval_all(base_cfg: Config=None):
 
         print('Generating config...')
         print('Pose provider: %s' % pose_provider)
-        print('Dataset: %s' % base_cfg.dataset)
+        print('Dataset: %s' % cfg.dataset)
         print('Model: %s' % model)
         print('Loss: %s' % loss)
         print('Split: %i' % i_split)

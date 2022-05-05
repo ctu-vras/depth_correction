@@ -273,9 +273,9 @@ def train_and_eval_all(base_cfg: Config=None):
 
         # Allow correction of individual pose if poses are provided by SLAM.
         if cfg.pose_provider != PoseProvider.ground_truth:
-            cfg.train_poses_path = [slam_poses_csv(cfg.log_dir, name, cfg.pose_provider) for name in cfg.train_names]
-            cfg.val_poses_path = [slam_poses_csv(cfg.log_dir, name, cfg.pose_provider) for name in cfg.val_names]
-            cfg.test_poses_path = [slam_poses_csv(cfg.log_dir, name, cfg.pose_provider) for name in cfg.test_names]
+            cfg.train_poses_path = [slam_poses_csv(base_cfg.log_dir, name, cfg.pose_provider) for name in cfg.train_names]
+            cfg.val_poses_path = [slam_poses_csv(base_cfg.log_dir, name, cfg.pose_provider) for name in cfg.val_names]
+            cfg.test_poses_path = [slam_poses_csv(base_cfg.log_dir, name, cfg.pose_provider) for name in cfg.test_names]
             cfg.pose_correction = PoseCorrection.pose
 
         if base_cfg.launch_prefix:

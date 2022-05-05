@@ -31,10 +31,6 @@
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"/>
     <arg name="model_class" default="BaseModel"/>
     <arg name="model_state_dict" default=""/>
-    <!--
-    <arg name="model_class" default="ScaledPolynomial"/>
-    <arg name="model_state_dict" value="$(dirname)/../config/weights/ScaledPolynomial.pth"/>
-    -->
 
     <group if="$(eval play)">
         <param name="use_sim_time" value="true"/>

@@ -1,10 +1,8 @@
 from __future__ import absolute_import, division, print_function
 from .configurable import Configurable, ValueEnum
 from datetime import datetime
-from math import radians
-import numpy as np
+from math import radians, isfinite
 import os
-import torch
 import yaml
 
 __all__ = [
@@ -18,7 +16,7 @@ __all__ = [
 
 
 def fix_bounds(bounds):
-    bounds = [float(x) if x is not None and np.isfinite(x) else float('nan') for x in bounds]
+    bounds = [float(x) if x is not None and isfinite(x) else float('nan') for x in bounds]
     return bounds
 
 
@@ -204,7 +202,7 @@ class Config(Configurable):
         self.slam_poses_csv = None
         # Testing
         self.eval_losses = list(Loss)
-        self.eval_slams = [SLAM.norlab_icp_mapper]
+        self.eval_slams = list(SLAM)
 
         self.log_filters = False
         self.show_results = False
@@ -216,9 +214,11 @@ class Config(Configurable):
         self.from_dict(kwargs)
 
     def numpy_float_type(self):
+        import numpy as np
         return getattr(np, self.float_type)
 
     def torch_float_type(self):
+        import torch
         return getattr(torch, self.float_type)
 
     def sanitize(self):

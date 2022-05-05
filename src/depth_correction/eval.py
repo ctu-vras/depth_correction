@@ -121,7 +121,8 @@ def eval_slam(cfg: Config):
 
         keys_from_cfg = ['min_depth', 'max_depth', 'grid_res',
                          'nn_k', 'nn_r', 'shadow_neighborhood_angle', 'shadow_angle_bounds', 'eigenvalue_bounds',
-                         'model_class', 'model_state_dict', 'slam', 'slam_eval_csv', 'slam_poses_csv', 'rviz']
+                         'model_class', 'model_state_dict', 'slam', 'slam_eval_bag', 'slam_eval_csv', 'slam_poses_csv',
+                         'rviz']
         cfg_args = cfg.to_roslaunch_args(keys=keys_from_cfg)
         cli_args += cfg_args
 
@@ -157,13 +158,13 @@ def eval_slam_all(cfg: Config):
             eval_cfg.test_poses_path = []
             eval_cfg.slam = slam
             # eval_cfg.slam_eval_bag = slam_eval_bag(cfg.log_dir, slam)
-            eval_cfg.slam_eval_bag = None  # Don't record for now.
+            eval_cfg.slam_eval_bag = ''  # Don't record for now.
             eval_cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam, suffix)
             # if len(names) == 1:
             #     eval_cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, names[0], slam)
             # else:
             #     eval_cfg.slam_poses_csv = None
-            eval_cfg.slam_poses_csv = None
+            eval_cfg.slam_poses_csv = ''
             eval_slam(cfg=eval_cfg)
 
 

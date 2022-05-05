@@ -190,6 +190,7 @@ class DepthCloud(object):
         assert self.points is not None
         self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
         self.weights = (self.neighbors >= 0).float()[..., None]
+        self.neighbor_points = None
         # TODO: Add singleton dim where used.
 
     def update_dir_neighbors(self, k=None, r=None, angle=None):

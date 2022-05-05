@@ -80,7 +80,7 @@ def eval_loss_all(cfg: Config):
             eval_cfg.val_poses_path = []
             eval_cfg.test_poses_path = []
             eval_cfg.loss = loss
-            eval_cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss)
+            eval_cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss, suffix)
             eval_loss(cfg=eval_cfg)
 
 
@@ -114,14 +114,12 @@ def eval_slam(cfg: Config):
         if cfg.slam_eval_bag:
             cli_args.append('record:=true')
             cli_args.append('bag:=%s' % cfg.slam_eval_bag.format(name=name.replace('/', '_')))
-        if cfg.model_class != 'BaseModel':
-            cli_args.append('depth_correction:=true')
-        else:
-            cli_args.append('depth_correction:=false')
+        cli_args.append('depth_correction:=true')
 
         keys_from_cfg = ['min_depth', 'max_depth', 'grid_res',
                          'nn_k', 'nn_r', 'shadow_neighborhood_angle', 'shadow_angle_bounds', 'eigenvalue_bounds',
-                         'model_class', 'model_state_dict', 'slam', 'slam_eval_csv', 'slam_poses_csv', 'rviz']
+                         'model_class', 'model_state_dict', 'slam', 'slam_eval_bag', 'slam_eval_csv', 'slam_poses_csv',
+                         'rviz']
         cfg_args = cfg.to_roslaunch_args(keys=keys_from_cfg)
         cli_args += cfg_args
 
@@ -134,7 +132,6 @@ def eval_slam(cfg: Config):
         if cfg.ros_master_port:
             launch_kwargs['port'] = cfg.ros_master_port
         parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, **launch_kwargs)
-        # parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, verbose=True, force_log=True)
         parent.start()
         parent.spin()
         print('SLAM evaluation on %s finished.' % name)
@@ -157,12 +154,13 @@ def eval_slam_all(cfg: Config):
             eval_cfg.test_poses_path = []
             eval_cfg.slam = slam
             # eval_cfg.slam_eval_bag = slam_eval_bag(cfg.log_dir, slam)
-            eval_cfg.slam_eval_bag = None  # Don't record for now.
+            eval_cfg.slam_eval_bag = ''  # Don't record for now.
             eval_cfg.slam_eval_csv = slam_eval_csv(cfg.log_dir, slam, suffix)
-            if len(names) == 1:
-                eval_cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, names[0], slam)
-            else:
-                eval_cfg.slam_poses_csv = None
+            # if len(names) == 1:
+            #     eval_cfg.slam_poses_csv = slam_poses_csv(cfg.log_dir, names[0], slam)
+            # else:
+            #     eval_cfg.slam_poses_csv = None
+            eval_cfg.slam_poses_csv = ''
             eval_slam(cfg=eval_cfg)
 
 

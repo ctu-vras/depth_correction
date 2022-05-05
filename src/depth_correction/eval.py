@@ -114,10 +114,7 @@ def eval_slam(cfg: Config):
         if cfg.slam_eval_bag:
             cli_args.append('record:=true')
             cli_args.append('bag:=%s' % cfg.slam_eval_bag.format(name=name.replace('/', '_')))
-        if cfg.model_class != 'BaseModel':
-            cli_args.append('depth_correction:=true')
-        else:
-            cli_args.append('depth_correction:=false')
+        cli_args.append('depth_correction:=true')
 
         keys_from_cfg = ['min_depth', 'max_depth', 'grid_res',
                          'nn_k', 'nn_r', 'shadow_neighborhood_angle', 'shadow_angle_bounds', 'eigenvalue_bounds',

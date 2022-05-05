@@ -33,8 +33,6 @@ def load_model(class_name: str=None,
     if isinstance(state_dict, str) and state_dict:
         print('Loading model state from %s.' % state_dict)
         state_dict = torch.load(state_dict)
-    # elif state_dict:
-    #     print('Using provided state.')
 
     if isinstance(device, str):
         device = torch.device(device)
@@ -43,7 +41,6 @@ def load_model(class_name: str=None,
     model = Class()
     assert isinstance(model, BaseModel)
 
-    # if state_dict is not None:
     if state_dict:
         model.load_state_dict(state_dict)
     print('Using model: %s.' % model)

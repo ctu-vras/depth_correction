@@ -33,6 +33,7 @@
             period: $(arg period)
             delay_start: $(arg delay_start)
             delay_end: $(arg delay_end)
+            timeout: 10.0
             lidar_frame: '$(arg lidar_frame)'
             odom_frame: '$(arg odom_frame)'
             odom:

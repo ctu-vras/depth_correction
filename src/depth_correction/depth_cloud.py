@@ -345,24 +345,25 @@ class DepthCloud(object):
 
     def compute_eig(self, invalid=0.0):
         assert self.cov is not None
-        # TODO: Switch to a faster cuda eigh implementation.
-        # Use faster cpu eigh implementation.
+        # TODO: Switch to a faster cuda eigh/svd implementation once available.
+        # For now, use faster cpu eigh/svd implementation.
+        # https://github.com/pytorch/pytorch/issues/41306
+        # https://github.com/pytorch/pytorch/issues/69528
         # device = self.cov.device
         device = torch.device('cpu')
+        cov = self.cov.to(device)
         try:
-            eigvals, eigvecs = torch.linalg.eigh(self.cov.to(device))
+            eigvals, eigvecs = torch.linalg.eigh(cov)
+            # eigvecs, eigvals, _ = torch.linalg.svd(cov)
+            # eigvecs = torch.flip(eigvecs, dims=[2])
+            # eigvals = torch.flip(eigvals, dims=[1])
         except RuntimeError as ex:
             # https://github.com/pytorch/pytorch/issues/28293
-            noise = 1e-6 * torch.rand_like(self.cov.to(device))
-            eigvals, eigvecs = torch.linalg.eigh(self.cov.to(device) + noise)
-        return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
-
-        # # Degenerate cov matrices must be skipped to avoid exception.
-        # eigvals = torch.full([self.size(), 3], invalid, dtype=self.cov.dtype, device=device)
-        # eigvecs = torch.full([self.size(), 3, 3], invalid, dtype=self.cov.dtype, device=device)
-        # valid = self.weights.sum(dim=(-2, -1)).to(device) >= 3
-        # eigvals[valid], eigvecs[valid] = torch.linalg.eigh(self.cov.to(device)[valid])
-        # return eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
+            noise = 1e-6 * torch.rand_like(cov)
+            eigvals, eigvecs = torch.linalg.eigh(cov + noise)
+        # Move back to original device.
+        eigvals, eigvecs = eigvals.to(self.cov.device), eigvecs.to(self.cov.device)
+        return eigvals, eigvecs
 
     def update_eig(self):
         self.eigvals, self.eigvecs = self.compute_eig()

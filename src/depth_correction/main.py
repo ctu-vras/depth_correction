@@ -96,8 +96,6 @@ def eval_slam_baselines(base_cfg: Config=None):
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
 
-    base_cfg.log_dir = base_cfg.get_log_dir()
-
     # Generate SLAM poses as well.
     for i_exp, (name, slam) in enumerate(product(ds, SLAM)):
 
@@ -112,7 +110,7 @@ def eval_slam_baselines(base_cfg: Config=None):
 
         cfg = base_cfg.copy()
         assert isinstance(cfg, Config)
-        cfg.log_dir = os.path.join(base_cfg.get_preproc_dir(), name)
+        cfg.log_dir = os.path.join(cfg.get_preproc_dir(), name)
         print('Log dir:', cfg.log_dir)
         os.makedirs(cfg.log_dir, exist_ok=True)
         cfg.model_class = 'BaseModel'
@@ -179,8 +177,6 @@ def eval_loss_baselines(base_cfg: Config=None):
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
 
-    base_cfg.log_dir = base_cfg.get_log_dir()
-
     # Generate SLAM poses as well.
     for i_exp, (name, loss) in enumerate(product(ds, Loss)):
 
@@ -195,7 +191,7 @@ def eval_loss_baselines(base_cfg: Config=None):
 
         cfg = base_cfg.copy()
         assert isinstance(cfg, Config)
-        cfg.log_dir = os.path.join(base_cfg.get_preproc_dir(), name)
+        cfg.log_dir = os.path.join(cfg.get_preproc_dir(), name)
         print('Log dir:', cfg.log_dir)
         os.makedirs(cfg.log_dir, exist_ok=True)
         cfg.model_class = 'BaseModel'

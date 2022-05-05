@@ -344,9 +344,6 @@ class Config(Configurable):
         dir = os.path.join(self.get_preproc_dir(), self.get_exp_desc())
         return dir
 
-    # def get_log_dir(self):
-    #     return self.get_preproc_dir()
-
 
 def test():
     cfg = Config()

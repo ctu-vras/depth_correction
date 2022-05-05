@@ -15,9 +15,8 @@
 
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam subst_value="true">
-            model:
-                class: '$(arg model_class)'
-                state_dict: '$(arg model_state_dict)'
+            model_class: '$(arg model_class)'
+            model_state_dict: '$(arg model_state_dict)'
             device: '$(arg device)'
             float_type: float64
             max_age: 2.0

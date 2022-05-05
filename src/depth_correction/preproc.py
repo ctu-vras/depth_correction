@@ -26,11 +26,10 @@ def local_feature_cloud(cloud, cfg: Config):
     # Convert to depth cloud if needed.
     if isinstance(cloud, np.ndarray):
         if cloud.dtype.names:
-            cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type())
+            cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type(), device=cfg.device)
         else:
-            cloud = DepthCloud.from_points(cloud, dtype=cfg.numpy_float_type())
+            cloud = DepthCloud.from_points(cloud, dtype=cfg.numpy_float_type(), device=cfg.device)
     assert isinstance(cloud, DepthCloud)
-    cloud = cloud.to(device=cfg.device)
 
     # Remove shadow points.
     if cfg.shadow_angle_bounds:
@@ -43,7 +42,7 @@ def local_feature_cloud(cloud, cfg: Config):
     # Select planar regions to correct in prediction phase.
     if cfg.eigenvalue_bounds:
         if cloud.mask is None:
-            cloud.mask = torch.ones((len(cloud),), dtype=torch.bool)
+            cloud.mask = torch.ones((len(cloud),), dtype=torch.bool, device=cloud.device())
         cloud.mask = cloud.mask & filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
     return cloud
 

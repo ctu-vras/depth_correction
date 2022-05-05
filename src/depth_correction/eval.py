@@ -132,7 +132,6 @@ def eval_slam(cfg: Config):
         if cfg.ros_master_port:
             launch_kwargs['port'] = cfg.ros_master_port
         parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, **launch_kwargs)
-        # parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, verbose=True, force_log=True)
         parent.start()
         parent.spin()
         print('SLAM evaluation on %s finished.' % name)

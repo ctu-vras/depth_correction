@@ -621,8 +621,7 @@ class DepthCloud(object):
             pc_msg.header.stamp = stamp
         return pc_msg
 
-    def to(self, device=torch.device('cuda:0'), dtype=None, float_type=None, int_type=None):
-        # for f in DepthCloud.sliced_fields:
+    def to(self, device=None, dtype=None, float_type=None, int_type=None):
         for f in DepthCloud.all_fields:
             x = getattr(self, f)
             if x is not None:
@@ -632,8 +631,6 @@ class DepthCloud(object):
                     x_type = dtype or float_type or int_type
                 else:
                     x_type = None
-
-                # x_dtype =  dtype.is_floating_point == x.dtype.is_floating_point
                 x = x.to(device=device, dtype=x_type)
                 setattr(self, f, x)
         return self

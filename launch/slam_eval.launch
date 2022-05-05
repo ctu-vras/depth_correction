@@ -31,6 +31,7 @@
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"/>
     <arg name="model_class" default="BaseModel"/>
     <arg name="model_state_dict" default=""/>
+    <arg name="device" default="cpu"/>
 
     <group if="$(eval play)">
         <param name="use_sim_time" value="true"/>
@@ -71,6 +72,7 @@
             <arg name="eigenvalue_bounds" value="$(arg eigenvalue_bounds)"/>
             <arg name="model_class" value="$(arg model_class)"/>
             <arg name="model_state_dict" value="$(arg model_state_dict)"/>
+            <arg name="device" value="$(arg device)"/>
         </include>
         <include file="$(dirname)/slam.launch">
             <arg name="cloud" value="$(eval 'corrected_cloud' if depth_correction else 'filtered_cloud')"/>

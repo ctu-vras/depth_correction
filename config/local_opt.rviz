@@ -32,7 +32,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: Cloud
+    SyncSource: Corrected Cloud
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -83,7 +83,7 @@ Visualization Manager:
       Channel Name: z
       Class: rviz/PointCloud2
       Color: 239; 41; 41
-      Color Transformer: RGBF32
+      Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
@@ -104,16 +104,16 @@ Visualization Manager:
     - Alpha: 0.30000001192092896
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 4.5
-        Min Value: -0.5
-        Value: false
+        Max Value: 8.754964828491211
+        Min Value: -0.09883781522512436
+        Value: true
       Axis: Z
       Channel Name: z
       Class: rviz/PointCloud2
       Color: 25; 255; 0
-      Color Transformer: RGBF32
+      Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
@@ -128,7 +128,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 0.5
       Cell Size: 1
       Class: rviz/Grid
@@ -189,7 +189,7 @@ Visualization Manager:
       Position:
         X: 0
         Y: 28
-        Z: 1.2000000476837158
+        Z: 0
       Roll: 3.1415927410125732
       Target Frame: map
       Yaw: 1.5707963705062866

@@ -462,7 +462,7 @@ class DepthCloud(object):
 
     def to_structured_array(self, colors=None):
         pts = unstructured_to_structured(np.asarray(self.get_points().detach().cpu().numpy(), dtype=np.float32),
-                                         names=list('xyz'))
+                                         names=['x', 'y', 'z'])
         vps = unstructured_to_structured(np.asarray(self.vps.detach().cpu().numpy(), dtype=np.float32),
                                          names=['vp_%s' % f for f in 'xyz'])
         parts = [pts, vps]
@@ -470,6 +470,10 @@ class DepthCloud(object):
             normals = unstructured_to_structured(np.asarray(self.normals.detach().cpu().numpy(), dtype=np.float32),
                                                  names=['normal_%s' % f for f in 'xyz'])
             parts.append(normals)
+        if self.inc_angles is not None:
+            inc_angles = unstructured_to_structured(np.asarray(self.inc_angles.detach().cpu().numpy(), dtype=np.float32),
+                                                    names=['inc_angle'])
+            parts.append(inc_angles)
         if self.loss is not None:
             loss = unstructured_to_structured(np.asarray(self.loss.detach().cpu().numpy(), dtype=np.float32),
                                               names=['loss'])

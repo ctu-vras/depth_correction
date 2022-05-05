@@ -522,7 +522,7 @@ class DepthCloud(object):
         return dc
 
     @staticmethod
-    def from_structured_array(arr, dtype=None):
+    def from_structured_array(arr, dtype=None, device=None):
         """Create depth cloud from points """
         assert isinstance(arr, np.ndarray)
         pts = structured_to_unstructured(arr[['x', 'y', 'z']], dtype=dtype)
@@ -531,10 +531,10 @@ class DepthCloud(object):
         else:
             # print('Viewpoints not provided.')
             vps = None
-        return DepthCloud.from_points(pts, vps)
+        return DepthCloud.from_points(pts, vps, device=device)
 
     @staticmethod
-    def from_points(pts, vps=None, dtype=None):
+    def from_points(pts, vps=None, dtype=None, device=None):
         """Create depth cloud from points and viewpoints.
 
         :param pts: Points as ...-by-3 tensor,
@@ -546,14 +546,13 @@ class DepthCloud(object):
             return DepthCloud.from_structured_array(pts)
 
         if isinstance(pts, np.ndarray):
-            pts = torch.as_tensor(np.asarray(pts, dtype=dtype))
-
+            pts = torch.as_tensor(np.asarray(pts, dtype=dtype), device=device)
         assert isinstance(pts, torch.Tensor)
 
         if vps is None:
-            vps = torch.from_numpy(np.zeros([pts.shape[0], 3], dtype=dtype))
+            vps = torch.as_tensor(np.zeros([pts.shape[0], 3], dtype=dtype), device=device)
         elif isinstance(vps, np.ndarray):
-            vps = torch.as_tensor(np.asarray(vps, dtype=dtype))
+            vps = torch.as_tensor(np.asarray(vps, dtype=dtype), device=device)
         assert isinstance(vps, torch.Tensor)
         assert vps.shape == pts.shape
 
@@ -567,6 +566,8 @@ class DepthCloud(object):
         dirs = dirs / depth
         assert dirs.dtype == vps.dtype
         depth_cloud = DepthCloud(vps, dirs, depth)
+        if device:
+            depth_cloud = depth_cloud.to(device=device)
         return depth_cloud
 
     def estimate_normals(self, knn=15):
@@ -640,6 +641,9 @@ class DepthCloud(object):
 
     def gpu(self):
         return self.to(torch.device('cuda:0'))
+
+    def device(self):
+        return self.depth.device
 
     def type(self, dtype=None):
         if dtype is None:

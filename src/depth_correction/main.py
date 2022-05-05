@@ -382,7 +382,10 @@ def main():
         print(arg)
     print()
     cmd_cfg = Config()
+    default_log_dir = cmd_cfg.log_dir
     argv = cmd_cfg.from_args(argv)
+    if cmd_cfg.log_dir == default_log_dir:
+        cmd_cfg.log_dir = cmd_cfg.get_preproc_dir()
     print('Config parsed from command line.')
     print('Non-default configuration:')
     for k, v in cmd_cfg.non_default().items():

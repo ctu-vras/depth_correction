@@ -19,14 +19,14 @@
             backprop: $(arg backprop)
             env_type: $(arg env_type)
             env_size: 20
-            angle_degrees: 60.0
+            angle_degrees: 0.0
             pts_sampled_from_mesh: 10000000
-            p0_disturb: -0.03
-            p1_disturb: 0.0
+            p0_distor: -0.03
+            p1_distor: 0.0
             monotonous_model: true
             plots: true
             visualize_clouds: true
-            l2_reg_weight: 0.0
+            l2_reg_weight: 0.001
         </rosparam>
     </node>
 

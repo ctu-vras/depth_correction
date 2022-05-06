@@ -45,7 +45,11 @@ class Optimization(object):
         self.angle_degrees = rospy.get_param('~angle_degrees', 0.0)
         self.mesh_pts_to_sample = rospy.get_param('~pts_sampled_from_mesh', 10_000_000)
         self.cfg = Config()
-        self.cfg.from_yaml(os.path.join(os.path.dirname(__file__), '..', 'config/gen/baseline_params.yaml'))
+        params_file = os.path.join(os.path.dirname(__file__), '..', 'config/gen/baseline_params.yaml')
+        if os.path.exists(params_file):
+            self.cfg.from_yaml(params_file)
+        else:
+            rospy.logwarn('Params file not found')
         if rospy.get_param('~monotonous_model', True):
             self.optimizer = torch.optim.Adam([self.model.p0], lr=self.lr)
         else:
@@ -104,7 +108,8 @@ class Optimization(object):
         np.random.seed(135)
         pts_gt = np.zeros((n_pts, 3), dtype=np.float64)
         pts_gt[:, :2] = np.concatenate([np.random.uniform(0, size / 2, size=(n_pts // 2, 2)),
-                                        np.random.uniform(0, size / 2, size=(n_pts // 2, 2)) + np.array([-size / 2, 0])])
+                                        np.random.uniform(0, size / 2, size=(n_pts // 2, 2)) + np.array(
+                                            [-size / 2, 0])])
         # rotate half of the point cloud to create an angle
         if degrees != 0.0:
             rot_origin, rot_angle = (0, 0, 0), degrees
@@ -135,8 +140,12 @@ class Optimization(object):
         rospy.loginfo('Number of points sampled and filtered from mesh: %d' % n_pts)
         return pts_gt
 
-    def create_environment_from_kitti(self, name='09_start_311_end_313_step_1'):
-        ds = Dataset(name)
+    def create_environment_from_kitti(self, name='04_start_111_end_113_step_1'):
+        try:
+            ds = Dataset(name, pose_provider='odom')
+        except:
+            rospy.logwarn('Using SuMa SLAM poses for Semantic KITTI sequence %s' % name)
+            ds = Dataset(name, pose_provider='surf_slam')
 
         dcs_list = []
         vps_list = []
@@ -154,11 +163,18 @@ class Optimization(object):
             dc1.update_all(r=self.r_nn)
 
             dcs_transformed_list.append(dc1)
-        dc = DepthCloud.concatenate(dcs_transformed_list, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=False)
+        dc = DepthCloud.concatenate(dcs_transformed_list, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'],
+                                    dependent=False)
         dc_offset = dc.copy()
         dc.update_all(r=self.r_nn)
 
-        pts_gt = None
+        # pts_gt = None
+        pts_gt = dc.get_points()
+
+        dc = self.add_distortion(dc, p0=self.distor['p0'], p1=self.distor['p1'])
+        dc.update_all(r=self.r_nn)
+
+        dc.mask = filter_eigenvalues(dc, eig_bounds=self.eigenvalue_bounds, only_mask=True, log=True)
 
         return dc, pts_gt, vps_list, dc_offset
 
@@ -256,7 +272,7 @@ class Optimization(object):
             # visualization
             if self.vis:
                 t0 = time.time()
-                self.visualize(l2_metrics, losses, dc, map_step=8)
+                self.visualize(l2_metrics, losses, dc, map_step=32)
                 rospy.logdebug('Visualization took: %.3f' % (time.time() - t0))
 
     def visualize(self, l2_metrics, losses, dc, map_step=1):

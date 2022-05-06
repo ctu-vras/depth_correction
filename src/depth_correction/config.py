@@ -137,6 +137,9 @@ class Config(Configurable):
         self.force = False   # Allow overwriting existing configs, etc.
 
         self.pkg_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        self.version = '{git_log}\n{git_diff}'.format(git_log=cmd_out(['git', 'log',  '-1'], cwd=self.pkg_dir)[0],
+                                                      git_diff=cmd_out(['git', 'diff'], cwd=self.pkg_dir)[0])
+        print(self.version)
         # Output directory root.
         self.out_dir = os.path.join(self.pkg_dir, 'gen')
         # Output directory for the experiment, defaults to date and time, customizable.

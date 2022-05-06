@@ -16,10 +16,13 @@ __all__ = [
 ]
 
 
-def cmd_out(cmd, cwd=None):
+def cmd_out(cmd, cwd=None, stdout=None, stderr=None):
     # https://stackoverflow.com/questions/89228/calling-an-external-command-in-python
     # out = run(cmd, check=True, stdout=PIPE, stderr=DEVNULL).stdout.decode()
-    ret = run(cmd, capture_output=True, check=True, cwd=cwd)
+    if stdout is None and stderr is None:
+        ret = run(cmd, capture_output=True, check=True, cwd=cwd)
+    else:
+        ret = run(cmd, check=True, cwd=cwd, stdout=stdout, stderr=stderr)
     out = ret.stdout.decode() if ret.stdout else ''
     err = ret.stderr.decode() if ret.stderr else ''
     return out, err

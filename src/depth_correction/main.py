@@ -4,7 +4,6 @@ from .config import (
     Loss,
     loss_eval_csv,
     Model,
-    nonempty,
     PoseCorrection,
     PoseProvider,
     SLAM,

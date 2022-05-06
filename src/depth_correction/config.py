@@ -3,6 +3,7 @@ from .configurable import Configurable, ValueEnum
 from datetime import datetime
 from math import radians, isfinite
 import os
+from subprocess import DEVNULL, PIPE, run
 import yaml
 
 __all__ = [
@@ -13,6 +14,15 @@ __all__ = [
     'PoseProvider',
     'SLAM',
 ]
+
+
+def cmd_out(cmd, cwd=None):
+    # https://stackoverflow.com/questions/89228/calling-an-external-command-in-python
+    # out = run(cmd, check=True, stdout=PIPE, stderr=DEVNULL).stdout.decode()
+    ret = run(cmd, capture_output=True, check=True, cwd=cwd)
+    out = ret.stdout.decode() if ret.stdout else ''
+    err = ret.stderr.decode() if ret.stderr else ''
+    return out, err
 
 
 def fix_bounds(bounds):

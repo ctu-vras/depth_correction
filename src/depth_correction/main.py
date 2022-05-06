@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from .config import (
+    cmd_out,
     Config,
     Loss,
     loss_eval_csv,
@@ -17,7 +18,6 @@ from glob import glob
 from itertools import product
 import os
 import random
-from subprocess import DEVNULL, PIPE, run
 import sys
 import importlib
 """Launch all experiments.
@@ -64,15 +64,6 @@ def create_splits(dataset='asl_laser', num_splits=4):
     # for split in splits:
     #     print(split)
     return splits
-
-
-def cmd_out(cmd):
-    # https://stackoverflow.com/questions/89228/calling-an-external-command-in-python
-    # out = run(cmd, check=True, stdout=PIPE, stderr=DEVNULL).stdout.decode()
-    ret = run(cmd, capture_output=True, check=True)
-    out = ret.stdout.decode() if ret.stdout else ''
-    err = ret.stderr.decode() if ret.stderr else ''
-    return out, err
 
 
 def eval_slam_baselines(base_cfg: Config=None):

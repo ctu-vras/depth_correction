@@ -132,16 +132,22 @@ def eval_slam_baselines(base_cfg: Config=None):
             continue
         cfg.to_yaml(cfg_path)
 
-        if base_cfg.launch_prefix:
-            launch_prefix = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam)
+        if cfg.launch_prefix:
+            out_path = os.path.join(cfg.log_dir, 'slam_eval_%s.out.txt' % slam)
+            err_path = os.path.join(cfg.log_dir, 'slam_eval_%s.err.txt' % slam)
+            launch_prefix = cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, slam=slam,
+                                                     out=out_path, err=err_path)
             launch_prefix = launch_prefix.split(' ')
             cmd = launch_prefix + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'eval_slam']
+            print()
             print('Command line:', cmd)
-            print()
             out, err = cmd_out(cmd)
-            print('Output:', out)
-            print('Error:', err)
-            print()
+            # with open(out_path, 'w') as out, open(err_path, 'w') as err:
+            #     out, err = cmd_out(cmd, stdout=out, stderr=err)
+            if out:
+                print('Output:', out)
+            if err:
+                print('Error:', err)
         else:
             # Avoid using ROS in global namespace to allow using scheduler.
             from .eval import eval_slam
@@ -203,17 +209,22 @@ def eval_loss_baselines(base_cfg: Config=None):
             continue
         cfg.to_yaml(cfg_path)
 
-        if base_cfg.launch_prefix:
-            launch_prefix = base_cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, loss=loss)
+        if cfg.launch_prefix:
+            out_path = os.path.join(cfg.log_dir, 'loss_eval_%s.out.txt' % loss)
+            err_path = os.path.join(cfg.log_dir, 'loss_eval_%s.err.txt' % loss)
+            launch_prefix = cfg.launch_prefix.format(log_dir=base_cfg.log_dir, name=name, loss=loss,
+                                                     out=out_path, err=err_path)
             launch_prefix = launch_prefix.split(' ')
             cmd = launch_prefix + ['python', '-m', 'depth_correction.eval', '-c', cfg_path, 'eval_loss']
+            print()
             print('Command line:', cmd)
-
-            print()
             out, err = cmd_out(cmd)
-            print('Output:', out)
-            print('Error:', err)
-            print()
+            # with open(out_path, 'w') as out, open(err_path, 'w') as err:
+            #     out, err = cmd_out(cmd, stdout=out, stderr=err)
+            if out:
+                print('Output:', out)
+            if err:
+                print('Error:', err)
 
         else:
             # Avoid using ROS in global namespace to allow using scheduler.
@@ -268,21 +279,27 @@ def train_and_eval_all(base_cfg: Config=None):
             cfg.test_poses_path = [slam_poses_csv(base_cfg.log_dir, name, cfg.pose_provider) for name in cfg.test_names]
             cfg.pose_correction = PoseCorrection.pose
 
-        if base_cfg.launch_prefix:
+        if cfg.launch_prefix:
             # Save config and schedule batch job (via launch_prefix).
+            out_path = os.path.join(cfg.log_dir, 'train_and_eval.out.txt')
+            err_path = os.path.join(cfg.log_dir, 'train_and_eval.err.txt')
             cfg_path = os.path.join(cfg.log_dir, 'config.yaml')
             if os.path.exists(cfg_path):
                 print('Skipping existing config %s.' % cfg_path)
                 continue
             cfg.to_yaml(cfg_path)
-            launch_prefix_parts = base_cfg.launch_prefix.format(log_dir=cfg.log_dir).split(' ')
+            launch_prefix_parts = cfg.launch_prefix.format(log_dir=cfg.log_dir,
+                                                           out=out_path, err=err_path).split(' ')
             cmd = launch_prefix_parts + ['python', '-m', 'depth_correction.train_and_eval', '-c', cfg_path]
+            print()
             print('Command line:', cmd)
-            print()
             out, err = cmd_out(cmd)
-            print('Output:', out)
-            print('Error:', err)
-            print()
+            # with open(out_path, 'w') as out, open(err_path, 'w') as err:
+            #     out, err = cmd_out(cmd, stdout=out, stderr=err)
+            if out:
+                print('Output:', out)
+            if err:
+                print('Error:', err)
         else:
             # Avoid using ROS in global namespace to allow using scheduler.
             from .train_and_eval import train_and_eval

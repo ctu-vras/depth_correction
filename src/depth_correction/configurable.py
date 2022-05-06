@@ -1,7 +1,9 @@
 from __future__ import absolute_import, division, print_function
+import sys
 from argparse import ArgumentParser
 from copy import deepcopy
 import yaml
+from yaml.error import YAMLError
 
 __all__ = [
     'Configurable',
@@ -62,7 +64,10 @@ class Configurable(object):
         for k, v in vars(parsed_args).items():
             if v == Configurable.DEFAULT:
                 continue
-            new[k] = yaml.safe_load(v)
+            try:
+                new[k] = yaml.safe_load(v)
+            except YAMLError as ex:
+                print('Could not parse YAML "%s" from argument %s: %s.' % (v, k, ex), file=sys.stderr)
 
         self.from_dict(new)
 
@@ -73,10 +78,12 @@ class Configurable(object):
         for k in self:
             name = prefix + k
             if rospy.has_param(name):
-                self[k] = rospy.get_param(name, self[k])
+                v = rospy.get_param(name, self[k])
                 if isinstance(self[k], str):
-                    self[k] = yaml.safe_load(self[k])
-                # print('%s: %s (%s)' % (k, self[k], type(self[k]).__name__))
+                    try:
+                        self[k] = yaml.safe_load(v)
+                    except YAMLError as ex:
+                        print('Could not parse YAML "%s" from rosparam %s: %s.' % (v, name, ex), file=sys.stderr)
 
     def to_dict(self):
         return vars(self)
@@ -104,7 +111,12 @@ class Configurable(object):
         for arg in args:
             assert isinstance(arg, str)
             k, v = arg.split(':=', maxsplit=1)
-            self[k] = yaml.safe_load(v)
+            if k not in self:
+                continue
+            try:
+                self[k] = yaml.safe_load(v)
+            except YAMLError as ex:
+                print('Could not parse YAML "%s" from roslaunch argument %s: %s.' % (v, k, ex), file=sys.stderr)
 
     def to_yaml(self, path=None):
         if path is None:

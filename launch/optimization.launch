@@ -26,7 +26,7 @@
             monotonous_model: true
             plots: true
             visualize_clouds: true
-            l2_reg_weight: 0.001
+            l2_reg_weight: 0.0
         </rosparam>
     </node>
 

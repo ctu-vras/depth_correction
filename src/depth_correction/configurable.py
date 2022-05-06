@@ -148,6 +148,7 @@ def test():
     cfg.float_var = 0.2
     cfg.list_var = [0.1, float('inf'), float('nan'), None]
     cfg.dict_var = {}
+    cfg.str_var = ''
 
     cfg.from_dict({'int_var': 5, 'float_var': 0.5})
     assert cfg.int_var == 5
@@ -158,6 +159,10 @@ def test():
 
     cfg.from_roslaunch_args(['float_var:=.inf'])
     assert cfg.float_var == float('inf')
+
+    args = cfg.to_roslaunch_args(keys=['str_var'])
+    assert args[0] == "str_var:=''", args
+    cfg.from_roslaunch_args(args)
 
     list_var = cfg.list_var
     args = cfg.to_roslaunch_args(keys=['list_var'])

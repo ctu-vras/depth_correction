@@ -2,27 +2,26 @@
 <launch>
     <arg name="input" default="filtered_cloud" doc="Input cloud topic."/>
     <arg name="output" default="corrected_cloud" doc="Output corrected cloud topic."/>
-    <arg name="nn_k" default="" doc="Nearest neighbor count."/>
+    <arg name="nn_k" default="0" doc="Nearest neighbor count."/>
     <arg name="nn_r" default="0.2" doc="Nearest neighbor radius."/>
     <arg name="shadow_neighborhood_angle" default="0.017453" doc="Shadow neighborhood angle."/>
     <arg name="shadow_angle_bounds" default="[0.087266, 3.141592]" doc="Shadow angle bounds for neighbors."/>
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"
          doc="Eigenvalue bounds for correcting depth."/>
-    <arg name="model_class" default="ScaledPolynomial" doc="Class name from module depth_correction.model."/>
-    <arg name="model_state_dict" default="$(find depth_correction)/config/weights/ScaledPolynomial.pth"
-         doc="Path to the model state dict."/>
+    <arg name="model_class" default="BaseModel" doc="Class name from module depth_correction.model."/>
+    <arg name="model_state_dict" default="''" doc="Path to the model state dict."/>
     <arg name="device" default="cpu" doc="Device to run tensor operations on: cpu or cuda"/>
 
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
         <rosparam subst_value="true">
-            model_class: '$(arg model_class)'
-            model_state_dict: '$(arg model_state_dict)'
-            device: '$(arg device)'
+            model_class: $(arg model_class)
+            model_state_dict: $(arg model_state_dict)
+            device: $(arg device)
             float_type: float64
             max_age: 2.0
             publish_filtered: false
-            nn_k: '$(arg nn_k)'
-            nn_r: '$(arg nn_r)'
+            nn_k: $(arg nn_k)
+            nn_r: $(arg nn_r)
             shadow_neighborhood_angle: $(arg shadow_neighborhood_angle)
             shadow_angle_bounds: $(arg shadow_angle_bounds)
             eigenvalue_bounds: $(arg eigenvalue_bounds)

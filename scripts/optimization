@@ -117,18 +117,24 @@ class Optimization(object):
         return pts_gt
 
     @staticmethod
-    def point_cloud_from_mesh(mesh_name='simple_cave_01', size=20.0, pts_to_sample=10_000_000):
+    def point_cloud_from_mesh(mesh_name='simple_cave_01.obj', size=20.0, pts_to_sample=10_000_000):
         from pytorch3d.ops import sample_points_from_meshes
-        from pytorch3d.io import load_obj
+        from pytorch3d.io import load_obj, load_ply
         from pytorch3d.structures import Meshes
 
-        mesh_path = os.path.join(os.path.dirname(__file__), '../data/meshes/%s.obj' % mesh_name)
+        mesh_path = os.path.join(os.path.dirname(__file__), '../data/meshes/%s' % mesh_name)
 
         if not os.path.exists(mesh_path):
             raise FileExistsError('Mesh file %s does not exist' % mesh_path)
 
-        pts_gt, faces, _ = load_obj(mesh_path)
-        mesh = Meshes(verts=[pts_gt], faces=[faces.verts_idx])
+        if mesh_path[-3:] == 'obj':
+            pts_gt, faces, _ = load_obj(mesh_path)
+            mesh = Meshes(verts=[pts_gt], faces=[faces.verts_idx])
+        elif mesh_path[-3:] == 'ply':
+            pts_gt, faces = load_ply(mesh_path)
+            mesh = Meshes(verts=[pts_gt], faces=[faces])
+        else:
+            raise ValueError('Supported mesh formats are *.obj or *.ply')
 
         torch.random.manual_seed(135)
         pts_gt = sample_points_from_meshes(mesh, pts_to_sample).squeeze().numpy()

@@ -542,8 +542,11 @@ class DepthCloud(object):
         :param vps: Viewpoints as ...-by-3 tensor, or None for zero vector.
         :return:
         """
-        if pts.dtype.names:
-            return DepthCloud.from_structured_array(pts)
+        try:
+            if pts.dtype.names:
+                return DepthCloud.from_structured_array(pts)
+        except AttributeError as ex:
+            pass
 
         if isinstance(pts, np.ndarray):
             pts = torch.as_tensor(np.asarray(pts, dtype=dtype), device=device)

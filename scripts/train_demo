@@ -38,9 +38,11 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.train_names = ['ground_plane/10']
         self.cfg.val_names = ['ground_plane/10']
 
+        # Depth and grid filters prevent computing L2 loss since the points don't match.
         self.cfg.min_depth = 0.0
         self.cfg.max_depth = float('inf')
         self.cfg.grid_res = 0.0
+        # self.cfg.grid_res = 0.1
         self.cfg.nn_k = 0
         self.cfg.nn_r = 0.4
         self.cfg.shadow_angle_bounds = []
@@ -157,6 +159,8 @@ class TrainingDemo(TrainCallbacks):
             for gt_cloud, cloud in zip(self.gt_clouds, clouds):
                 assert isinstance(gt_cloud, DepthCloud)
                 assert isinstance(cloud, DepthCloud)
+                if len(gt_cloud) != len(cloud):
+                    continue
                 cloud_l2_loss = torch.linalg.norm(gt_cloud.get_points() - cloud.to_points(), dim=1).mean()
                 l2_loss += cloud_l2_loss.detach().item()
             return l2_loss

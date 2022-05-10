@@ -14,7 +14,7 @@ class BaseDataset:
     def __init__(self,
                  name: str = 'data',
                  n_pts: int = 10_000,
-                 n_poses: int = 2,
+                 n_poses: int = 5,
                  size: float = 20.0):
         self.name = name
         self.global_cloud = np.zeros([n_pts, 3])
@@ -43,12 +43,23 @@ class BaseDataset:
         return poses
 
     def local_cloud(self, i):
+        assert self.poses is not None
+        assert len(self.poses) > 0
         cloud = self.global_cloud[np.random.choice(range(self.n_pts), self.n_pts // self.n_poses)]
+        # transform the point cloud to view point frame as it was sampled from global map
+        R, t = self.poses[i][:3, :3], self.poses[i][:3, 3]
+        cloud = cloud @ R - R.T @ t
+        assert cloud.shape == (self.n_pts // self.n_poses, 3)
         return cloud
 
     def cloud_pose(self, i):
         pose = self.poses[i]
         return pose
+
+    @staticmethod
+    def transform(cloud, pose):
+        cloud = np.matmul(cloud, pose[:3, :3].T) + pose[:3, 3:].T
+        return cloud
 
     def __getitem__(self, item):
         if isinstance(item, int):
@@ -86,7 +97,7 @@ class Plane(BaseDataset):
 
 
 class Angle(Plane):
-    def __init__(self, n_pts: int = 10_000, n_poses: int = 2, size: float = 20.0, degrees: float = 0.0):
+    def __init__(self, n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, degrees: float = 0.0):
         super(Angle, self).__init__(n_pts=n_pts, n_poses=n_poses, size=size)
         if degrees != 0.0:
             self.global_cloud[self.n_pts // 2:] = self.rotate_pts(self.global_cloud[self.n_pts // 2:], origin=(0, 0, 0),
@@ -113,7 +124,7 @@ class Angle(Plane):
 
 
 class Mesh(BaseDataset):
-    def __init__(self, mesh_name, n_pts: int = 10_000, n_poses: int = 2, size: float = 20.0, pts_to_sample: int = 10_000_000):
+    def __init__(self, mesh_name, n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, pts_to_sample: int = 10_000_000):
         super(Mesh, self).__init__(name=mesh_name, n_pts=n_pts, n_poses=n_poses, size=size)
 
         self.mesh_path = os.path.join(os.path.dirname(__file__), '../../data/meshes/%s' % self.name)
@@ -151,22 +162,32 @@ class Mesh(BaseDataset):
 
 def demo():
     import open3d as o3d
+    import matplotlib.pyplot as plt
 
     # ds = Plane()
-    # ds = Angle(degrees=60.0)
-    ds = Mesh(mesh_name='simple_cave_01.obj', size=20)
+    ds = Angle(degrees=60.0)
+    # ds = Mesh(mesh_name='simple_cave_01.obj', size=20)
+
+    clouds = []
+    poses = []
+    for cloud, pose in ds:
+        cloud = ds.transform(cloud, pose)
+        clouds.append(cloud)
+        poses.append(pose)
+
+    cloud = np.concatenate(clouds)
+    poses = np.asarray(poses)
+
+    plt.figure()
+    plt.axis('equal')
+    plt.title('Trajectory')
+    plt.plot(poses[:, 0, 3], poses[:, 1, 3], '.')
+    plt.grid()
+    plt.show()
 
     pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(ds.global_cloud)
-    o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.5)])
-
-    for i in range(len(ds)):
-        cloud, pose = ds[i]
-        print(f'Visualizing cloud of size: {cloud.shape} viewed from location: {pose[:3, 3]}')
-
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(cloud)
-        o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.5)])
+    pcd.points = o3d.utility.Vector3dVector(cloud)
+    o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
 
 
 def main():

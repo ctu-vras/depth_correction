@@ -479,6 +479,10 @@ class DepthCloud(object):
             loss = unstructured_to_structured(np.asarray(self.loss.detach().cpu().numpy(), dtype=np.float32),
                                               names=['loss'])
             parts.append(loss)
+        if self.mask is not None:
+            mask = unstructured_to_structured(np.asarray(self.mask.detach().cpu().numpy(), dtype=np.uint8),
+                                              names=['mask'])
+            parts.append(mask)
         if colors is not None:
             rgb = unstructured_to_structured(np.asarray(colors, dtype=np.float32), names=['r', 'g', 'b'])
             parts.append(rgb)

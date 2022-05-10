@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
+from .dataset import dataset_by_name
 from .loss import loss_by_name
 from .model import load_model, model_by_name
 from .preproc import *
@@ -26,11 +27,9 @@ def train(cfg: Config):
     else:
         cfg.to_yaml(cfg_path)
 
-    assert cfg.dataset == 'asl_laser' or cfg.dataset == 'semantic_kitti'
-    if cfg.dataset == 'asl_laser':
-        from data.asl_laser import Dataset
-    elif cfg.dataset == 'semantic_kitti':
-        from data.semantic_kitti import Dataset
+    Dataset = dataset_by_name(cfg.dataset)
+    print(Dataset.__name__)
+
     loss_fun = loss_by_name(cfg.loss)
     print(cfg.loss, loss_fun.__name__)
     print(cfg.loss_kwargs)

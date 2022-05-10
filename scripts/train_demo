@@ -3,7 +3,7 @@ from __future__ import absolute_import, division, print_function
 from depth_correction.config import Config, Loss, Model
 from depth_correction.dataset import create_dataset
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.model import ScaledInvCos, ScaledPolynomial
+from depth_correction.model import load_model, model_by_name
 from depth_correction.preproc import filtered_cloud, global_cloud, local_feature_cloud
 from depth_correction.train import train, TrainCallbacks
 from geometry_msgs.msg import Transform, TransformStamped
@@ -44,25 +44,35 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.nn_k = 0
         self.cfg.nn_r = 0.4
         self.cfg.shadow_angle_bounds = []
-        self.cfg.eigenvalue_bounds = []
-        self.cfg.dir_dispersion_bounds = []
-        self.cfg.vp_dispersion_bounds = []
+        # self.cfg.eigenvalue_bounds = []
+        self.cfg.eigenvalue_bounds = [[0,          -float('inf'), (self.cfg.nn_r / 4)**2],
+                                      [1, (self.cfg.nn_r / 4)**2,           float('inf')]]
+        # self.cfg.dir_dispersion_bounds = []
+        # self.cfg.vp_dispersion_bounds = []
 
-        self.cfg.model_class = Model.ScaledInvCos
-        # self.gt_model = ScaledPolynomial(p0=-0.01)
-        self.gt_model = ScaledInvCos(p0=-0.01)
+        self.cfg.model_class = Model.ScaledPolynomial
+        self.cfg.model_kwargs['exponent'] = [4.0]
+        # self.cfg.model_kwargs['learnable_exponents'] = True
+        self.cfg.model_state_dict = None
+        # self.gt_model = model_by_name(self.cfg.model_class)(p0=-0.01)
+        # self.gt_model = model_by_name(self.cfg.model_class)(p1=-0.005)
+        # self.cfg.model_class = Model.ScaledInvCos
+        # self.gt_model = model_by_name(self.cfg.model_class)(p0=-0.001)
+        # self.gt_model = model_by_name(self.cfg.model_class)(exponent=[4.0])
+        # self.gt_model = load_model(cfg=self.cfg)
+        self.gt_model = model_by_name(self.cfg.model_class)(w=[-0.01], **self.cfg.model_kwargs)
+        # self.gt_model.w[0, 0] = -0.001
 
         self.cfg.loss = Loss.min_eigval_loss
-        self.cfg.loss_kwargs = dict(sqrt=True)
-        self.cfg.optimizer = 'SGD'
-        # self.cfg.optimizer_kwargs = dict(momentum=0.9)
-        # self.cfg.optimizer_kwargs = dict(weight_decay=0.001)
-        # self.cfg.lr = 1.0
-        self.cfg.lr = 0.001
-        # self.cfg.lr = 0.002
-        # self.cfg.optimizer = 'Adam'
-        # self.cfg.optimizer_kwargs = dict()
-        # self.cfg.lr = 0.0001
+        # self.cfg.loss = Loss.trace_loss
+        self.cfg.loss_kwargs['sqrt'] = True
+        # self.cfg.optimizer = 'SGD'
+        # self.cfg.optimizer_kwargs['momentum'] = 0.9
+        self.cfg.optimizer = 'Adam'
+        self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
+        # self.cfg.optimizer_kwargs['weight_decay'] = 0.001
+        # self.cfg.lr = 0.001
+        self.cfg.lr = 0.0001
 
         # Training config examples.
         # self.cfg.loss = Loss.min_eigval_loss
@@ -80,6 +90,13 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.loss_kwargs = dict(sqrt=True)
         # self.cfg.optimizer = 'SGD'
         # self.cfg.lr = 0.0001
+
+        # ADAM with lower momentum params, avoids oscillation.
+        self.cfg.loss = Loss.min_eigval_loss
+        self.cfg.loss_kwargs['sqrt'] = True
+        self.cfg.optimizer = 'Adam'
+        self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
+        self.cfg.lr = 0.001
 
         self.cfg.n_opt_iters = 1000
 
@@ -121,10 +138,14 @@ class TrainingDemo(TrainCallbacks):
         self.gt_clouds = [cloud]
 
         # self.input_ds = self.ds[:]
+        self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
+        # self.ds.noise = 0.0
+        # self.ds.noise = 0.01
+        self.ds.noise = 0.03
         self.ds.model = self.gt_model
 
     def spin(self):
-        train(self.cfg, callbacks=self, train_datasets=[self.ds])
+        train(self.cfg, callbacks=self, train_datasets=[self.ds], val_datasets=[self.ds])
 
     def iteration_started(self, iter):
         print(iter)
@@ -136,23 +157,21 @@ class TrainingDemo(TrainCallbacks):
             for gt_cloud, cloud in zip(self.gt_clouds, clouds):
                 assert isinstance(gt_cloud, DepthCloud)
                 assert isinstance(cloud, DepthCloud)
-                # print('Ground-truth cloud: %i, cloud: %i' % (len(gt_cloud), len(cloud)))
                 cloud_l2_loss = torch.linalg.norm(gt_cloud.get_points() - cloud.to_points(), dim=1).mean()
                 l2_loss += cloud_l2_loss.detach().item()
-            # print('l2 loss', l2_loss)
             return l2_loss
 
-    def train_loss(self, iter, clouds, masks, loss):
+    def train_loss(self, iter, model, clouds, masks, loss):
         self.l2_losses.append(self.compute_l2_loss(clouds))
         loss = loss.detach().item()
-        # print('loss', loss)
-        # print('Iter %i: %.3f' % (iter, loss))
         self.iterations.append(iter)
         self.train_losses.append(loss)
-        self.visualize(clouds)
+        self.visualize(model, clouds)
+        self.publish_cloud(self.gt_cloud_pub, self.gt_clouds[0])
+        self.publish_cloud(self.corrected_cloud_pub, clouds[0])
 
     def setup_visualization(self):
-        self.fig, self.ax = plt.subplots(2, 2, squeeze=False)
+        self.fig, self.ax = plt.subplots(3, 2, squeeze=False)
 
     def plot_cloud(self, ax, cloud, marker, dims=(0, 1), step=100, **kwargs):
         assert len(dims) == 2
@@ -173,9 +192,9 @@ class TrainingDemo(TrainCallbacks):
             assert isinstance(msg, PointCloud2)
             msg.header.stamp = rospy.Time.now()
             msg.header.frame_id = 'map'
-        pub.publish(pub)
+        pub.publish(msg)
 
-    def visualize(self, clouds):
+    def visualize(self, model, clouds):
         ax = self.ax[0, 0]
         ax.cla()
         ax.plot(self.iterations, self.l2_losses)
@@ -208,6 +227,16 @@ class TrainingDemo(TrainCallbacks):
             self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
             ax.set_xlabel('x')
             ax.set_ylabel('z')
+            ax.grid()
+            ax.legend()
+
+        if self.gt_model:
+            ax = self.ax[2, 0]
+            ax.cla()
+            # self.gt_model.plot(ax, label='%s (Ground Truth)' % str(self.gt_model))
+            # model.plot(ax, label='%s (Iteration %i)' % (str(model), self.iterations[-1]))
+            self.gt_model.plot(ax)
+            model.plot(ax)
             ax.grid()
             ax.legend()
 

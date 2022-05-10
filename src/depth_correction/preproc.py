@@ -17,8 +17,9 @@ __all__ = [
 
 
 def filtered_cloud(cloud, cfg: Config):
+    rng = np.random.default_rng(cfg.random_seed)
     cloud = filter_depth(cloud, min=cfg.min_depth, max=cfg.max_depth, log=cfg.log_filters)
-    cloud = filter_grid(cloud, grid_res=cfg.grid_res, keep='random', log=cfg.log_filters)
+    cloud = filter_grid(cloud, grid_res=cfg.grid_res, keep='random', log=cfg.log_filters, rng=rng)
     return cloud
 
 

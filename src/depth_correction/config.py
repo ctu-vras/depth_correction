@@ -138,6 +138,7 @@ class Config(Configurable):
         self.launch_prefix = None  # Allows setting launch prefix, e.g., for scheduler.
         self.num_jobs = 0  # Allows debugging with fewer jobs.
         self.force = False   # Allow overwriting existing configs, etc.
+        self.random_seed = 135
 
         self.pkg_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
         # self.version = '{git_log}\n{git_diff}'.format(git_log=cmd_out(['git', 'log',  '-1'], cwd=self.pkg_dir)[0],

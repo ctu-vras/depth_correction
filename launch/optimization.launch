@@ -19,7 +19,7 @@
             backprop: $(arg backprop)
             env_type: $(arg env_type)
             env_size: 20
-            angle_degrees: 0.0
+            angle_degrees: 30.0
             pts_sampled_from_mesh: 10000000
             p0_distor: -0.03
             p1_distor: 0.0

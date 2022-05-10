@@ -102,6 +102,7 @@ class Angle(Plane):
         if degrees != 0.0:
             self.global_cloud[self.n_pts // 2:] = self.rotate_pts(self.global_cloud[self.n_pts // 2:], origin=(0, 0, 0),
                                                                   degrees=degrees, axis='Y')
+        self.poses = self.load_poses()
 
     @staticmethod
     def rotate_pts(p, origin=(0, 0, 0), degrees=0.0, axis='X'):

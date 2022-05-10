@@ -36,7 +36,7 @@ class Optimization(object):
         self.vis = rospy.get_param('~plots', True)
         self.vis_clouds = rospy.get_param('~visualize_clouds', True)
         self.lr = rospy.get_param('~lr', 0.001)
-        self.env_type = rospy.get_param('~env_type', 'simple_cave_01')
+        self.env_type = rospy.get_param('~env_type', 'angle')
         self.n_pts = rospy.get_param('~n_pts', 100000)
         self.n_vps = rospy.get_param('~n_vps', 4)
         self.env_size = rospy.get_param('~env_size', 20)
@@ -59,10 +59,7 @@ class Optimization(object):
         #                           [1, (self.r_nn / 4) ** 2, None]]
         self.eigenvalue_bounds = []
         self.l2_reg_weight = rospy.get_param('~l2_reg_weight', 0.0)
-        if self.env_type == 'kitti':
-            self.dc_init, self.pts_gt, self.vps, self.dc_offset = self.create_environment_from_kitti()
-        else:
-            self.dc_init, self.pts_gt, self.vps, self.dc_offset = self.create_environment()
+        self.dc_init, self.pts_gt, self.vps, self.dc_offset = self.create_environment()
 
         self.dc_init = self.dc_init.detach()
 
@@ -84,79 +81,28 @@ class Optimization(object):
         dc.depth = dc.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
         return dc
 
-    @staticmethod
-    def rotate_pts(p, origin=(0, 0, 0), degrees=0.0, axis='X'):
-        angle = np.deg2rad(degrees)
-        if axis == 'Z':
-            R = np.array([[np.cos(angle), -np.sin(angle), 0],
-                          [np.sin(angle), np.cos(angle), 0],
-                          [0, 0, 1]])
-        elif axis == 'Y':
-            R = np.array([[np.cos(angle), 0, np.sin(angle)],
-                          [0, 1, 0],
-                          [-np.sin(angle), 0, np.cos(angle)]])
-        elif axis == 'X':
-            R = np.array([[1, 0, 0],
-                          [0, np.cos(angle), -np.sin(angle)],
-                          [0, np.sin(angle), np.cos(angle)]])
-        o = np.atleast_3d(origin)
-        p = np.atleast_3d(p)
-        return np.squeeze((R @ (p.T - o.T) + o.T).T)
-
-    def angle_point_cloud(self, n_pts=10000, size=10.0, degrees=0.0):
-        # create flat point cloud (a wall)
-        np.random.seed(135)
-        pts_gt = np.zeros((n_pts, 3), dtype=np.float64)
-        pts_gt[:, :2] = np.concatenate([np.random.uniform(0, size / 2, size=(n_pts // 2, 2)),
-                                        np.random.uniform(0, size / 2, size=(n_pts // 2, 2)) + np.array(
-                                            [-size / 2, 0])])
-        # rotate half of the point cloud to create an angle
-        if degrees != 0.0:
-            rot_origin, rot_angle = (0, 0, 0), degrees
-            pts_gt[n_pts // 2:] = self.rotate_pts(pts_gt[n_pts // 2:], origin=rot_origin, degrees=rot_angle, axis='Y')
-        return pts_gt
-
-    @staticmethod
-    def point_cloud_from_mesh(mesh_name='simple_cave_01.obj', size=20.0, pts_to_sample=10_000_000):
-        from pytorch3d.ops import sample_points_from_meshes
-        from pytorch3d.io import load_obj, load_ply
-        from pytorch3d.structures import Meshes
-
-        mesh_path = os.path.join(os.path.dirname(__file__), '../data/meshes/%s' % mesh_name)
-
-        if not os.path.exists(mesh_path):
-            raise FileExistsError('Mesh file %s does not exist' % mesh_path)
-
-        if mesh_path[-3:] == 'obj':
-            pts_gt, faces, _ = load_obj(mesh_path)
-            mesh = Meshes(verts=[pts_gt], faces=[faces.verts_idx])
-        elif mesh_path[-3:] == 'ply':
-            pts_gt, faces = load_ply(mesh_path)
-            mesh = Meshes(verts=[pts_gt], faces=[faces])
+    def create_environment(self):
+        if self.env_type == 'angle':
+            from depth_correction.data import Angle
+            ds = Angle(n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size, degrees=self.angle_degrees)
+        elif self.env_type == 'kitti':
+            from data.semantic_kitti import Dataset
+            name = '04_start_111_end_113_step_1'
+            try:
+                ds = Dataset(name, pose_provider='odom')
+            except:
+                rospy.logwarn('Using SuMa SLAM poses for Semantic KITTI sequence %s' % name)
+                ds = Dataset(name, pose_provider='surf_slam')
         else:
-            raise ValueError('Supported mesh formats are *.obj or *.ply')
-
-        torch.random.manual_seed(135)
-        pts_gt = sample_points_from_meshes(mesh, pts_to_sample).squeeze().numpy()
-        X, Y, Z = pts_gt[:, 0], pts_gt[:, 1], pts_gt[:, 2]
-        pts_gt = pts_gt[np.logical_and(np.logical_and(np.logical_and(X >= -size / 2, X <= size / 2),
-                                                      np.logical_and(Y >= -size / 2, Y <= size / 2)),
-                                       np.logical_and(Z >= -1.0, Z <= 4))]
-        n_pts = len(pts_gt)
-        rospy.loginfo('Number of points sampled and filtered from mesh: %d' % n_pts)
-        return pts_gt
-
-    def create_environment_from_kitti(self, name='04_start_111_end_113_step_1'):
-        try:
-            ds = Dataset(name, pose_provider='odom')
-        except:
-            rospy.logwarn('Using SuMa SLAM poses for Semantic KITTI sequence %s' % name)
-            ds = Dataset(name, pose_provider='surf_slam')
+            from depth_correction.data import Mesh
+            ds = Mesh(mesh_name=self.env_type, n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size)
+            self.n_pts = len(ds.global_cloud)
 
         dcs_list = []
         vps_list = []
         poses = []
-        for pts, pose in ds:
+        for i in range(len(ds)):
+            pts, pose = ds[i]
             dc = filtered_cloud(pts, self.cfg)
             dc = local_feature_cloud(dc, self.cfg)
             dcs_list.append(dc)
@@ -183,44 +129,6 @@ class Optimization(object):
         dc.mask = filter_eigenvalues(dc, eig_bounds=self.eigenvalue_bounds, only_mask=True, log=True)
 
         return dc, pts_gt, vps_list, dc_offset
-
-    def create_environment(self):
-        if self.env_type == 'angle':
-            pts = self.angle_point_cloud(n_pts=self.n_pts, size=self.env_size,
-                                         degrees=self.angle_degrees)
-        else:
-            pts = self.point_cloud_from_mesh(mesh_name=self.env_type, size=self.env_size,
-                                             pts_to_sample=self.mesh_pts_to_sample)
-            self.n_pts = len(pts)
-        dcs_list = []
-        pts_list = []
-        vps_list = []
-        np.random.seed(135)
-        for n in range(self.n_vps):
-            pts1 = pts[np.random.choice(range(self.n_pts), self.n_pts // self.n_vps)]
-
-            vps1 = deepcopy(pts1[np.random.choice(range(len(pts1)))])
-            vps1[2] += np.random.uniform(0.1, 2.)
-
-            dc1 = DepthCloud.from_points(pts1, vps=vps1 + np.zeros_like(pts1))
-            dc1.update_all(r=self.r_nn)
-
-            pts_list.append(pts1)
-            vps_list.append(vps1)
-            dcs_list.append(dc1)
-
-        pts = np.concatenate(pts_list, axis=0)
-        dc = DepthCloud.concatenate(dcs_list, fields=['vps', 'dirs', 'depth', 'cov', 'eigvals'], dependent=False)
-
-        dc_offset = dc.copy()
-        dc.update_all(r=self.r_nn)
-
-        dc = self.add_distortion(dc, p0=self.distor['p0'], p1=self.distor['p1'])
-        dc.update_all(r=self.r_nn)
-
-        dc.mask = filter_eigenvalues(dc, eig_bounds=self.eigenvalue_bounds, only_mask=True, log=True)
-
-        return dc, pts, vps_list, dc_offset
 
     def run(self):
         plt.figure()

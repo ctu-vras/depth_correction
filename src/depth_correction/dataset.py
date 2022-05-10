@@ -48,7 +48,6 @@ class GroundPlaneDataset(object):
         self.density = density
         self.ids = list(range(self.n))
 
-    @cached
     def local_cloud(self, id):
         rng = np.random.default_rng(id)
         pts = box_point_cloud(size=self.size, density=self.density, rng=rng)

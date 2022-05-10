@@ -188,25 +188,41 @@ class Polynomial(BaseModel):
 
 class ScaledPolynomial(BaseModel):
 
-    def __init__(self, p0=0.0, p1=0.0, device=torch.device('cpu')):
+    def __init__(self, p0=None, p1=None, w=None, exponent=None, learnable_exponents=False,
+                 device=torch.device('cpu')):
         super(ScaledPolynomial, self).__init__(device=device)
 
-        assert isinstance(p0, (float, torch.Tensor))
-        assert isinstance(p1, (float, torch.Tensor))
+        if exponent is None:
+            self.legacy = True
+            exponent = [2.0, 4.0]
+            w = [p0 or 0.0, p1 or 0.0]
+        else:
+            self.legacy = False
 
-        self.p0 = torch.nn.Parameter(torch.as_tensor(p0, device=self.device))
-        self.p1 = torch.nn.Parameter(torch.as_tensor(p1, device=self.device))
+        if w is None:
+            w = [0.0] * len(exponent)
+        w = torch.as_tensor(w, dtype=torch.float64, device=device).view((1, -1))
+        assert w.numel() == len(exponent)
+        self.w = torch.nn.Parameter(w)
+
+        exponent = torch.as_tensor(exponent, dtype=torch.float64, device=device).view((1, -1))
+        self.exponent = torch.nn.Parameter(exponent) if learnable_exponents else exponent
+
+    def bias(self, inc_angles):
+        assert inc_angles.dim() == 2
+        assert inc_angles.shape[1] == 1
+        x = torch.pow(inc_angles, self.exponent)
+        bias = torch.matmul(x, self.w).view((-1, 1))
+        return bias
 
     def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         assert dc.inc_angles is not None
         dc_corr = dc.copy()
         if mask is None:
-            gamma = dc.inc_angles
-            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            bias = self.bias(dc.inc_angles)
             dc_corr.depth = dc_corr.depth * (1. - bias)
         else:
-            gamma = dc.inc_angles[mask]
-            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            bias = self.bias(dc.inc_angles[mask])
             # Avoid modifying depth in-place.
             dc_corr.depth = dc_corr.depth.clone()
             dc_corr.depth[mask] = dc_corr.depth[mask] * (1. - bias)
@@ -216,19 +232,20 @@ class ScaledPolynomial(BaseModel):
         assert dc.inc_angles is not None
         dc_corr = dc.copy()
         if mask is None:
-            gamma = dc.inc_angles
-            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            bias = self.bias(dc.inc_angles)
             dc_corr.depth = dc_corr.depth / (1. - bias)
         else:
-            gamma = dc.inc_angles[mask]
-            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
             # Avoid modifying depth in-place.
+            bias = self.bias(dc.inc_angles[mask])
             dc_corr.depth = dc_corr.depth.clone()
             dc_corr.depth[mask] = dc_corr.depth[mask] / (1. - bias)
         return dc_corr
 
     def __str__(self):
-        return 'ScaledPolynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
+        if self.legacy:
+            return 'ScaledPolynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
+        return 'ScaledPolynomial(%s)' % ', '.join('%.6gx^%.6g' % (w, e)
+                                                  for w, e in zip(self.w.flatten(), self.exponent.flatten()))
 
 
 class InvCos(BaseModel):

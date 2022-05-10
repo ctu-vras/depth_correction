@@ -157,6 +157,7 @@ include_directories(
 catkin_install_python(PROGRAMS
   scripts/depth_correction
   scripts/robot_data
+  scripts/train_demo
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

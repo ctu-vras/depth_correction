@@ -1,7 +1,8 @@
 from __future__ import absolute_import, division, print_function
-import sys
 from argparse import ArgumentParser
 from copy import deepcopy
+import os
+import sys
 import yaml
 from yaml.error import YAMLError
 
@@ -121,6 +122,7 @@ class Configurable(object):
     def to_yaml(self, path=None):
         if path is None:
             return yaml.safe_dump(self.to_dict())
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w') as f:
             yaml.safe_dump(self.to_dict(), f)
 

@@ -155,6 +155,7 @@ include_directories(
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
+  scripts/cloud_filter
   scripts/depth_correction
   scripts/robot_data
   scripts/train_demo

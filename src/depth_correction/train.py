@@ -15,12 +15,37 @@ from torch.optim import Adam, SGD  # Needed for eval
 from torch.utils.tensorboard import SummaryWriter
 
 
-def train(cfg: Config):
+class TrainCallbacks(object):
+
+    def __init__(self, cfg: Config=None):
+        self.cfg = cfg
+
+    def iteration_started(self, iter):
+        pass
+
+    def train_inputs(self, iter, clouds, poses):
+        pass
+
+    def val_inputs(self, iter, clouds, poses):
+        pass
+
+    def train_loss(self, iter, clouds, masks, loss):
+        pass
+
+    def val_loss(self, iter, clouds, masks, loss):
+        pass
+
+
+def train(cfg: Config, callbacks=None):
     """Train depth correction model, validate it, and return best config.
 
-    :param cfg:
+    :param cfg: Training config.
+    :param callbacks: Dictionary of callbacks to call during training.
     :return: Config of the best model.
     """
+    if not callbacks:
+        callbacks = TrainCallbacks(cfg)
+
     cfg_path = os.path.join(cfg.log_dir, 'train.yaml')
     if os.path.exists(cfg_path):
         print('Config %s already exists.' % cfg_path)
@@ -186,6 +211,7 @@ def train(cfg: Config):
             clouds[i] = cloud
 
         train_loss, _ = loss_fun(clouds, mask=train_masks, **cfg.loss_kwargs)
+        callbacks.train_loss(it, clouds, train_masks, train_loss)
 
         # Validation
         if cfg.pose_correction == PoseCorrection.none:
@@ -223,6 +249,7 @@ def train(cfg: Config):
             clouds[i] = cloud
 
         val_loss, _ = loss_fun(clouds, mask=val_masks, **cfg.loss_kwargs)
+        callbacks.val_loss(it, clouds, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:

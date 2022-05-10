@@ -5,6 +5,7 @@ from .model import BaseModel
 from .utils import cached
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, unstructured_to_structured
+import torch
 
 default_rng = np.random.default_rng(135)
 
@@ -18,14 +19,15 @@ def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=default_rng):
 
 
 class GroundPlaneDataset(object):
-    def __init__(self, name=None, n=10, size=(5.0, 5.0, 0.0), step=1.0, height=1.0, density=100.0, model=None,
-                 **kwargs):
+    def __init__(self, name=None, n=10, size=(5.0, 5.0, 0.0), step=1.0, height=1.0, density=100.0,
+                 noise=0.0, model=None, **kwargs):
         """Dataset composed of multiple measurements of ground plane.
 
         :param n: Number of viewpoints.
         :param step: Distance between neighboring viewpoints.
         :param height: Sensor height above ground plane.
         :param density: Point density in unit volume/area.
+        :param noise: Gaussian noise standard deviation.
         :param model: Ground-truth correction model; inverse will be applied to the points.
         """
         if name:
@@ -37,6 +39,7 @@ class GroundPlaneDataset(object):
             if isinstance(name, str):
                 n = int(name)
 
+        self.noise = noise
         self.model = model
 
         self.n = n
@@ -54,16 +57,20 @@ class GroundPlaneDataset(object):
         normals = np.zeros_like(pts)
         normals[:, 2] = 1.0
 
-        if self.model is not None:
+        if self.noise != 0.0 or self.model is not None:
             assert isinstance(self.model, BaseModel)
             dc = DepthCloud.from_points(pts, vps=vps)
             assert isinstance(dc, DepthCloud)
-            dc.normals = normals
-            dc.update_incidence_angles()
-            # dc = self.model(dc)
-            dc = self.model.inverse(dc)
+
+            if self.noise != 0.0:
+                dc.depth += self.noise * torch.randn(dc.depth.shape)
+
+            if self.model is not None:
+                dc.normals = normals
+                dc.update_incidence_angles()
+                dc = self.model.inverse(dc)
+
             pts = dc.to_points().detach().numpy()
-            # print(pts.shape)
 
         pts = unstructured_to_structured(pts, names=['x', 'y', 'z'])
         vps = unstructured_to_structured(vps, names=['vp_%s' % f for f in 'xyz'])

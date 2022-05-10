@@ -56,6 +56,37 @@ def timing(f):
     return timing_wrapper
 
 
+def hashable(obj):
+    if isinstance(obj, (list, tuple)):
+        obj = tuple(hashable(o) for o in obj)
+    if isinstance(obj, dict):
+        obj = hashable(sorted(obj.items()))
+    return obj
+
+
+cache = {}
+
+
+def cached(f):
+    def cached_wrapper(*args, **kwargs):
+        key = (hashable(f), hashable(args), hashable(kwargs))
+        if key not in cache:
+            print('Evaluating key %s.' % (key,))
+            try:
+                ret = f(*args, **kwargs)
+                cache[key] = ret, None
+            except Exception as ex:
+                cache[key] = None, ex
+        else:
+            print('Using cached key %s.' % (key,))
+        ret, ex = cache[key]
+        if ex is not None:
+            raise ex
+        return ret
+
+    return cached_wrapper
+
+
 def covs(x, obs_axis=-2, var_axis=-1, center=True, correction=True, weights=None):
     """Create covariance matrices from multiple samples."""
     assert isinstance(x, torch.Tensor)

@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
 from .depth_cloud import DepthCloud
-from .utils import timing
+import numpy as np
 import torch
 
 __all__ = [
@@ -17,6 +17,8 @@ __all__ = [
 
 
 def load_model(class_name: str=None,
+               model_args=None,
+               model_kwargs=None,
                state_dict: (dict, str)=None,
                device: (str, torch.device)=None,
                cfg: Config=None,
@@ -25,6 +27,10 @@ def load_model(class_name: str=None,
     if cfg is not None:
         if class_name is None:
             class_name = cfg.model_class
+        if model_args is None:
+            model_args = cfg.model_args
+        if model_kwargs is None:
+            model_kwargs = cfg.model_kwargs
         if state_dict is None:
             state_dict = cfg.model_state_dict
         if device is None:
@@ -38,7 +44,7 @@ def load_model(class_name: str=None,
         device = torch.device(device)
 
     Class = model_by_name(class_name)
-    model = Class()
+    model = Class(*model_args, **model_kwargs)
     assert isinstance(model, BaseModel)
 
     if state_dict:

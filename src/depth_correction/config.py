@@ -155,6 +155,8 @@ class Config(Configurable):
         self.pose_provider = PoseProvider.ground_truth
         self.slam = SLAM.norlab_icp_mapper
         self.model_class = Model.ScaledPolynomial
+        self.model_args = []
+        self.model_kwargs = {}
         self.model_state_dict = ''
         self.float_type = 'float64'
         self.device = 'cpu'

@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
+from .dataset import dataset_by_name
 from .loss import loss_by_name
 from .model import load_model, model_by_name
 from .preproc import *
@@ -14,23 +15,47 @@ from torch.optim import Adam, SGD  # Needed for eval
 from torch.utils.tensorboard import SummaryWriter
 
 
-def train(cfg: Config):
+class TrainCallbacks(object):
+
+    def __init__(self, cfg: Config=None):
+        self.cfg = cfg
+
+    def iteration_started(self, iter):
+        pass
+
+    def train_inputs(self, iter, clouds, poses):
+        pass
+
+    def val_inputs(self, iter, clouds, poses):
+        pass
+
+    def train_loss(self, iter, clouds, masks, loss):
+        pass
+
+    def val_loss(self, iter, clouds, masks, loss):
+        pass
+
+
+def train(cfg: Config, callbacks=None, train_datasets=None):
     """Train depth correction model, validate it, and return best config.
 
-    :param cfg:
+    :param cfg: Training config.
+    :param callbacks: Dictionary of callbacks to call during training.
+    :param train_datasets: Use these datasets instead of those created from config.
     :return: Config of the best model.
     """
+    if not callbacks:
+        callbacks = TrainCallbacks(cfg)
+
     cfg_path = os.path.join(cfg.log_dir, 'train.yaml')
     if os.path.exists(cfg_path):
         print('Config %s already exists.' % cfg_path)
     else:
         cfg.to_yaml(cfg_path)
 
-    assert cfg.dataset == 'asl_laser' or cfg.dataset == 'semantic_kitti'
-    if cfg.dataset == 'asl_laser':
-        from data.asl_laser import Dataset
-    elif cfg.dataset == 'semantic_kitti':
-        from data.semantic_kitti import Dataset
+    Dataset = dataset_by_name(cfg.dataset)
+    print(Dataset.__name__)
+
     loss_fun = loss_by_name(cfg.loss)
     print(cfg.loss, loss_fun.__name__)
     print(cfg.loss_kwargs)
@@ -50,8 +75,12 @@ def train(cfg: Config):
         poses_path = cfg.train_poses_path[i] if cfg.train_poses_path else None
         clouds = []
         poses = []
-        # for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
-        for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
+        if train_datasets:
+            print('Using provided training datasets.')
+            ds = train_datasets[i]
+        else:
+            ds = Dataset(name, poses_path=poses_path)[::cfg.data_step]
+        for cloud, pose in ds:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             # If poses are not optimized, depth can be corrected on global
@@ -187,6 +216,7 @@ def train(cfg: Config):
             clouds[i] = cloud
 
         train_loss, _ = loss_fun(clouds, mask=train_masks, **cfg.loss_kwargs)
+        callbacks.train_loss(it, clouds, train_masks, train_loss)
 
         # Validation
         if cfg.pose_correction == PoseCorrection.none:
@@ -224,6 +254,7 @@ def train(cfg: Config):
             clouds[i] = cloud
 
         val_loss, _ = loss_fun(clouds, mask=val_masks, **cfg.loss_kwargs)
+        callbacks.val_loss(it, clouds, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:

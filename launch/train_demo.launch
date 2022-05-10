@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <node name="train_demo" pkg="depth_correction" type="train_demo" output="screen">
+        <rosparam subst_value="true">
+            device: cpu
+        </rosparam>
+    </node>
+
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(dirname)/../config/train_demo.rviz"/>
+</launch>

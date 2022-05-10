@@ -5,8 +5,10 @@ from numpy.lib.recfunctions import structured_to_unstructured
 import torch
 import torch.nn.functional as fun
 
+default_rng = np.random.default_rng(135)
 
-def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=False, log=False):
+
+def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=False, log=False, rng=default_rng):
     """Keep single point within each cell. Order is not preserved."""
     assert isinstance(cloud, (DepthCloud, np.ndarray, torch.Tensor))
     assert isinstance(grid_res, float) and grid_res > 0.0
@@ -35,7 +37,7 @@ def filter_grid(cloud, grid_res, only_mask=False, keep='random', preserve_order=
         ind = ind[::-1]
     elif keep == 'random':
         # Make the last item random.
-        np.random.shuffle(ind)
+        rng.shuffle(ind)
         # keys = keys[ind]
         keys = [keys[i] for i in ind]
     elif keep == 'last':

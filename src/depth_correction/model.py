@@ -66,6 +66,9 @@ class BaseModel(torch.nn.Module):
     def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         return dc
 
+    def inverse(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        return dc
+
     def __str__(self):
         return 'BaseModel()'
 
@@ -110,6 +113,9 @@ class Linear(BaseModel):
             dc_corr.depth[mask] = self.w0 * dc_corr.depth[mask] + self.w1 * dc_corr.inc_angles[mask] + self.b
         return dc_corr
 
+    def inverse(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        raise NotImplementedError()
+
     def __str__(self):
         return 'Linear(%.6g, %.6g, %.6g)' % (self.w0.item(), self.w1.item(), self.b.item())
 
@@ -144,6 +150,21 @@ class Polynomial(BaseModel):
             dc_corr.depth[mask] = dc_corr.depth[mask] - bias
         return dc_corr
 
+    def inverse(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        assert dc.inc_angles is not None
+        dc_corr = dc.copy()
+        if mask is None:
+            gamma = dc.inc_angles
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            dc_corr.depth = dc_corr.depth + bias
+        else:
+            gamma = dc.inc_angles[mask]
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = dc_corr.depth[mask] + bias
+        return dc_corr
+
     def __str__(self):
         return 'Polynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
 
@@ -174,6 +195,21 @@ class ScaledPolynomial(BaseModel):
             dc_corr.depth[mask] = dc_corr.depth[mask] * (1. - bias)
         return dc_corr
 
+    def inverse(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        assert dc.inc_angles is not None
+        dc_corr = dc.copy()
+        if mask is None:
+            gamma = dc.inc_angles
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            dc_corr.depth = dc_corr.depth / (1. - bias)
+        else:
+            gamma = dc.inc_angles[mask]
+            bias = self.p0 * gamma ** 2 + self.p1 * gamma ** 4
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = dc_corr.depth[mask] / (1. - bias)
+        return dc_corr
+
     def __str__(self):
         return 'ScaledPolynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
 
@@ -198,6 +234,9 @@ class InvCos(BaseModel):
             dc_corr.depth[mask] = dc_corr.depth[mask] - bias
         return dc_corr
 
+    def inverse(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        raise NotImplementedError()
+
     def __str__(self):
         return 'InvCos(%.6g)' % (self.p0.item(),)
 
@@ -206,20 +245,32 @@ class ScaledInvCos(BaseModel):
 
     def __init__(self, p0=0.0, device=torch.device('cpu')):
         super(ScaledInvCos, self).__init__(device=device)
-        p0 = torch.as_tensor(p0, device=device)
-        self.p0 = torch.nn.Parameter(p0)
+        self.p0 = torch.nn.Parameter(torch.as_tensor(p0, device=device))
 
     def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:
         assert dc.inc_angles is not None
         dc_corr = dc.copy()
         if mask is None:
-            bias = self.p0 / torch.cos(dc.inc_angles)
+            bias = self.p0 / torch.cos(dc.inc_angles).abs()
             dc_corr.depth = dc_corr.depth * (1. - bias)
         else:
-            bias = self.p0 / torch.cos(dc.inc_angles[mask])
+            bias = self.p0 / torch.cos(dc.inc_angles[mask]).abs()
             # Avoid modifying depth in-place.
             dc_corr.depth = dc_corr.depth.clone()
             dc_corr.depth[mask] = dc_corr.depth[mask] * (1. - bias)
+        return dc_corr
+
+    def inverse(self, dc: DepthCloud, mask=None) -> DepthCloud:
+        assert dc.inc_angles is not None
+        dc_corr = dc.copy()
+        if mask is None:
+            bias = self.p0 / torch.cos(dc.inc_angles).abs()
+            dc_corr.depth = dc_corr.depth / (1. - bias)
+        else:
+            bias = self.p0 / torch.cos(dc.inc_angles[mask]).abs()
+            # Avoid modifying depth in-place.
+            dc_corr.depth = dc_corr.depth.clone()
+            dc_corr.depth[mask] = dc_corr.depth[mask] / (1. - bias)
         return dc_corr
 
     def __str__(self):

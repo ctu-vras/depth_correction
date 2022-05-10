@@ -1,0 +1,225 @@
+#! /usr/bin/env python
+from __future__ import absolute_import, division, print_function
+from depth_correction.config import Config, Loss, Model
+from depth_correction.dataset import create_dataset
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.model import ScaledInvCos, ScaledPolynomial
+from depth_correction.preproc import filtered_cloud, global_cloud, local_feature_cloud
+from depth_correction.train import train, TrainCallbacks
+from geometry_msgs.msg import Transform, TransformStamped
+import matplotlib.pyplot as plt
+from ros_numpy import msgify
+import rospy
+from sensor_msgs.msg import PointCloud2
+from tf2_msgs.msg import TFMessage
+import torch
+
+
+class TrainingDemo(TrainCallbacks):
+
+    def __init__(self):
+        super().__init__()
+
+        # Training history
+        self.iterations = []
+        self.train_losses = []
+        self.l2_losses = []
+
+        # Visualization
+        self.fig, self.ax = None, None
+        self.setup_visualization()
+        self.corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
+
+        self.cfg = Config()
+        self.cfg.dataset = 'ground_plane'
+        self.cfg.dataset_kwargs = dict(step=1.0, height=1.0, density=100.0, model=None)
+        # self.cfg.dataset_kwargs = dict(step=1.0, height=1.0, density=10.0, model=None)
+        self.cfg.data_step = 1
+        self.cfg.train_names = ['ground_plane/10']
+        self.cfg.val_names = ['ground_plane/10']
+
+        self.cfg.min_depth = 0.0
+        self.cfg.max_depth = float('inf')
+        self.cfg.grid_res = 0.0
+        self.cfg.nn_k = 0
+        self.cfg.nn_r = 0.4
+        self.cfg.shadow_angle_bounds = []
+        self.cfg.eigenvalue_bounds = []
+        self.cfg.dir_dispersion_bounds = []
+        self.cfg.vp_dispersion_bounds = []
+
+        self.cfg.model_class = Model.ScaledInvCos
+        # self.gt_model = ScaledPolynomial(p0=-0.01)
+        self.gt_model = ScaledInvCos(p0=-0.01)
+
+        self.cfg.loss = Loss.min_eigval_loss
+        self.cfg.loss_kwargs = dict(sqrt=True)
+        self.cfg.optimizer = 'SGD'
+        # self.cfg.optimizer_kwargs = dict(momentum=0.9)
+        # self.cfg.optimizer_kwargs = dict(weight_decay=0.001)
+        # self.cfg.lr = 1.0
+        self.cfg.lr = 0.001
+        # self.cfg.lr = 0.002
+        # self.cfg.optimizer = 'Adam'
+        # self.cfg.optimizer_kwargs = dict()
+        # self.cfg.lr = 0.0001
+
+        # Training config examples.
+        # self.cfg.loss = Loss.min_eigval_loss
+        # self.cfg.loss_kwargs = dict(sqrt=True)
+        # self.cfg.optimizer = 'SGD'
+        # self.cfg.optimizer_kwargs = dict(weight_decay=0.001)
+        # self.cfg.lr = 0.002
+
+        # self.cfg.loss = Loss.min_eigval_loss
+        # self.cfg.loss_kwargs = dict(sqrt=True)
+        # self.cfg.optimizer = 'Adam'
+        # self.cfg.lr = 0.001
+
+        # self.cfg.loss = Loss.min_eigval_loss
+        # self.cfg.loss_kwargs = dict(sqrt=True)
+        # self.cfg.optimizer = 'SGD'
+        # self.cfg.lr = 0.0001
+
+        self.cfg.n_opt_iters = 1000
+
+        self.cfg.from_rosparam()
+
+        self.ds = None
+        self.tfs = None
+        self.gt_clouds = None
+        self.create_ground_truth()
+        # self.train_callbacks = DemoTrainCallbacks(gt_clouds=self.gt_clouds)
+
+        self.gt_cloud_pub = rospy.Publisher('ground_truth_cloud', PointCloud2, queue_size=2)
+        self.initial_cloud_pub = rospy.Publisher('initial_cloud', PointCloud2, queue_size=2)
+
+        self.tf_static_pub = rospy.Publisher('/tf_static', TFMessage, latch=True, queue_size=2)
+        self.tf_static_pub.publish(TFMessage(self.tfs))
+
+    def create_ground_truth(self):
+        self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
+
+        clouds = []
+        poses = []
+        self.tfs = []
+        for i, (cloud, pose) in enumerate(self.ds):
+            cloud = filtered_cloud(cloud, self.cfg)
+            cloud = local_feature_cloud(cloud, self.cfg)
+            clouds.append(cloud)
+            # tf = msgify(TransformStamped, pose)
+            tf = TransformStamped()
+            tf.transform = msgify(Transform, pose)
+            assert isinstance(tf, TransformStamped)
+            tf.header.stamp = rospy.Time.now()
+            tf.header.frame_id = 'map'
+            tf.child_frame_id = 'vp_%i' % i
+            self.tfs.append(tf)
+            pose = torch.as_tensor(pose)
+            poses.append(pose)
+        cloud = global_cloud(clouds, None, poses)
+        self.gt_clouds = [cloud]
+
+        # self.input_ds = self.ds[:]
+        self.ds.model = self.gt_model
+
+    def spin(self):
+        train(self.cfg, callbacks=self, train_datasets=[self.ds])
+
+    def iteration_started(self, iter):
+        print(iter)
+
+    def compute_l2_loss(self, clouds):
+        assert len(clouds) == 1
+        l2_loss = 0.0
+        with torch.no_grad():
+            for gt_cloud, cloud in zip(self.gt_clouds, clouds):
+                assert isinstance(gt_cloud, DepthCloud)
+                assert isinstance(cloud, DepthCloud)
+                # print('Ground-truth cloud: %i, cloud: %i' % (len(gt_cloud), len(cloud)))
+                cloud_l2_loss = torch.linalg.norm(gt_cloud.get_points() - cloud.to_points(), dim=1).mean()
+                l2_loss += cloud_l2_loss.detach().item()
+            # print('l2 loss', l2_loss)
+            return l2_loss
+
+    def train_loss(self, iter, clouds, masks, loss):
+        self.l2_losses.append(self.compute_l2_loss(clouds))
+        loss = loss.detach().item()
+        # print('loss', loss)
+        # print('Iter %i: %.3f' % (iter, loss))
+        self.iterations.append(iter)
+        self.train_losses.append(loss)
+        self.visualize(clouds)
+
+    def setup_visualization(self):
+        self.fig, self.ax = plt.subplots(2, 2, squeeze=False)
+
+    def plot_cloud(self, ax, cloud, marker, dims=(0, 1), step=100, **kwargs):
+        assert len(dims) == 2
+        assert isinstance(cloud, DepthCloud)
+        with torch.no_grad():
+            pts = cloud.to_points()
+            x = pts[::step, dims[0]].detach().numpy()
+            y = pts[::step, dims[1]].detach().numpy()
+        ax.plot(x, y, marker, **kwargs)
+        # ax.scatter(x, y, marker, **kwargs)
+
+    def publish_cloud(self, pub, cloud):
+        assert isinstance(pub, rospy.Publisher)
+        assert isinstance(cloud, DepthCloud)
+        with torch.no_grad():
+            arr = cloud.to_structured_array()
+            msg = msgify(PointCloud2, arr)
+            assert isinstance(msg, PointCloud2)
+            msg.header.stamp = rospy.Time.now()
+            msg.header.frame_id = 'map'
+        pub.publish(pub)
+
+    def visualize(self, clouds):
+        ax = self.ax[0, 0]
+        ax.cla()
+        ax.plot(self.iterations, self.l2_losses)
+        ax.set_xlabel('Iteration')
+        ax.set_ylabel('L2 Loss')
+        ax.grid()
+        ax.legend()
+
+        ax = self.ax[0, 1]
+        ax.cla()
+        ax.plot(self.iterations, self.train_losses)
+        ax.set_xlabel('Iteration')
+        ax.set_ylabel('Training Loss')
+        ax.grid()
+        ax.legend()
+
+        if self.gt_clouds:
+            ax = self.ax[1, 0]
+            ax.cla()
+            self.plot_cloud(ax, self.gt_clouds[0], 'bx', mfc='none', markersize=5, label='Ground Truth')
+            self.plot_cloud(ax, clouds[0], 'ro', mfc='none', markersize=5, label='Corrected')
+            ax.set_xlabel('x')
+            ax.set_ylabel('y')
+            ax.grid()
+            ax.legend()
+
+            ax = self.ax[1, 1]
+            ax.cla()
+            self.plot_cloud(ax, self.gt_clouds[0], 'bx', dims=(0, 2), mfc='none', markersize=5, label='Ground Truth')
+            self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
+            ax.set_xlabel('x')
+            ax.set_ylabel('z')
+            ax.grid()
+            ax.legend()
+
+        self.fig.tight_layout()
+        plt.pause(0.001)
+
+
+def main():
+    rospy.init_node('training_demo', log_level=rospy.DEBUG)
+    node = TrainingDemo()
+    node.spin()
+
+
+if __name__ == '__main__':
+    main()

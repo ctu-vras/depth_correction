@@ -89,6 +89,17 @@ class BaseModel(torch.nn.Module):
         kwargs = {k: v.clone() for k, v in self.named_parameters()}
         return self.construct(**kwargs)
 
+    def plot(self, ax, max_angle=np.deg2rad(89.0), **kwargs):
+        n_pts = 100
+        if 'label' not in kwargs:
+            kwargs['label'] = str(self)
+        with torch.no_grad():
+            cloud = DepthCloud.from_points(torch.ones((n_pts, 3)) / torch.sqrt(torch.tensor(3.0)))
+            cloud.inc_angles = torch.as_tensor(np.linspace(0, max_angle, n_pts))[:, None]
+            ax.plot(np.rad2deg(cloud.inc_angles.numpy()).flatten(), self(cloud).depth.numpy().flatten(), **kwargs)
+            ax.set_xlabel('Incidence Angle [deg]')
+            ax.set_ylabel('Depth [m]')
+
 
 class Linear(BaseModel):
 

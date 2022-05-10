@@ -185,6 +185,8 @@ class Config(Configurable):
 
         # Data
         self.dataset = 'asl_laser'
+        self.dataset_args = []
+        self.dataset_kwargs = {}
         self.train_names = ['eth']
         self.val_names = ['stairs']
         self.test_names = ['gazebo_winter']

@@ -61,6 +61,8 @@ def hashable(obj):
         obj = tuple(hashable(o) for o in obj)
     if isinstance(obj, dict):
         obj = hashable(sorted(obj.items()))
+    if isinstance(obj, slice):
+        obj = obj.start, obj.stop, obj.step
     return obj
 
 

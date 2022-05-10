@@ -36,7 +36,7 @@ class TrainCallbacks(object):
         pass
 
 
-def train(cfg: Config, callbacks=None, train_datasets=None):
+def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     """Train depth correction model, validate it, and return best config.
 
     :param cfg: Training config.
@@ -124,8 +124,12 @@ def train(cfg: Config, callbacks=None, train_datasets=None):
         poses_path = cfg.val_poses_path[i] if cfg.val_poses_path else None
         clouds = []
         poses = []
-        # for cloud, pose in cfg.Dataset(name)[::cfg.data_step]:
-        for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
+        if val_datasets:
+            print('Using provided validation datasets.')
+            ds = val_datasets[i]
+        else:
+            ds = Dataset(name, poses_path=poses_path)[::cfg.data_step]
+        for cloud, pose in ds:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             clouds.append(cloud)

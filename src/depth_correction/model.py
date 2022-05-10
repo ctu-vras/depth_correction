@@ -212,7 +212,7 @@ class ScaledPolynomial(BaseModel):
         assert inc_angles.dim() == 2
         assert inc_angles.shape[1] == 1
         x = torch.pow(inc_angles, self.exponent)
-        bias = torch.matmul(x, self.w).view((-1, 1))
+        bias = torch.matmul(x, self.w.t()).view((-1, 1))
         return bias
 
     def correct_depth(self, dc: DepthCloud, mask=None) -> DepthCloud:

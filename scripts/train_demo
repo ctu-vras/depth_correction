@@ -41,8 +41,8 @@ class TrainingDemo(TrainCallbacks):
         # Depth and grid filters prevent computing L2 loss since the points don't match.
         self.cfg.min_depth = 0.0
         self.cfg.max_depth = float('inf')
-        self.cfg.grid_res = 0.0
-        # self.cfg.grid_res = 0.1
+        # self.cfg.grid_res = 0.0
+        self.cfg.grid_res = 0.1
         self.cfg.nn_k = 0
         self.cfg.nn_r = 0.4
         self.cfg.shadow_angle_bounds = []
@@ -63,7 +63,7 @@ class TrainingDemo(TrainCallbacks):
         # self.gt_model = model_by_name(self.cfg.model_class)(exponent=[4.0])
         # self.gt_model = load_model(cfg=self.cfg)
         self.gt_model = model_by_name(self.cfg.model_class)(w=[-0.01], **self.cfg.model_kwargs)
-        # self.gt_model.w[0, 0] = -0.001
+        # self.gt_model = model_by_name(self.cfg.model_class)(w=[-0.005, -0.005], exponent=[2.0, 4.0])
 
         self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
@@ -73,8 +73,7 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.optimizer = 'Adam'
         self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         # self.cfg.optimizer_kwargs['weight_decay'] = 0.001
-        # self.cfg.lr = 0.001
-        self.cfg.lr = 0.0001
+        self.cfg.lr = 0.002
 
         # Training config examples.
         # self.cfg.loss = Loss.min_eigval_loss
@@ -94,11 +93,11 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.lr = 0.0001
 
         # ADAM with lower momentum params, avoids oscillation.
-        self.cfg.loss = Loss.min_eigval_loss
-        self.cfg.loss_kwargs['sqrt'] = True
-        self.cfg.optimizer = 'Adam'
-        self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
-        self.cfg.lr = 0.001
+        # self.cfg.loss = Loss.min_eigval_loss
+        # self.cfg.loss_kwargs['sqrt'] = True
+        # self.cfg.optimizer = 'Adam'
+        # self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
+        # self.cfg.lr = 0.002
 
         self.cfg.n_opt_iters = 1000
 

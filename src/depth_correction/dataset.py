@@ -10,11 +10,9 @@ default_rng = np.random.default_rng(135)
 
 
 def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=default_rng):
-    # np.random.seed(135)
     size = np.asarray(size).reshape((1, 3))
     measure = np.prod([s for s in size.flatten() if s])
     n_pts = int(np.ceil(measure * density))
-    # x = size * np.random.uniform(-0.5, 0.5, (n_pts, 3))
     x = size * rng.uniform(-0.5, 0.5, (n_pts, 3))
     return x
 

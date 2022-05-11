@@ -2,9 +2,10 @@ from __future__ import absolute_import, division, print_function
 from .config import Config
 from .depth_cloud import DepthCloud
 from .model import BaseModel
-from .utils import cached
+from .utils import cached, hashable, timing
 import numpy as np
-from numpy.lib.recfunctions import merge_arrays, unstructured_to_structured
+from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
+from tf.transformations import euler_matrix
 import torch
 from copy import deepcopy
 import os
@@ -21,16 +22,14 @@ def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=default_rng):
 
 
 class GroundPlaneDataset(object):
-    def __init__(self, name=None, n=10, size=(5.0, 5.0, 0.0), step=1.0, height=1.0, density=100.0,
-                 noise=0.0, model=None, **kwargs):
+    def __init__(self, name=None, n=10, size=(5.0, 5.0, 0.0), step=1.0, height=1.0, density=100.0, **kwargs):
         """Dataset composed of multiple measurements of ground plane.
 
         :param n: Number of viewpoints.
-        :param step: Distance between neighboring viewpoints.
+        :param size: Local clous size.
+        :param step: Distance between neighboring viewpoints (along x-axis).
         :param height: Sensor height above ground plane.
         :param density: Point density in unit volume/area.
-        :param noise: Gaussian noise standard deviation.
-        :param model: Ground-truth correction model; inverse will be applied to the points.
         """
         if name:
             parts = name.split('/')
@@ -40,9 +39,6 @@ class GroundPlaneDataset(object):
             # TODO: Parse other params from name.
             if isinstance(name, str):
                 n = int(name)
-
-        self.noise = noise
-        self.model = model
 
         self.n = n
         self.size = size
@@ -55,35 +51,18 @@ class GroundPlaneDataset(object):
     def local_cloud(self, id):
         rng = np.random.default_rng(id)
         pts = box_point_cloud(size=self.size, density=self.density, rng=rng)
-        vps = np.zeros_like(pts)
-        vps[:, 2] = self.height
+        pts -= self.height
         normals = np.zeros_like(pts)
         normals[:, 2] = 1.0
-
-        if self.noise != 0.0 or self.model is not None:
-            assert isinstance(self.model, BaseModel)
-            dc = DepthCloud.from_points(pts, vps=vps)
-            assert isinstance(dc, DepthCloud)
-
-            if self.noise != 0.0:
-                dc.depth += self.noise * torch.randn(dc.depth.shape)
-
-            if self.model is not None:
-                dc.normals = normals
-                dc.update_incidence_angles()
-                dc = self.model.inverse(dc)
-
-            pts = dc.to_points().detach().numpy()
-
         pts = unstructured_to_structured(pts, names=['x', 'y', 'z'])
-        vps = unstructured_to_structured(vps, names=['vp_%s' % f for f in 'xyz'])
-        cloud = merge_arrays([pts, vps], flatten=True)
-
+        normals = unstructured_to_structured(normals, names=['normal_x', 'normal_y', 'normal_z'])
+        cloud = merge_arrays([pts, normals], flatten=True)
         return cloud
 
     def cloud_pose(self, id):
         pose = np.eye(4)
         pose[0, 3] = id * self.step
+        pose[2, 3] = 1.0
         return pose
 
     def __getitem__(self, i):
@@ -93,8 +72,7 @@ class GroundPlaneDataset(object):
             pose = self.cloud_pose(id)
             return cloud, pose
 
-        ds = GroundPlaneDataset(n=self.n, size=self.size, step=self.step, height=self.height, density=self.density,
-                                model=self.model)
+        ds = GroundPlaneDataset(n=self.n, size=self.size, step=self.step, height=self.height, density=self.density)
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
         else:
@@ -261,6 +239,103 @@ class Mesh(BaseDataset):
                                  np.logical_and(Z >= -self.size / 2, Z <= self.size / 2))]
         self.n_pts = len(pts)
         return pts
+
+
+class Forwarding(object):
+    def __init__(self, target):
+        self.target = target
+
+    def __getattr__(self, item):
+        return getattr(self.target, item)
+
+    def __iter__(self):
+        return self.target.__iter__()
+
+
+class ForwardingDataset(Forwarding):
+    def __init__(self, target):
+        super().__init__(target)
+
+    def modify_cloud(self, cloud):
+        return cloud
+
+    def modify_pose(self, pose):
+        return pose
+
+    def __iter__(self):
+        for cloud, pose in self.target:
+            yield self.modify_cloud(cloud), self.modify_pose(pose)
+
+    def local_cloud(self, id):
+        return self.modify_cloud(self.target.local_cloud(id))
+
+    def cloud_pose(self, id):
+        return self.modify_pose(self.target.cloud_pose(id))
+
+
+class NoisyPoseDataset(ForwardingDataset):
+
+    def __init__(self, dataset, noise=None):
+        super().__init__(dataset)
+        self.cov = np.diag(noise) if noise and any(noise) else None
+
+    def random_transform(self, id):
+        rng = np.random.default_rng(id)
+        noise_vec = rng.multivariate_normal(np.zeros((6,)), self.cov)
+        noise = euler_matrix(*noise_vec[:3])
+        noise[:3, 3] = noise_vec[3:]
+        return noise
+
+    # TODO: Cache
+    def modify_pose(self, pose):
+        print('NoisyPoseDataset.modify_pose')
+        h = hash(hashable(pose))
+        if self.cov is not None:
+            noise = self.random_transform(h)
+            pose = np.matmul(pose, noise)
+        return pose
+
+
+class NoisyDepthDataset(ForwardingDataset):
+
+    def __init__(self, dataset, noise=None):
+        super().__init__(dataset)
+        self.noise = noise
+
+    def modify_cloud(self, cloud):
+        if self.noise:
+            pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
+            if 'vp_x' in cloud.dtype.names:
+                vps = structured_to_unstructured(cloud[['vp_x', 'vp_y', 'vp_z']])
+                dirs = pts - vps
+            else:
+                dirs = pts - 0.0
+            depth = np.linalg.norm(dirs, axis=1)
+            valid = depth > 0.0
+            depth = depth[valid]
+            dirs = dirs[valid] / depth[:, None]
+            pts[valid] += dirs * self.noise * np.random.randn(*depth.shape)[:, None]
+            cloud[['x', 'y', 'z']] = unstructured_to_structured(pts, names=['x', 'y', 'z'])
+        return cloud
+
+
+class DepthBiasDataset(ForwardingDataset):
+
+    def __init__(self, dataset, model=None):
+        super().__init__(dataset)
+        self.model = model
+
+    def modify_cloud(self, cloud):
+        if self.model is not None:
+            assert isinstance(self.model, BaseModel)
+            dc = DepthCloud.from_structured_array(cloud)
+            assert isinstance(dc, DepthCloud)
+            assert dc.normals is not None
+            dc.update_incidence_angles()
+            dc = self.model.inverse(dc)
+            pts = dc.to_points().detach().numpy()
+            cloud[['x', 'y', 'z']] = unstructured_to_structured(pts, names=['x', 'y', 'z'])
+        return cloud
 
 
 def dataset_by_name(name):

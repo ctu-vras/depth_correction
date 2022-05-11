@@ -531,14 +531,17 @@ class DepthCloud(object):
         assert isinstance(arr, np.ndarray)
         pts = structured_to_unstructured(arr[['x', 'y', 'z']], dtype=dtype)
         if 'vp_x' in arr.dtype.names:
-            vps = structured_to_unstructured(arr[['vp_%s' % f for f in 'xyz']], dtype=dtype)
+            vps = structured_to_unstructured(arr[['vp_x', 'vp_y', 'vp_z']], dtype=dtype)
         else:
-            # print('Viewpoints not provided.')
             vps = None
-        return DepthCloud.from_points(pts, vps, device=device)
+        if 'normal_x' in arr.dtype.names:
+            normals = structured_to_unstructured(arr[['normal_x', 'normal_y', 'normal_z']], dtype=dtype)
+        else:
+            normals = None
+        return DepthCloud.from_points(pts, vps=vps, normals=normals, device=device)
 
     @staticmethod
-    def from_points(pts, vps=None, dtype=None, device=None):
+    def from_points(pts, vps=None, normals=None, dtype=None, device=None):
         """Create depth cloud from points and viewpoints.
 
         :param pts: Points as ...-by-3 tensor,
@@ -552,27 +555,35 @@ class DepthCloud(object):
         except AttributeError as ex:
             pass
 
-        if isinstance(pts, np.ndarray):
-            pts = torch.as_tensor(np.asarray(pts, dtype=dtype), device=device)
+        kwargs = {}
+        if pts is not None:
+            pts = torch.as_tensor(pts, dtype=dtype, device=device)
         assert isinstance(pts, torch.Tensor)
 
-        if vps is None:
-            vps = torch.as_tensor(np.zeros([pts.shape[0], 3], dtype=dtype), device=device)
-        elif isinstance(vps, np.ndarray):
-            vps = torch.as_tensor(np.asarray(vps, dtype=dtype), device=device)
+        if vps is not None:
+            vps = torch.as_tensor(vps, dtype=dtype, device=device)
+        else:
+            vps = torch.zeros_like(pts)
         assert isinstance(vps, torch.Tensor)
         assert vps.shape == pts.shape
+        kwargs['vps'] = vps
 
         dirs = pts - vps
-        assert dirs.shape == pts.shape
 
         depth = dirs.norm(dim=-1, keepdim=True)
         assert depth.shape[0] == pts.shape[0]
+        kwargs['depth'] = depth
 
-        # TODO: Handle invalid points (zero depth).
-        dirs = dirs / depth
+        valid = depth[:, 0] > 0.0
+        dirs[valid] = dirs[valid] / depth[valid]
         assert dirs.dtype == vps.dtype
-        depth_cloud = DepthCloud(vps, dirs, depth)
+        kwargs['dirs'] = dirs
+
+        if normals is not None:
+            normals = torch.as_tensor(normals, dtype=dtype, device=device)
+            kwargs['normals'] = normals
+
+        depth_cloud = DepthCloud(**kwargs)
         if device:
             depth_cloud = depth_cloud.to(device=device)
         return depth_cloud

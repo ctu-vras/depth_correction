@@ -379,8 +379,9 @@ class DepthCloud(object):
     def update_normals(self):
         assert self.eigvecs is not None
         # TODO: Keep grad?
-        with torch.no_grad():
-            self.normals = self.eigvecs[..., 0]
+        # with torch.no_grad():
+        #     self.normals = self.eigvecs[..., 0]
+        self.normals = self.eigvecs[..., 0]
         self.orient_normals()
 
     def update_incidence_angles(self):

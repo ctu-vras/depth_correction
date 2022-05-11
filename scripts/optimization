@@ -5,12 +5,11 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.loss import min_eigval_loss, trace_loss, l2_loss
-from depth_correction.model import ScaledPolynomial, Polynomial
+from depth_correction.loss import loss_by_name, l2_loss
+from depth_correction.model import model_by_name
 from depth_correction.filters import filter_eigenvalues, filter_grid
 from depth_correction.preproc import filtered_cloud, local_feature_cloud
 from depth_correction.config import Config
-from data.semantic_kitti import Dataset
 import rospy
 from sensor_msgs.msg import PointCloud2
 from ros_numpy import msgify
@@ -28,11 +27,8 @@ class Optimization(object):
         self.corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
         self.br = tf.TransformBroadcaster()
         self.device = torch.device(rospy.get_param('~device', 'cpu'))
-        self.model = ScaledPolynomial() if rospy.get_param('~model',
-                                                           'ScaledPolynomial') == 'ScaledPolynomial' else Polynomial()
-        self.model = self.model.to(self.device)
-        self.loss_fun = min_eigval_loss if rospy.get_param('~loss_fun',
-                                                           'min_eigval_loss') == 'min_eigval_loss' else trace_loss
+        self.model = model_by_name(rospy.get_param('~model', 'ScaledPolynomial'))(w=[0.0], exponent=[2]).to(self.device)
+        self.loss_fun = loss_by_name(rospy.get_param('~loss_fun', 'min_eigval_loss'))
         self.vis = rospy.get_param('~plots', True)
         self.vis_clouds = rospy.get_param('~visualize_clouds', True)
         self.lr = rospy.get_param('~lr', 0.001)
@@ -40,8 +36,7 @@ class Optimization(object):
         self.n_pts = rospy.get_param('~n_pts', 100000)
         self.n_vps = rospy.get_param('~n_vps', 4)
         self.env_size = rospy.get_param('~env_size', 20)
-        self.distor = {'p0': rospy.get_param('~p0_distor', -0.03),
-                       'p1': rospy.get_param('~p1_distor', 0.0)}
+        self.distorion_model = model_by_name(rospy.get_param('~model', 'ScaledPolynomial'))(w=[-0.03], exponent=[2]).to(self.device)
         self.angle_degrees = rospy.get_param('~angle_degrees', 0.0)
         self.mesh_pts_to_sample = rospy.get_param('~pts_sampled_from_mesh', 10_000_000)
         self.cfg = Config()
@@ -50,10 +45,7 @@ class Optimization(object):
             self.cfg.from_yaml(params_file)
         else:
             rospy.logwarn('Params file not found')
-        if rospy.get_param('~monotonous_model', True):
-            self.optimizer = torch.optim.Adam([self.model.p0], lr=self.lr)
-        else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         self.r_nn = rospy.get_param('~r_nn', 0.2)
         # self.eigenvalue_bounds = [[0, None, (self.r_nn / 8) ** 2],
         #                           [1, (self.r_nn / 4) ** 2, None]]
@@ -75,15 +67,9 @@ class Optimization(object):
         pc_msg.header.stamp = stamp
         return pc_msg
 
-    @staticmethod
-    def add_distortion(dc, p0=-0.03, p1=0.0):
-        gama = dc.inc_angles
-        dc.depth = dc.depth / (1 - (p0 * gama ** 2 + p1 * gama ** 4))
-        return dc
-
     def create_environment(self):
         if self.env_type == 'angle':
-            from depth_correction.data import Angle
+            from depth_correction.dataset import Angle
             ds = Angle(n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size, degrees=self.angle_degrees)
         elif self.env_type == 'kitti':
             from data.semantic_kitti import Dataset
@@ -93,10 +79,12 @@ class Optimization(object):
             except:
                 rospy.logwarn('Using SuMa SLAM poses for Semantic KITTI sequence %s' % name)
                 ds = Dataset(name, pose_provider='surf_slam')
-        else:
-            from depth_correction.data import Mesh
+        elif '.obj' in self.env_type or '.ply' in self.env_type:
+            from depth_correction.dataset import Mesh
             ds = Mesh(mesh_name=self.env_type, n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size)
             self.n_pts = len(ds.global_cloud)
+        else:
+            raise ValueError('Unknown dataset: %s.' % self.env_type)
 
         dcs_list = []
         vps_list = []
@@ -123,7 +111,7 @@ class Optimization(object):
         # pts_gt = None
         pts_gt = dc.get_points()
 
-        dc = self.add_distortion(dc, p0=self.distor['p0'], p1=self.distor['p1'])
+        dc = self.distorion_model.inverse(dc)
         dc.update_all(r=self.r_nn)
 
         dc.mask = filter_eigenvalues(dc, eig_bounds=self.eigenvalue_bounds, only_mask=True, log=True)
@@ -163,7 +151,7 @@ class Optimization(object):
             loss = loss.detach()
             losses.append(loss.item())
             rospy.loginfo('%s = %g' % (rospy.get_param('~loss_fun', 'loss'), loss.item()))
-            rospy.logdebug('Model parameters: p0=%f, p1=%f', self.model.p0.item(), self.model.p1.item())
+            rospy.logdebug('Model parameters: p0=%f' % self.model.w.flatten()[0].item())
 
             if self.pts_gt is not None:
                 l2_metric = torch.linalg.norm(dc.points.detach() - self.pts_gt) / len(self.pts_gt)

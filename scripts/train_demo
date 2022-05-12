@@ -64,12 +64,13 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
 
-        self.depth_noise = 0.02
+        self.depth_noise = 0.03
         # self.pose_noise = 6 * [0.0]
         # self.pose_noise = 6 * [0.01**2]
         # self.pose_noise = 6 * [0.005**2]
         # self.pose_noise = 6 * [0.005]
-        self.pose_noise = 0.005
+        self.pose_noise = 0.05
+        # self.pose_noise = 0.005
         # self.pose_noise = 0.0
         self.pose_noise_mode = NoisyPoseDataset.Mode.common
         self.cfg.pose_correction = PoseCorrection.common

@@ -193,6 +193,7 @@ class ScaledPolynomial(BaseModel):
         super(ScaledPolynomial, self).__init__(device=device)
 
         if exponent is None:
+            assert w is None
             self.legacy = True
             exponent = [2.0, 4.0]
             w = [p0 or 0.0, p1 or 0.0]

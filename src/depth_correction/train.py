@@ -29,10 +29,10 @@ class TrainCallbacks(object):
     def val_inputs(self, iter, clouds, poses):
         pass
 
-    def train_loss(self, iter, model, clouds, masks, loss):
+    def train_loss(self, iter, model, clouds, poses, masks, loss):
         pass
 
-    def val_loss(self, iter, model, clouds, masks, loss):
+    def val_loss(self, iter, model, clouds, poses, masks, loss):
         pass
 
 
@@ -220,7 +220,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             clouds[i] = cloud
 
         train_loss, _ = loss_fun(clouds, mask=train_masks, **cfg.loss_kwargs)
-        callbacks.train_loss(it, model, clouds, train_masks, train_loss)
+        callbacks.train_loss(it, model, clouds, train_poses_upd, train_masks, train_loss)
 
         # Validation
         if cfg.pose_correction == PoseCorrection.none:
@@ -258,7 +258,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             clouds[i] = cloud
 
         val_loss, _ = loss_fun(clouds, mask=val_masks, **cfg.loss_kwargs)
-        callbacks.val_loss(it, model, clouds, val_masks, val_loss)
+        callbacks.val_loss(it, model, clouds, val_poses_upd, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:

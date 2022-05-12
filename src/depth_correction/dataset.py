@@ -1,8 +1,10 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
+from .configurable import ValueEnum
+from copy import copy
 from .depth_cloud import DepthCloud
 from .model import BaseModel
-from .utils import cached, hashable, timing
+from .utils import cached, hashable, timing, transform, transform_inv
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
 from tf.transformations import euler_matrix
@@ -11,10 +13,8 @@ import warnings
 from copy import deepcopy
 import os
 
-default_rng = np.random.default_rng(135)
 
-
-def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=default_rng):
+def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=np.random.default_rng()):
     size = np.asarray(size).reshape((1, 3))
     measure = np.prod([s for s in size.flatten() if s])
     n_pts = int(np.ceil(measure * density))
@@ -48,11 +48,11 @@ class GroundPlaneDataset(object):
         self.density = density
         self.ids = list(range(self.n))
 
-    @cached
+    # @cached
     def local_cloud(self, id):
         rng = np.random.default_rng(id)
         pts = box_point_cloud(size=self.size, density=self.density, rng=rng)
-        pts -= self.height
+        pts[:, 2] -= self.height
         normals = np.zeros_like(pts)
         normals[:, 2] = 1.0
         pts = unstructured_to_structured(pts, names=['x', 'y', 'z'])
@@ -63,7 +63,7 @@ class GroundPlaneDataset(object):
     def cloud_pose(self, id):
         pose = np.eye(4)
         pose[0, 3] = id * self.step
-        pose[2, 3] = 1.0
+        pose[2, 3] = self.height
         return pose
 
     def __getitem__(self, i):
@@ -74,6 +74,132 @@ class GroundPlaneDataset(object):
             return cloud, pose
 
         ds = GroundPlaneDataset(n=self.n, size=self.size, step=self.step, height=self.height, density=self.density)
+        if isinstance(i, (list, tuple)):
+            ds.ids = [self.ids[j] for j in i]
+        else:
+            assert isinstance(i, slice)
+            ds.ids = self.ids[i]
+        return ds
+
+    def __len__(self):
+        return len(self.ids)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+
+class OpenBoxDataset(object):
+    def __init__(self, name=None, n=None, size=None, height=None, density=None):
+        """Open box dataset with viewpoints inside along a circle.
+
+        :param name: Name of the sequence.
+        :param n: Number of viewpoints.
+        :param size: Open box size.
+        :param height: Sensor height above ground plane.
+        :param density: Point density in unit area.
+        """
+        if name:
+            parts = name.split('/')
+            if len(parts) == 2:
+                assert parts[0] == 'open_box'
+                name = parts[1]
+            # Parse other params from name.
+            if isinstance(name, str):
+                parts = name.split('_')
+                if 'n' in parts:
+                    assert n is None
+                    i = parts.index('n')
+                    n = int(parts[i + 1])
+                if 'size' in parts:
+                    assert size is None
+                    i = parts.index('size')
+                    size = [int(s) for s in parts[i + 1:i + 4]]
+                if 'height' in parts:
+                    assert height is None
+                    i = parts.index('height')
+                    height = float(parts[i + 1])
+                if 'density' in parts:
+                    assert density is None
+                    i = parts.index('density')
+                    density = float(parts[i + 1])
+
+        # Fill defaults.
+        if n is None:
+            n = 10
+        if size is None:
+            size = 10.0, 10.0, 5.0
+        if height is None:
+            height = 1.0
+        if density is None:
+            density = 100.0
+
+        self.n = n
+        self.size = size
+        self.height = height
+        self.density = density
+        self.ids = list(range(self.n))
+
+    # @cached
+    def local_cloud(self, id):
+        rng = np.random.default_rng(id)
+        # pts = box_point_cloud(size=self.size, density=self.density, rng=rng)
+        pts = []
+        normals = []
+        # ground plane
+        pts.append(box_point_cloud(size=(self.size[0], self.size[1], 0.0), density=self.density, rng=rng))
+        normals.append(np.repeat(np.array([[0.0, 0.0, 1.0]]), pts[-1].shape[0], axis=0))
+        # side -y
+        pts.append(box_point_cloud(size=(self.size[0], 0.0, self.size[2]), density=self.density, rng=rng)
+                   + np.array([[0.0, -self.size[1] / 2, self.size[2] / 2]]))
+        normals.append(np.repeat(np.array([[0.0, 1.0, 0.0]]), pts[-1].shape[0], axis=0))
+        # side +y
+        # pts.append(box_point_cloud(size=(self.size[0], 0.0, self.size[2]), density=self.density, rng=rng)
+        #            + np.array([[0.0, self.size[1] / 2, self.size[2] / 2]]))
+        # normals.append(np.repeat(np.array([[0.0, -1.0, 0.0]]), pts[-1].shape[0], axis=0))
+        # side -x
+        pts.append(box_point_cloud(size=(0.0, self.size[1], self.size[2]), density=self.density, rng=rng)
+                   + np.array([[-self.size[0] / 2, 0.0, self.size[2] / 2]]))
+        normals.append(np.repeat(np.array([[1.0, 0.0, 0.0]]), pts[-1].shape[0], axis=0))
+        # side +x
+        # pts.append(box_point_cloud(size=(0.0, self.size[1], self.size[2]), density=self.density, rng=rng)
+        #            + np.array([[self.size[0] / 2, 0.0, self.size[2] / 2]]))
+        # normals.append(np.repeat(np.array([[-1.0, 0.0, 0.0]]), pts[-1].shape[0], axis=0))
+
+        pts = np.concatenate(pts)
+        normals = np.concatenate(normals)
+
+        pts = unstructured_to_structured(pts, names=['x', 'y', 'z'])
+        normals = unstructured_to_structured(normals, names=['normal_x', 'normal_y', 'normal_z'])
+        cloud = merge_arrays([pts, normals], flatten=True)
+
+        T_inv = transform_inv(self.cloud_pose(id))
+        cloud = transform(T_inv, cloud)
+
+        return cloud
+
+    def cloud_pose(self, id):
+        rng = np.random.default_rng(id)
+        # rotation
+        a = id * 2 * np.pi / self.n
+        e = 0.1 * rng.uniform(size=(3,))
+        e[2] += a
+        pose = euler_matrix(*e)
+        # translation
+        # pose[0, 3] = np.cos(a) * self.size[0] / 3
+        # pose[1, 3] = np.sin(a) * self.size[1] / 3
+        # pose[2, 3] = self.height
+        pose[:3, 3] = [np.cos(a) * self.size[0] / 3, np.sin(a) * self.size[1] / 3, self.height]
+        pose[:3, 3] += 0.1 * rng.uniform(size=(3,))
+        return pose
+
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            id = self.ids[i]
+            cloud = self.local_cloud(id)
+            pose = self.cloud_pose(id)
+            return cloud, pose
+        ds = copy(self)
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
         else:
@@ -383,13 +509,29 @@ class ForwardingDataset(Forwarding):
 
 class NoisyPoseDataset(ForwardingDataset):
 
-    def __init__(self, dataset, noise=None):
-        super().__init__(dataset)
-        self.cov = np.diag(noise) if noise and any(noise) else None
+    class Mode(metaclass=ValueEnum):
+        pose = 'pose'
+        common = 'common'
 
-    def random_transform(self, id):
-        rng = np.random.default_rng(id)
-        noise_vec = rng.multivariate_normal(np.zeros((6,)), self.cov)
+    def __init__(self, dataset, noise=0.0, mode=None):
+        """
+        :param dataset:
+        :param noise: Pose noise, standard deviations for euler angles and position.
+        :param mode:
+        """
+        assert isinstance(noise, float) or len(noise) == 6
+        noise = np.asarray(noise)
+        mode = mode or NoisyPoseDataset.Mode.common
+        assert mode in NoisyPoseDataset.Mode
+        super().__init__(dataset)
+        # self.cov = np.diag(noise)**2 if noise and any(noise) else None
+        self.noise = noise
+        self.mode = mode
+
+    def random_transform(self, seed):
+        rng = np.random.default_rng(seed)
+        # noise_vec = rng.multivariate_normal(np.zeros((6,)), self.cov)
+        noise_vec = self.noise * rng.normal(size=(6,))
         noise = euler_matrix(*noise_vec[:3])
         noise[:3, 3] = noise_vec[3:]
         return noise
@@ -397,9 +539,13 @@ class NoisyPoseDataset(ForwardingDataset):
     # TODO: Cache
     def modify_pose(self, pose):
         print('NoisyPoseDataset.modify_pose')
-        h = hash(hashable(pose))
-        if self.cov is not None:
-            noise = self.random_transform(h)
+        if self.mode == NoisyPoseDataset.Mode.pose:
+            seed = abs(hash(hashable(pose)))
+        elif self.mode == NoisyPoseDataset.Mode.common:
+            seed = Config().random_seed
+        # if self.cov is not None:
+        if (self.noise != 0.0).any():
+            noise = self.random_transform(seed)
             pose = np.matmul(pose, noise)
         return pose
 
@@ -407,6 +553,10 @@ class NoisyPoseDataset(ForwardingDataset):
 class NoisyDepthDataset(ForwardingDataset):
 
     def __init__(self, dataset, noise=None):
+        """
+        :param dataset:
+        :param noise: Depth noise standard deviation.
+        """
         super().__init__(dataset)
         self.noise = noise
 
@@ -422,7 +572,10 @@ class NoisyDepthDataset(ForwardingDataset):
             valid = depth > 0.0
             depth = depth[valid]
             dirs = dirs[valid] / depth[:, None]
-            pts[valid] += dirs * self.noise * np.random.randn(*depth.shape)[:, None]
+            # pts[valid] += dirs * self.noise * np.random.randn(*depth.shape)[:, None]
+            seed = abs(hash(hashable(depth)))
+            rng = np.random.default_rng(seed)
+            pts[valid] += dirs * self.noise * rng.normal(size=depth.shape)[:, None]
             cloud[['x', 'y', 'z']] = unstructured_to_structured(pts, names=['x', 'y', 'z'])
         return cloud
 
@@ -453,6 +606,8 @@ def dataset_by_name(name):
 
     if name == 'ground_plane':
         return GroundPlaneDataset
+    elif name == 'open_box':
+        return OpenBoxDataset
     elif name == 'angle':
         return AngleDataset
     elif '.obj' in name or '.ply' in name:

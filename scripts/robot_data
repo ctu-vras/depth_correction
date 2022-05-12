@@ -3,7 +3,7 @@
 from __future__ import absolute_import, division, print_function
 import importlib
 from depth_correction.io import append, write
-from depth_correction.utils import timer, timing
+from depth_correction.utils import delta_transform, fix_transform, rotation_angle, translation_norm
 from geometry_msgs.msg import Transform, TransformStamped
 import numpy as np
 from numpy.random import MT19937, RandomState, SeedSequence
@@ -17,51 +17,10 @@ from tf2_ros import Buffer, TransformException, TransformListener
 import yaml
 
 
-def nearest_orthonormal(A):
-    U, _, Vt = np.linalg.svd(A)
-    A = U @ Vt
-    return A
-
-
-def fix_transform(T):
-    T_fixed = T.copy()
-    T_fixed[:-1, :-1] = nearest_orthonormal(T[:-1, :-1])
-    # print('fix:\n', T_fixed - T)
-    return T
-
-
-def rotation_angle(T):
-    R = T[:-1, :-1]
-    angle = np.arccos((np.trace(R) - 1.0) / 2.0).item()
-    return angle
-
-
-def translation_norm(T):
-    t = T[:-1, -1:]
-    norm = np.linalg.norm(t).item()
-    return norm
-
-
-def transform_inv(T):
-    T_inv = np.eye(T.shape[0])
-    R = T[:-1, :-1]
-    t = T[:-1, -1:]
-    T_inv[:-1, :-1] = R.T
-    T_inv[:-1, -1:] = -R.T @ t
-    return T
-
-
-def delta_transform(T_0, T_1):
-    """Delta transform D s.t. T_1 = T_0 * D."""
-    delta = np.linalg.solve(T_0, T_1)
-    # delta = transform_inv(T_0) @ T_1
-    return delta
-
-
 class RobotData(object):
     def __init__(self):
-        # Seeded random state generator
-        self.random = RandomState(MT19937(SeedSequence(135)))
+        # Seed random state generator
+        self.rng = np.random.default_rng(135)
 
         self.dataset_path = rospy.get_param('~dataset_path', None)
         self.dataset_name = rospy.get_param('~dataset', 'asl_laser/eth')
@@ -145,7 +104,7 @@ class RobotData(object):
         # self.timer = rospy.Timer(rospy.Duration(self.delay_start), self.start_timer, oneshot=True)
 
     def random_transform(self):
-        noise = self.random.multivariate_normal(np.zeros((6,)), self.odom_cov)
+        noise = self.rng.multivariate_normal(np.zeros((6,)), self.odom_cov)
         T = euler_matrix(*noise[:3])
         T[:3, 3] = noise[3:]
         return T

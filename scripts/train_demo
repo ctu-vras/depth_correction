@@ -1,13 +1,15 @@
 #! /usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from depth_correction.config import Config, Loss, Model
+from depth_correction.config import Config, Loss, Model, PoseCorrection
 from depth_correction.dataset import create_dataset, DepthBiasDataset, NoisyDepthDataset, NoisyPoseDataset
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import load_model, model_by_name
 from depth_correction.preproc import filtered_cloud, global_cloud, local_feature_cloud
 from depth_correction.train import train, TrainCallbacks
+from depth_correction.utils import delta_transform, rotation_angle, translation_norm
 from geometry_msgs.msg import Transform, TransformStamped
 import matplotlib.pyplot as plt
+import numpy as np
 from ros_numpy import msgify
 import rospy
 from sensor_msgs.msg import PointCloud2
@@ -24,6 +26,7 @@ class TrainingDemo(TrainCallbacks):
         self.iterations = []
         self.train_losses = []
         self.l2_losses = []
+        self.pose_losses = []
 
         # Visualization
         self.fig, self.ax = None, None
@@ -31,12 +34,19 @@ class TrainingDemo(TrainCallbacks):
         self.corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
 
         self.cfg = Config()
-        self.cfg.dataset = 'ground_plane'
-        self.cfg.dataset_kwargs = dict(step=1.0, height=1.0, density=100.0, model=None)
-        # self.cfg.dataset_kwargs = dict(step=1.0, height=1.0, density=10.0, model=None)
+        # self.cfg.dataset = 'ground_plane'
+        # self.cfg.dataset_kwargs = dict(step=1.0, height=1.0, density=100.0)
+        self.cfg.dataset = 'open_box'
+        # self.cfg.dataset_kwargs = dict(height=1.0, density=10.0)
         self.cfg.data_step = 1
-        self.cfg.train_names = ['ground_plane/10']
-        self.cfg.val_names = ['ground_plane/10']
+        # self.cfg.train_names = ['ground_plane/10']
+        # self.cfg.val_names = ['ground_plane/10']
+        # self.cfg.train_names = ['open_box/n_4_density_25.0']
+        # self.cfg.train_names = ['open_box/n_8_density_25.0']
+        # self.cfg.train_names = ['open_box/n_6_density_50.0']
+        # self.cfg.train_names = ['open_box/n_5_density_25.0']
+        self.cfg.train_names = ['open_box/n_6_density_25.0']
+        self.cfg.val_names = self.cfg.train_names
 
         # Depth and grid filters prevent computing L2 loss since the points don't match.
         self.cfg.min_depth = 0.0
@@ -47,23 +57,33 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.nn_r = 0.4
         self.cfg.shadow_angle_bounds = []
         # self.cfg.eigenvalue_bounds = []
-        self.cfg.eigenvalue_bounds = [[0,          -float('inf'), (self.cfg.nn_r / 4)**2],
-                                      [1, (self.cfg.nn_r / 4)**2,           float('inf')]]
+        # self.cfg.eigenvalue_bounds = [[0, -float('inf'), (self.cfg.nn_r / 8)**2],
+        #                               [1, (self.cfg.nn_r / 4)**2, float('inf')]]
         # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
 
+        self.depth_noise = 0.02
+        # self.pose_noise = 6 * [0.0]
+        # self.pose_noise = 6 * [0.01**2]
+        # self.pose_noise = 6 * [0.005**2]
+        # self.pose_noise = 6 * [0.005]
+        self.pose_noise = 0.005
+        # self.pose_noise = 0.0
+        self.pose_noise_mode = NoisyPoseDataset.Mode.common
+        self.cfg.pose_correction = PoseCorrection.common
+        # self.cfg.pose_correction = PoseCorrection.none
+
         self.cfg.model_class = Model.ScaledPolynomial
         self.cfg.model_kwargs['exponent'] = [4.0]
-        # self.cfg.model_kwargs['learnable_exponents'] = True
+        self.cfg.model_kwargs['learnable_exponents'] = False
         self.cfg.model_state_dict = None
-        # self.gt_model = model_by_name(self.cfg.model_class)(p0=-0.01)
-        # self.gt_model = model_by_name(self.cfg.model_class)(p1=-0.005)
-        # self.cfg.model_class = Model.ScaledInvCos
-        # self.gt_model = model_by_name(self.cfg.model_class)(p0=-0.001)
-        # self.gt_model = model_by_name(self.cfg.model_class)(exponent=[4.0])
-        # self.gt_model = load_model(cfg=self.cfg)
         self.gt_model = model_by_name(self.cfg.model_class)(w=[-0.01], **self.cfg.model_kwargs)
         # self.gt_model = model_by_name(self.cfg.model_class)(w=[-0.005, -0.005], exponent=[2.0, 4.0])
+        # self.gt_model = model_by_name(self.cfg.model_class)(**self.cfg.model_kwargs)
+        # No distortion.
+        # self.cfg.model_class = 'BaseModel'
+        # self.cfg.model_state_dict = None
+        # self.gt_model = model_by_name(self.cfg.model_class)(**self.cfg.model_kwargs)
 
         self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
@@ -73,7 +93,12 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.optimizer = 'Adam'
         self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         # self.cfg.optimizer_kwargs['weight_decay'] = 0.001
-        self.cfg.lr = 0.002
+        # self.cfg.lr = 0.002  # depth corr model
+        # self.cfg.lr = 0.01  # depth corr model
+        # self.cfg.lr = 0.001  # lr for poses (okayish, decreasing but oscilates)
+        # self.cfg.lr = 0.0005  # lr for poses (okayish, oscilates less)
+        self.cfg.lr = 0.0002  # lr for poses (becoming slow, oscilates less)
+        # self.cfg.lr = 0.0001  # lr for poses (too slow)
 
         # Training config examples.
         # self.cfg.loss = Loss.min_eigval_loss
@@ -106,6 +131,7 @@ class TrainingDemo(TrainCallbacks):
         self.ds = None
         self.tfs = None
         self.gt_clouds = None
+        self.gt_poses = None
         self.create_ground_truth()
         # self.train_callbacks = DemoTrainCallbacks(gt_clouds=self.gt_clouds)
 
@@ -122,7 +148,9 @@ class TrainingDemo(TrainCallbacks):
         self.tfs = []
         for i, (cloud, pose) in enumerate(self.ds):
             cloud = filtered_cloud(cloud, self.cfg)
-            cloud = local_feature_cloud(cloud, self.cfg)
+            # cloud = local_feature_cloud(cloud, self.cfg)
+            # Keep normals, avoid recomputing dependent fields.
+            cloud = DepthCloud.from_structured_array(cloud, dtype=self.cfg.numpy_float_type(), device=self.cfg.device)
             clouds.append(cloud)
             tf = TransformStamped()
             tf.transform = msgify(Transform, pose)
@@ -135,9 +163,11 @@ class TrainingDemo(TrainCallbacks):
             poses.append(pose)
         cloud = global_cloud(clouds, None, poses)
         self.gt_clouds = [cloud]
-        self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
+        self.gt_poses = [poses]
+        # self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
         self.ds = DepthBiasDataset(self.ds, self.gt_model)
-        self.ds = NoisyDepthDataset(self.ds, 0.01)
+        self.ds = NoisyDepthDataset(self.ds, noise=self.depth_noise)
+        self.ds = NoisyPoseDataset(self.ds, noise=self.pose_noise, mode=self.pose_noise_mode)
 
     def spin(self):
         train(self.cfg, callbacks=self, train_datasets=[self.ds], val_datasets=[self.ds])
@@ -149,17 +179,41 @@ class TrainingDemo(TrainCallbacks):
         assert len(clouds) == 1
         l2_loss = 0.0
         with torch.no_grad():
+            # for gt_cloud, cloud in zip(self.gt_clouds, clouds[0]):
             for gt_cloud, cloud in zip(self.gt_clouds, clouds):
                 assert isinstance(gt_cloud, DepthCloud)
                 assert isinstance(cloud, DepthCloud)
                 if len(gt_cloud) != len(cloud):
                     continue
-                cloud_l2_loss = torch.linalg.norm(gt_cloud.get_points() - cloud.to_points(), dim=1).mean()
+                # cloud_l2_loss = torch.linalg.norm(gt_cloud.get_points() - cloud.to_points(), dim=1).mean()
+                cloud_l2_loss = torch.linalg.norm(gt_cloud.to_points() - cloud.to_points(), dim=1).mean()
                 l2_loss += cloud_l2_loss.detach().item()
             return l2_loss
 
-    def train_loss(self, iter, model, clouds, masks, loss):
+    def compute_pose_loss(self, poses):
+        assert len(poses) == 1
+        r_loss, t_loss, n = 0.0, 0.0, 0
+        with torch.no_grad():
+            # for gt_pose, pose in zip(self.gt_poses[0], poses[0]):
+            for ds_gt_poses, ds_poses in zip(self.gt_poses, poses):
+                for gt_pose, pose in zip(ds_gt_poses, ds_poses):
+                    if isinstance(gt_pose, torch.Tensor):
+                        gt_pose = gt_pose.detach().numpy()
+                    assert isinstance(gt_pose, np.ndarray)
+                    if isinstance(pose, torch.Tensor):
+                        pose = pose.detach().numpy()
+                    assert isinstance(pose, np.ndarray)
+                    delta = delta_transform(pose, gt_pose)
+                    r_loss += rotation_angle(delta)
+                    t_loss += translation_norm(delta)
+                    n += 1
+        r_loss = r_loss / n
+        t_loss = t_loss / n
+        return r_loss, t_loss
+
+    def train_loss(self, iter, model, clouds, poses, masks, loss):
         self.l2_losses.append(self.compute_l2_loss(clouds))
+        self.pose_losses.append(self.compute_pose_loss(poses))
         loss = loss.detach().item()
         self.iterations.append(iter)
         self.train_losses.append(loss)
@@ -194,46 +248,55 @@ class TrainingDemo(TrainCallbacks):
     def visualize(self, model, clouds):
         ax = self.ax[0, 0]
         ax.cla()
-        ax.plot(self.iterations, self.l2_losses)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('L2 Loss')
-        ax.grid()
-        ax.legend()
-
-        ax = self.ax[0, 1]
-        ax.cla()
         ax.plot(self.iterations, self.train_losses)
         ax.set_xlabel('Iteration')
         ax.set_ylabel('Training Loss')
         ax.grid()
-        ax.legend()
-
-        if self.gt_clouds:
-            ax = self.ax[1, 0]
-            ax.cla()
-            self.plot_cloud(ax, self.gt_clouds[0], 'bx', mfc='none', markersize=5, label='Ground Truth')
-            self.plot_cloud(ax, clouds[0], 'ro', mfc='none', markersize=5, label='Corrected')
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
-            ax.grid()
-            ax.legend()
-
-            ax = self.ax[1, 1]
-            ax.cla()
-            self.plot_cloud(ax, self.gt_clouds[0], 'bx', dims=(0, 2), mfc='none', markersize=5, label='Ground Truth')
-            self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
-            ax.set_xlabel('x')
-            ax.set_ylabel('z')
-            ax.grid()
-            ax.legend()
+        # ax.legend()
 
         if self.gt_model:
-            ax = self.ax[2, 0]
+            ax = self.ax[0, 1]
             ax.cla()
             # self.gt_model.plot(ax, label='%s (Ground Truth)' % str(self.gt_model))
             # model.plot(ax, label='%s (Iteration %i)' % (str(model), self.iterations[-1]))
             self.gt_model.plot(ax)
             model.plot(ax)
+            ax.grid()
+            ax.legend()
+
+        ax = self.ax[1, 0]
+        ax.cla()
+        ax.plot(self.iterations, self.l2_losses)
+        ax.set_xlabel('Iteration')
+        ax.set_ylabel('Point Loss')
+        ax.grid()
+        # ax.legend()
+
+        ax = self.ax[1, 1]
+        ax.cla()
+        ax.plot(self.iterations, [r for r, _ in self.pose_losses], label='Rotation [rad]')
+        ax.plot(self.iterations, [t for _, t in self.pose_losses], label='Translation [m]')
+        ax.set_xlabel('Iteration')
+        ax.set_ylabel('Pose Loss')
+        ax.grid()
+        ax.legend()
+
+        if self.gt_clouds:
+            ax = self.ax[2, 0]
+            ax.cla()
+            self.plot_cloud(ax, self.gt_clouds[0], 'bx', mfc='none', markersize=5, label='Ground Truth')
+            self.plot_cloud(ax, clouds[0], 'ro', mfc='none', markersize=5, label='Corrected')
+            ax.set_xlabel('x [m]')
+            ax.set_ylabel('y [m]')
+            ax.grid()
+            ax.legend()
+
+            ax = self.ax[2, 1]
+            ax.cla()
+            self.plot_cloud(ax, self.gt_clouds[0], 'bx', dims=(0, 2), mfc='none', markersize=5, label='Ground Truth')
+            self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
+            ax.set_xlabel('x [m]')
+            ax.set_ylabel('z [m]')
             ax.grid()
             ax.legend()
 

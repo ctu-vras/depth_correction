@@ -178,7 +178,7 @@ class PlaneDataset(BaseDataset):
         :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
         """
         super(PlaneDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
-        self.pts = self.construct_global_cloud()
+        self.pts, self.normals = self.construct_global_cloud()
         self.poses = self.load_poses()
 
     def construct_global_cloud(self, seed=135):
@@ -188,7 +188,9 @@ class PlaneDataset(BaseDataset):
         pts[:, :2] = np.concatenate([np.random.uniform(0, self.size / 2, size=(self.n_pts // 2, 2)),
                                      np.random.uniform(0, self.size / 2, size=(self.n_pts // 2, 2)) + np.array(
                                             [-self.size / 2, 0])])
-        return pts
+        normals = np.zeros_like(pts)
+        normals[:, 2] = 1.0
+        return pts, normals
 
     def __getitem__(self, i):
         if isinstance(i, int):
@@ -219,12 +221,14 @@ class AngleDataset(PlaneDataset):
         super(AngleDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
         self.degrees = degrees
         if self.degrees != 0.0:
-            self.pts[self.n_pts // 2:] = self.rotate_pts(self.pts[self.n_pts // 2:], origin=(0, 0, 0),
+            self.pts[self.n_pts // 2:] = self.rotate(self.pts[self.n_pts // 2:], origin=(0, 0, 0),
+                                                     degrees=degrees, axis='Y')
+            self.normals[self.n_pts // 2:] = self.rotate(self.normals[self.n_pts // 2:], origin=(0, 0, 0),
                                                          degrees=degrees, axis='Y')
         self.poses = self.load_poses()
 
     @staticmethod
-    def rotate_pts(p, origin=(0, 0, 0), degrees=0.0, axis='X'):
+    def rotate(p, origin=(0, 0, 0), degrees=0.0, axis='X'):
         angle = np.deg2rad(degrees)
         if axis == 'Z':
             R = np.array([[np.cos(angle), -np.sin(angle), 0],

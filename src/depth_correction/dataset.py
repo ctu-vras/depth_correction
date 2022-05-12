@@ -159,9 +159,9 @@ class BaseDataset:
             yield self[i]
 
 
-class Plane(BaseDataset):
-    def __init__(self, n_pts: int = 10_000, n_poses: int = 2, size: float = 20.0):
-        super(Plane, self).__init__(n_pts=n_pts, n_poses=n_poses, size=size)
+class PlaneDataset(BaseDataset):
+    def __init__(self, name='plane', n_pts: int = 10_000, n_poses: int = 2, size: float = 20.0):
+        super(PlaneDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
         self.global_cloud = self.construct_global_cloud()
         self.poses = self.load_poses()
 
@@ -174,11 +174,27 @@ class Plane(BaseDataset):
                                             [-self.size / 2, 0])])
         return pts
 
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            id = self.ids[i]
+            return self.local_cloud(id), self.cloud_pose(id)
 
-class Angle(Plane):
-    def __init__(self, n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, degrees: float = 0.0):
-        super(Angle, self).__init__(n_pts=n_pts, n_poses=n_poses, size=size)
-        if degrees != 0.0:
+        ds = PlaneDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
+        ds.poses = self.poses
+        ds.global_cloud = self.global_cloud
+        if isinstance(i, (list, tuple)):
+            ds.ids = [self.ids[j] for j in i]
+        else:
+            assert isinstance(i, slice)
+            ds.ids = self.ids[i]
+        return ds
+
+
+class AngleDataset(PlaneDataset):
+    def __init__(self, name='angle', n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, degrees: float = 0.0):
+        super(AngleDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
+        self.degrees = degrees
+        if self.degrees != 0.0:
             self.global_cloud[self.n_pts // 2:] = self.rotate_pts(self.global_cloud[self.n_pts // 2:], origin=(0, 0, 0),
                                                                   degrees=degrees, axis='Y')
         self.poses = self.load_poses()
@@ -202,10 +218,25 @@ class Angle(Plane):
         p = np.atleast_3d(p)
         return np.squeeze((R @ (p.T - o.T) + o.T).T)
 
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            id = self.ids[i]
+            return self.local_cloud(id), self.cloud_pose(id)
 
-class Mesh(BaseDataset):
-    def __init__(self, mesh_name, n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, pts_to_sample: int = 10_000_000):
-        super(Mesh, self).__init__(name=mesh_name, n_pts=n_pts, n_poses=n_poses, size=size)
+        ds = AngleDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size, degrees=self.degrees)
+        ds.poses = self.poses
+        ds.global_cloud = self.global_cloud
+        if isinstance(i, (list, tuple)):
+            ds.ids = [self.ids[j] for j in i]
+        else:
+            assert isinstance(i, slice)
+            ds.ids = self.ids[i]
+        return ds
+
+
+class MeshDataset(BaseDataset):
+    def __init__(self, mesh_name, n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, n_pts_to_sample: int = 10_000_000):
+        super(MeshDataset, self).__init__(name=mesh_name, n_pts=n_pts, n_poses=n_poses, size=size)
 
         self.mesh_path = os.path.join(os.path.dirname(__file__), '../../data/meshes/%s' % self.name)
         if not os.path.exists(self.mesh_path):
@@ -347,9 +378,9 @@ def dataset_by_name(name):
     if name == 'ground_plane':
         return GroundPlaneDataset
     elif name == 'angle':
-        return Angle
+        return AngleDataset
     elif '.obj' in name or '.ply' in name:
-        return Mesh
+        return MeshDataset
     elif name == 'asl_laser':
         import data.asl_laser
         return getattr(data.asl_laser, 'Dataset')

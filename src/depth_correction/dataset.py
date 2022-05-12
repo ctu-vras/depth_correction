@@ -90,7 +90,7 @@ class GroundPlaneDataset(object):
 
 class BaseDataset:
     def __init__(self,
-                 name: str = 'data',
+                 name: str = None,
                  n_pts: int = 10_000,
                  n_poses: int = 5,
                  size: float = 20.0):
@@ -139,18 +139,19 @@ class BaseDataset:
         cloud = np.matmul(cloud, pose[:3, :3].T) + pose[:3, 3:].T
         return cloud
 
-    def __getitem__(self, item):
-        if isinstance(item, int):
-            id = self.ids[item]
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            id = self.ids[i]
             return self.local_cloud(id), self.cloud_pose(id)
 
-        ds = BaseDataset()
+        ds = BaseDataset(name=self.name, n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
         ds.poses = self.poses
-        if isinstance(item, (list, tuple)):
-            ds.ids = [self.ids[i] for i in item]
+        ds.global_cloud = self.global_cloud
+        if isinstance(i, (list, tuple)):
+            ds.ids = [self.ids[j] for j in i]
         else:
-            assert isinstance(item, slice)
-            ds.ids = self.ids[item]
+            assert isinstance(i, slice)
+            ds.ids = self.ids[i]
         return ds
 
     def __iter__(self):

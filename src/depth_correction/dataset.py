@@ -94,6 +94,13 @@ class BaseDataset:
                  n_pts: int = 10_000,
                  n_poses: int = 5,
                  size: float = 20.0):
+        """BaseDataset composed of multiple measurements of a general point cloud.
+
+        :param name: Name of the dataset
+        :param n_pts: Number of points forming a global cloud.
+        :param size: Local clouds size.
+        :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
+        """
         self.name = name
         self.global_cloud = np.zeros([n_pts, 3])
         self.n_pts = n_pts
@@ -161,6 +168,13 @@ class BaseDataset:
 
 class PlaneDataset(BaseDataset):
     def __init__(self, name='plane', n_pts: int = 10_000, n_poses: int = 2, size: float = 20.0):
+        """PlaneDataset composed of multiple measurements of a ground plane.
+
+        :param name: Name of the dataset
+        :param n_pts: Number of points forming a global cloud.
+        :param size: Local clouds size.
+        :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
+        """
         super(PlaneDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
         self.global_cloud = self.construct_global_cloud()
         self.poses = self.load_poses()
@@ -192,6 +206,14 @@ class PlaneDataset(BaseDataset):
 
 class AngleDataset(PlaneDataset):
     def __init__(self, name='angle', n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, degrees: float = 0.0):
+        """AngleDataset composed of multiple point cloud measurements of two intersecting planes forming an angle.
+
+        :param name: Name of the dataset
+        :param n_pts: Number of points forming a global cloud.
+        :param size: Local clouds size.
+        :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
+        :param degrees: Angle between the two planes (around Y axis in degrees).
+        """
         super(AngleDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
         self.degrees = degrees
         if self.degrees != 0.0:
@@ -235,8 +257,18 @@ class AngleDataset(PlaneDataset):
 
 
 class MeshDataset(BaseDataset):
-    def __init__(self, mesh_name, n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, n_pts_to_sample: int = 10_000_000):
-        super(MeshDataset, self).__init__(name=mesh_name, n_pts=n_pts, n_poses=n_poses, size=size)
+    def __init__(self, mesh_name,
+                 n_poses: int = 5,
+                 size: float = 20.0,
+                 n_pts_to_sample: int = 10_000_000):
+        """MeshDataset composed of multiple point cloud measurements of a ground truth environment represented as a mesh.
+
+        :param mesh_name: Name of the mesh file with an extension (*.obj or *.ply).
+        :param size: Local clouds size.
+        :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
+        :param n_pts_to_sample: Number of points to sample from the mesh to form a global cloud.
+        """
+        super(MeshDataset, self).__init__(name=mesh_name, n_poses=n_poses, size=size)
 
         self.mesh_path = os.path.join(os.path.dirname(__file__), '../../data/meshes/%s' % self.name)
         if not os.path.exists(self.mesh_path):

@@ -247,6 +247,7 @@ class BaseDataset:
         poses = []
         for i in range(self.n_poses):
             cloud = self.local_cloud(i)
+            cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
             vp = deepcopy(cloud[np.random.choice(range(len(cloud)))])
             vp[2] += np.random.uniform(0.1, 2.)
             pose = np.eye(4)
@@ -258,11 +259,16 @@ class BaseDataset:
     def local_cloud(self, i):
         assert self.poses is not None
         assert len(self.poses) > 0
-        cloud = self.pts[np.random.choice(range(self.n_pts), self.n_pts // self.n_poses)]
+        idxs_mask = np.random.choice(range(self.n_pts), self.n_pts // self.n_poses)
+        cloud = self.pts[idxs_mask]
+        normals = self.normals[idxs_mask]
         # transform the point cloud to view point frame as it was sampled from global map
         R, t = self.poses[i][:3, :3], self.poses[i][:3, 3]
         cloud = cloud @ R - R.T @ t
         assert cloud.shape == (self.n_pts // self.n_poses, 3)
+        cloud = unstructured_to_structured(cloud, names=['x', 'y', 'z'])
+        normals = unstructured_to_structured(normals, names=['normal_x', 'normal_y', 'normal_z'])
+        cloud = merge_arrays([cloud, normals], flatten=True)
         return cloud
 
     def cloud_pose(self, i):
@@ -634,18 +640,19 @@ def demo():
     cfg = Config()
     cfg.data_step = 1
 
-    # cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=20, degrees=80.0)
-    # ds = create_dataset(name='angle', cfg=cfg)
+    cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=20, degrees=80.0)
+    ds = create_dataset(name='angle', cfg=cfg)
 
-    cfg.dataset_kwargs = dict(size=10.0, n_poses=10)
+    # cfg.dataset_kwargs = dict(size=10.0, n_poses=10)
     # ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
-    ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
+    # ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
     # ds = create_dataset(name='cave_world.ply', cfg=cfg)
     assert ds.normals is not None
 
     clouds = []
     poses = []
     for cloud, pose in ds:
+        cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
         cloud = ds.transform(cloud, pose)
         clouds.append(cloud)
         poses.append(pose)
@@ -660,9 +667,9 @@ def demo():
     plt.grid()
     plt.show()
 
-    # pcd = o3d.geometry.PointCloud()
-    # pcd.points = o3d.utility.Vector3dVector(cloud)
-    # o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(cloud)
+    o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(ds.pts)

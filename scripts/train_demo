@@ -38,6 +38,7 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.dataset_kwargs = dict(step=1.0, height=1.0, density=100.0)
         self.cfg.dataset = 'open_box'
         # self.cfg.dataset_kwargs = dict(height=1.0, density=10.0)
+        # self.cfg.dataset = 'simple_cave_01.obj'
         self.cfg.data_step = 1
         # self.cfg.train_names = ['ground_plane/10']
         # self.cfg.val_names = ['ground_plane/10']
@@ -46,6 +47,7 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_names = ['open_box/n_6_density_50.0']
         # self.cfg.train_names = ['open_box/n_5_density_25.0']
         self.cfg.train_names = ['open_box/n_6_density_25.0']
+        # self.cfg.train_names = ['simple_cave_01.obj']
         self.cfg.val_names = self.cfg.train_names
 
         # Depth and grid filters prevent computing L2 loss since the points don't match.

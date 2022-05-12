@@ -69,8 +69,8 @@ class Optimization(object):
 
     def create_environment(self):
         if self.env_type == 'angle':
-            from depth_correction.dataset import Angle
-            ds = Angle(n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size, degrees=self.angle_degrees)
+            from depth_correction.dataset import AngleDataset
+            ds = AngleDataset(n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size, degrees=self.angle_degrees)
         elif self.env_type == 'kitti':
             from data.semantic_kitti import Dataset
             name = '04_start_111_end_113_step_1'
@@ -80,8 +80,8 @@ class Optimization(object):
                 rospy.logwarn('Using SuMa SLAM poses for Semantic KITTI sequence %s' % name)
                 ds = Dataset(name, pose_provider='surf_slam')
         elif '.obj' in self.env_type or '.ply' in self.env_type:
-            from depth_correction.dataset import Mesh
-            ds = Mesh(mesh_name=self.env_type, n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size)
+            from depth_correction.dataset import MeshDataset
+            ds = MeshDataset(mesh_name=self.env_type, n_pts=self.n_pts, n_poses=self.n_vps, size=self.env_size)
             self.n_pts = len(ds.global_cloud)
         else:
             raise ValueError('Unknown dataset: %s.' % self.env_type)

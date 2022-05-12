@@ -272,6 +272,23 @@ class MeshDataset(BaseDataset):
         self.n_pts = len(pts)
         return pts
 
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            id = self.ids[i]
+            return self.local_cloud(id), self.cloud_pose(id)
+
+        ds = BaseDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
+        ds.poses = self.poses
+        ds.global_cloud = self.global_cloud
+        ds.name = self.name
+        ds.n_pts_to_sample = self.n_pts_to_sample
+        if isinstance(i, (list, tuple)):
+            ds.ids = [self.ids[j] for j in i]
+        else:
+            assert isinstance(i, slice)
+            ds.ids = self.ids[i]
+        return ds
+
 
 class Forwarding(object):
     def __init__(self, target):
@@ -401,11 +418,15 @@ def demo():
     import open3d as o3d
     import matplotlib.pyplot as plt
 
-    # ds = Plane()
-    # ds = Angle(degrees=60.0)
-    # ds = Mesh(mesh_name='simple_cave_01.obj', size=20)
-    # ds = Mesh(mesh_name='burning_building_rubble.ply', size=20)
-    ds = Mesh(mesh_name='cave_world.ply', size=50)
+    cfg = Config()
+    cfg.data_step = 1
+    # cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=10)
+    # ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
+    # ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
+    # ds = create_dataset(name='cave_word.ply', cfg=cfg)
+
+    cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=4, degrees=60.0)
+    ds = create_dataset(name='angle', cfg=cfg)
 
     clouds = []
     poses = []
@@ -420,7 +441,7 @@ def demo():
     plt.figure()
     plt.axis('equal')
     plt.title('Trajectory')
-    plt.plot(poses[:, 0, 3], poses[:, 1, 3], '.')
+    plt.plot(poses[:, 0, 3], poses[:, 1, 3], '--')
     plt.grid()
     plt.show()
 

@@ -6,7 +6,8 @@ from .utils import cached, hashable, timing
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
 from tf.transformations import euler_matrix
-import torch
+import open3d as o3d
+import warnings
 from copy import deepcopy
 import os
 
@@ -102,8 +103,9 @@ class BaseDataset:
         :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
         """
         self.name = name
-        self.global_cloud = np.zeros([n_pts, 3])
+        self.pts = np.zeros([n_pts, 3])
         self.n_pts = n_pts
+        self.normals = None
         self.n_poses = n_poses
         self.size = size
         self.poses = [np.eye(4) for _ in range(self.n_poses)]
@@ -130,7 +132,7 @@ class BaseDataset:
     def local_cloud(self, i):
         assert self.poses is not None
         assert len(self.poses) > 0
-        cloud = self.global_cloud[np.random.choice(range(self.n_pts), self.n_pts // self.n_poses)]
+        cloud = self.pts[np.random.choice(range(self.n_pts), self.n_pts // self.n_poses)]
         # transform the point cloud to view point frame as it was sampled from global map
         R, t = self.poses[i][:3, :3], self.poses[i][:3, 3]
         cloud = cloud @ R - R.T @ t
@@ -153,7 +155,7 @@ class BaseDataset:
 
         ds = BaseDataset(name=self.name, n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
         ds.poses = self.poses
-        ds.global_cloud = self.global_cloud
+        ds.pts = self.pts
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
         else:
@@ -176,7 +178,7 @@ class PlaneDataset(BaseDataset):
         :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
         """
         super(PlaneDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
-        self.global_cloud = self.construct_global_cloud()
+        self.pts = self.construct_global_cloud()
         self.poses = self.load_poses()
 
     def construct_global_cloud(self, seed=135):
@@ -195,7 +197,7 @@ class PlaneDataset(BaseDataset):
 
         ds = PlaneDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
         ds.poses = self.poses
-        ds.global_cloud = self.global_cloud
+        ds.pts = self.pts
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
         else:
@@ -217,8 +219,8 @@ class AngleDataset(PlaneDataset):
         super(AngleDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
         self.degrees = degrees
         if self.degrees != 0.0:
-            self.global_cloud[self.n_pts // 2:] = self.rotate_pts(self.global_cloud[self.n_pts // 2:], origin=(0, 0, 0),
-                                                                  degrees=degrees, axis='Y')
+            self.pts[self.n_pts // 2:] = self.rotate_pts(self.pts[self.n_pts // 2:], origin=(0, 0, 0),
+                                                         degrees=degrees, axis='Y')
         self.poses = self.load_poses()
 
     @staticmethod
@@ -247,7 +249,7 @@ class AngleDataset(PlaneDataset):
 
         ds = AngleDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size, degrees=self.degrees)
         ds.poses = self.poses
-        ds.global_cloud = self.global_cloud
+        ds.pts = self.pts
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
         else:
@@ -278,31 +280,45 @@ class MeshDataset(BaseDataset):
         else:
             print('Loading mesh: %s' % mesh_name)
         self.n_pts_to_sample = n_pts_to_sample
-        self.global_cloud = self.construct_global_cloud()
+        self.pts, self.normals = self.construct_global_cloud()
         self.poses = self.load_poses()
 
-    def construct_global_cloud(self, seed=135):
-        from pytorch3d.ops import sample_points_from_meshes
-        from pytorch3d.io import load_obj, load_ply
-        from pytorch3d.structures import Meshes
-
-        if self.mesh_path[-3:] == 'obj':
-            pts, faces, _ = load_obj(self.mesh_path)
-            mesh = Meshes(verts=[pts], faces=[faces.verts_idx])
-        elif self.mesh_path[-3:] == 'ply':
-            pts, faces = load_ply(self.mesh_path)
-            mesh = Meshes(verts=[pts], faces=[faces])
+    def construct_global_cloud(self, pts_src='sampled_from_mesh'):
+        """
+        :param pts_src: 'sampled_from_mesh': sample points from mesh, 'mesh_vertices': use mesh vertices
+        """
+        assert pts_src == 'sampled_from_mesh' or pts_src == 'mesh_vertices'
+        mesh = o3d.io.read_triangle_mesh(self.mesh_path)
+        if not mesh.has_vertex_normals():
+            warnings.warn("Mesh doesn't have vertex normals. Estimating them ...")
+            mesh.compute_vertex_normals()
+        assert mesh.has_vertex_normals()
+        # if not mesh.has_triangle_normals():
+        #     warnings.warn("Mesh doesn't have triangle normals. Estimating them ...")
+        #     mesh.compute_triangle_normals()
+        # assert mesh.has_triangle_normals()
+        if pts_src == 'mesh_vertices':
+            pts = np.asarray(mesh.vertices)
+            normals = np.asarray(mesh.vertex_normals)
+        elif pts_src == 'sampled_from_mesh':
+            pcd = mesh.sample_points_uniformly(number_of_points=self.n_pts_to_sample)
+            pts = np.asarray(pcd.points)
+            print('Estimating normals for sampled from mesh point cloud ...')
+            pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.2, max_nn=20))
+            pcd.normalize_normals()
+            # pcd.orient_normals_consistent_tangent_plane(k=20)
+            normals = np.asarray(pcd.normals)
         else:
-            raise ValueError('Supported mesh formats are *.obj or *.ply')
-
-        torch.random.manual_seed(seed)
-        pts = sample_points_from_meshes(mesh, self.n_pts_to_sample).squeeze().numpy()
+            raise ValueError("pts_src variable must be either 'mesh_vertices' or 'sampled_from_mesh'")
+        # cropping points in a volume defined by size variable
         X, Y, Z = pts[:, 0], pts[:, 1], pts[:, 2]
-        pts = pts[np.logical_and(np.logical_and(np.logical_and(X >= -self.size / 2, X <= self.size / 2),
-                                                np.logical_and(Y >= -self.size / 2, Y <= self.size / 2)),
-                                 np.logical_and(Z >= -self.size / 2, Z <= self.size / 2))]
+        mask = np.logical_and(np.logical_and(np.logical_and(X >= -self.size / 2, X <= self.size / 2),
+                                             np.logical_and(Y >= -self.size / 2, Y <= self.size / 2)),
+                              np.logical_and(Z >= -self.size / 2, Z <= self.size / 2))
+        pts = pts[mask]
+        normals = normals[mask]
         self.n_pts = len(pts)
-        return pts
+        return pts, normals
 
     def __getitem__(self, i):
         if isinstance(i, int):
@@ -311,7 +327,8 @@ class MeshDataset(BaseDataset):
 
         ds = BaseDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
         ds.poses = self.poses
-        ds.global_cloud = self.global_cloud
+        ds.pts = self.pts
+        ds.normals = self.normals
         ds.name = self.name
         ds.n_pts_to_sample = self.n_pts_to_sample
         if isinstance(i, (list, tuple)):
@@ -447,18 +464,19 @@ def create_dataset(name, cfg: Config):
 
 
 def demo():
-    import open3d as o3d
     import matplotlib.pyplot as plt
 
     cfg = Config()
     cfg.data_step = 1
-    # cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=10)
-    # ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
+
+    # cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=20, degrees=60.0)
+    # ds = create_dataset(name='angle', cfg=cfg)
+
+    cfg.dataset_kwargs = dict(size=20.0, n_poses=10)
+    ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
     # ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
     # ds = create_dataset(name='cave_word.ply', cfg=cfg)
-
-    cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=4, degrees=60.0)
-    ds = create_dataset(name='angle', cfg=cfg)
+    assert ds.normals is not None
 
     clouds = []
     poses = []
@@ -477,9 +495,14 @@ def demo():
     plt.grid()
     plt.show()
 
+    # pcd = o3d.geometry.PointCloud()
+    # pcd.points = o3d.utility.Vector3dVector(cloud)
+    # o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
+
     pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(cloud)
-    o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
+    pcd.points = o3d.utility.Vector3dVector(ds.pts)
+    pcd.normals = o3d.utility.Vector3dVector(ds.normals)
+    o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)], point_show_normal=True)
 
 
 def main():

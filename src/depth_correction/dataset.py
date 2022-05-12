@@ -245,7 +245,7 @@ class MeshDataset(BaseDataset):
                                   'and place them to ./data/ folder' % self.mesh_path)
         else:
             print('Loading mesh: %s' % mesh_name)
-        self.pts_to_sample = pts_to_sample
+        self.n_pts_to_sample = n_pts_to_sample
         self.global_cloud = self.construct_global_cloud()
         self.poses = self.load_poses()
 
@@ -264,7 +264,7 @@ class MeshDataset(BaseDataset):
             raise ValueError('Supported mesh formats are *.obj or *.ply')
 
         torch.random.manual_seed(seed)
-        pts = sample_points_from_meshes(mesh, self.pts_to_sample).squeeze().numpy()
+        pts = sample_points_from_meshes(mesh, self.n_pts_to_sample).squeeze().numpy()
         X, Y, Z = pts[:, 0], pts[:, 1], pts[:, 2]
         pts = pts[np.logical_and(np.logical_and(np.logical_and(X >= -self.size / 2, X <= self.size / 2),
                                                 np.logical_and(Y >= -self.size / 2, Y <= self.size / 2)),

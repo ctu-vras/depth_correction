@@ -301,17 +301,13 @@ class MeshDataset(BaseDataset):
         #     warnings.warn("Mesh doesn't have triangle normals. Estimating them ...")
         #     mesh.compute_triangle_normals()
         # assert mesh.has_triangle_normals()
+        normals = None
         if pts_src == 'mesh_vertices':
             pts = np.asarray(mesh.vertices)
             normals = np.asarray(mesh.vertex_normals)
         elif pts_src == 'sampled_from_mesh':
             pcd = mesh.sample_points_uniformly(number_of_points=self.n_pts_to_sample)
             pts = np.asarray(pcd.points)
-            print('Estimating normals for sampled from mesh point cloud ...')
-            pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.2, max_nn=20))
-            pcd.normalize_normals()
-            # pcd.orient_normals_consistent_tangent_plane(k=20)
-            normals = np.asarray(pcd.normals)
         else:
             raise ValueError("pts_src variable must be either 'mesh_vertices' or 'sampled_from_mesh'")
         # cropping points in a volume defined by size variable
@@ -320,7 +316,17 @@ class MeshDataset(BaseDataset):
                                              np.logical_and(Y >= -self.size / 2, Y <= self.size / 2)),
                               np.logical_and(Z >= -self.size / 2, Z <= self.size / 2))
         pts = pts[mask]
-        normals = normals[mask]
+        if normals is None:
+            print('Estimating normals for sampled from mesh point cloud ...')
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(pts)
+            pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.2, max_nn=20))
+            pcd.normalize_normals()
+            pcd.orient_normals_consistent_tangent_plane(k=20)
+            normals = np.asarray(pcd.normals)
+        else:
+            normals = normals[mask]
+        assert pts.shape == normals.shape
         self.n_pts = len(pts)
         return pts, normals
 
@@ -473,13 +479,13 @@ def demo():
     cfg = Config()
     cfg.data_step = 1
 
-    # cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=20, degrees=60.0)
+    # cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=20, degrees=80.0)
     # ds = create_dataset(name='angle', cfg=cfg)
 
-    cfg.dataset_kwargs = dict(size=20.0, n_poses=10)
-    ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
-    # ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
-    # ds = create_dataset(name='cave_word.ply', cfg=cfg)
+    cfg.dataset_kwargs = dict(size=10.0, n_poses=10)
+    # ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
+    ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
+    # ds = create_dataset(name='cave_world.ply', cfg=cfg)
     assert ds.normals is not None
 
     clouds = []

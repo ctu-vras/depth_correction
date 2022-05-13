@@ -3,6 +3,7 @@ from .config import Config
 from .configurable import ValueEnum
 from copy import copy
 from .depth_cloud import DepthCloud
+from .preproc import filtered_cloud
 from .model import BaseModel
 from .utils import cached, hashable, timing, transform, transform_inv
 import numpy as np
@@ -511,6 +512,17 @@ class ForwardingDataset(Forwarding):
 
     def cloud_pose(self, id):
         return self.modify_pose(self.target.cloud_pose(id))
+
+
+class FilteredDataset(ForwardingDataset):
+
+    def __init__(self, dataset, cfg: Config):
+        super().__init__(dataset)
+        self.cfg = cfg
+
+    def modify_cloud(self, cloud):
+        cloud = filtered_cloud(cloud, self.cfg)
+        return cloud
 
 
 class NoisyPoseDataset(ForwardingDataset):

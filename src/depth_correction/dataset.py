@@ -446,7 +446,7 @@ class MeshDataset(BaseDataset):
             pcd.points = o3d.utility.Vector3dVector(pts)
             pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.2, max_nn=20))
             pcd.normalize_normals()
-            pcd.orient_normals_consistent_tangent_plane(k=20)
+            # pcd.orient_normals_consistent_tangent_plane(k=20)
             normals = np.asarray(pcd.normals)
         else:
             normals = normals[mask]

@@ -184,13 +184,13 @@ class TrainingDemo(TrainCallbacks):
         train(self.cfg, callbacks=self, train_datasets=[self.ds], val_datasets=[self.ds])
 
     def iteration_started(self, iter):
-        print(iter)
+        # print(iter)
+        pass
 
     def compute_l2_loss(self, clouds):
         assert len(clouds) == 1
         l2_loss = 0.0
         with torch.no_grad():
-            # for gt_cloud, cloud in zip(self.gt_clouds, clouds[0]):
             for gt_cloud, cloud in zip(self.gt_clouds, clouds):
                 assert isinstance(gt_cloud, DepthCloud)
                 assert isinstance(cloud, DepthCloud)
@@ -205,7 +205,6 @@ class TrainingDemo(TrainCallbacks):
         assert len(poses) == 1
         r_loss, t_loss, n = 0.0, 0.0, 0
         with torch.no_grad():
-            # for gt_pose, pose in zip(self.gt_poses[0], poses[0]):
             for ds_gt_poses, ds_poses in zip(self.gt_poses, poses):
                 for gt_pose, pose in zip(ds_gt_poses, ds_poses):
                     if isinstance(gt_pose, torch.Tensor):

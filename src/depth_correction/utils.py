@@ -4,6 +4,9 @@ import numpy as np
 from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 from timeit import default_timer as timer
 import torch
+from pytorch3d.io import load_ply, load_obj
+from pytorch3d.structures import Meshes
+
 
 __all__ = [
     'covs',
@@ -221,3 +224,15 @@ def transform(T, x_struct):
             x = np.matmul(x, T[:-1, :-1].T)
         x_struct[fs] = unstructured_to_structured(x, names=fs)
     return x_struct
+
+
+def load_mesh(mesh_path):
+    if mesh_path[-3:] == 'obj':
+        pts, faces, _ = load_obj(mesh_path)
+        mesh = Meshes(verts=[pts], faces=[faces.verts_idx])
+    elif mesh_path[-3:] == 'ply':
+        pts, faces = load_ply(mesh_path)
+        mesh = Meshes(verts=[pts], faces=[faces])
+    else:
+        raise ValueError('Supported mesh formats are *.obj or *.ply')
+    return mesh

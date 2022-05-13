@@ -632,19 +632,31 @@ def create_dataset(name, cfg: Config):
 
 def demo():
     import matplotlib.pyplot as plt
+    from depth_correction.model import model_by_name
 
     cfg = Config()
     cfg.data_step = 1
 
     # cfg.dataset_kwargs = dict(size=([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0]),
-    #                           n_pts=10_000, n_poses=20, degrees=80.0)
+    #                           n_pts=10_000, n_poses=4, degrees=80.0)
     # ds = create_dataset(name='angle', cfg=cfg)
 
-    cfg.dataset_kwargs = dict(size=([-6.0, 6.0], [-6.0, 6.0], [-1.0, 5.0]), n_poses=10)
+    cfg.dataset_kwargs = dict(size=([-10.0, 10.0], [-10.0, 10.0], [-1.0, 5.0]), n_poses=4)
     # ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
     # ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
     ds = create_dataset(name='cave_world.ply', cfg=cfg)
-    assert ds.normals is not None
+
+    ds = FilteredDataset(ds, cfg)
+
+    # add disturbances to dataset
+    cfg.model_class = 'ScaledPolynomial'
+    cfg.model_kwargs['exponent'] = [4.0]
+    cfg.model_kwargs['learnable_exponents'] = False
+    model_disturb = model_by_name(cfg.model_class)(w=[-0.01], **cfg.model_kwargs)
+
+    ds = DepthBiasDataset(ds, model_disturb, cfg=cfg)
+    # ds = NoisyDepthDataset(ds, noise=0.03)
+    # ds = NoisyPoseDataset(ds, noise=0.05, mode='common')
 
     clouds = []
     poses = []
@@ -658,10 +670,21 @@ def demo():
     poses = np.asarray(poses)
 
     plt.figure()
-    plt.axis('equal')
-    plt.title('Trajectory')
-    plt.plot(poses[:, 0, 3], poses[:, 1, 3], '--')
-    plt.grid()
+    ax = plt.axes(projection='3d')
+    ax.set_xlabel('X, [m]')
+    ax.set_ylabel('Y, [m]')
+    ax.set_zlabel('Z, [m]')
+    ax.set_xlim([cfg.dataset_kwargs['size'][0][0], cfg.dataset_kwargs['size'][0][1]])
+    ax.set_ylim([cfg.dataset_kwargs['size'][1][0], cfg.dataset_kwargs['size'][1][1]])
+    ax.set_zlim([cfg.dataset_kwargs['size'][2][0], cfg.dataset_kwargs['size'][2][1]])
+    ax.grid()
+    # point cloud
+    ax.scatter(ds.pts[::100, 0], ds.pts[::100, 1], ds.pts[::100, 2])
+    # view points trajectory
+    for i in range(len(poses)-1):
+        ax.plot([poses[i, 0, 3], poses[i + 1, 0, 3]],
+                [poses[i, 1, 3], poses[i + 1, 1, 3]],
+                [poses[i, 2, 3], poses[i + 1, 2, 3]], color='g', linewidth=5)
     plt.show()
 
     pcd = o3d.geometry.PointCloud()

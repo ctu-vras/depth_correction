@@ -221,19 +221,22 @@ class BaseDataset:
                  name: str = None,
                  n_pts: int = 10_000,
                  n_poses: int = 5,
+                 height: float = 2.0,
                  size: tuple = ([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0])):
         """BaseDataset composed of multiple measurements of a general point cloud.
 
         :param name: Name of the dataset
         :param n_pts: Number of points forming a global cloud.
         :param size: Local clouds size.
+        :param height: Sensor height above ground plane.
         :param n_poses: Number of view points (poses of sensors, at which local clouds are measured).
         """
         self.name = name
-        self.pts = np.zeros([n_pts, 3])
         self.n_pts = n_pts
+        self.pts = None
         self.normals = None
         self.n_poses = n_poses
+        self.height = height
         self.size = size
         self.ids = range(self.n_poses)
 
@@ -244,6 +247,7 @@ class BaseDataset:
         return len(self.ids)
 
     def local_cloud(self, i):
+        assert self.pts is not None
         rng = np.random.default_rng(i)
 
         mask = rng.choice(range(self.n_pts), size=self.n_pts // self.n_poses)
@@ -263,8 +267,9 @@ class BaseDataset:
     def cloud_pose(self, i):
         rng = np.random.default_rng(i)
         pose = np.eye(4)
-        for p in range(3):
-            pose[p, 3] = rng.uniform(low=self.size[p][0], high=self.size[p][1])
+        for p in range(2):
+            pose[p, 3] = rng.uniform(low=0.6*self.size[p][0], high=0.6*self.size[p][1])
+        pose[2, 3] = self.height
         return pose
 
     @staticmethod

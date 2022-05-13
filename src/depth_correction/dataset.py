@@ -521,13 +521,11 @@ class NoisyPoseDataset(ForwardingDataset):
         mode = mode or NoisyPoseDataset.Mode.common
         assert mode in NoisyPoseDataset.Mode
         super().__init__(dataset)
-        # self.cov = np.diag(noise)**2 if noise and any(noise) else None
         self.noise = noise
         self.mode = mode
 
     def random_transform(self, seed):
         rng = np.random.default_rng(seed)
-        # noise_vec = rng.multivariate_normal(np.zeros((6,)), self.cov)
         noise_vec = self.noise * rng.normal(size=(6,))
         noise = euler_matrix(*noise_vec[:3])
         noise[:3, 3] = noise_vec[3:]
@@ -535,12 +533,10 @@ class NoisyPoseDataset(ForwardingDataset):
 
     # TODO: Cache
     def modify_pose(self, pose):
-        print('NoisyPoseDataset.modify_pose')
         if self.mode == NoisyPoseDataset.Mode.pose:
             seed = abs(hash(hashable(pose)))
         elif self.mode == NoisyPoseDataset.Mode.common:
             seed = Config().random_seed
-        # if self.cov is not None:
         if (self.noise != 0.0).any():
             noise = self.random_transform(seed)
             pose = np.matmul(pose, noise)
@@ -584,7 +580,6 @@ class DepthBiasDataset(ForwardingDataset):
         self.model = model
         self.cfg = cfg
 
-    @timing
     def modify_cloud(self, cloud):
         if self.model is not None:
             assert isinstance(self.model, BaseModel)
@@ -623,11 +618,12 @@ def dataset_by_name(name):
     raise ValueError('Unknown dataset: %s.' % name)
 
 
-def create_dataset(name, cfg: Config):
+def create_dataset(name, cfg: Config, **kwargs):
     Dataset = dataset_by_name(name)
-    d = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs)
-    d = d[::cfg.data_step]
-    return d
+    ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
+    ds = ds[::cfg.data_step]
+    ds = FilteredDataset(ds, cfg)
+    return ds
 
 
 def demo():

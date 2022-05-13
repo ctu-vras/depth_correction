@@ -1,6 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
-from .dataset import dataset_by_name
+from .dataset import create_dataset
 from .loss import loss_by_name
 from .model import load_model, model_by_name
 from .preproc import *
@@ -53,8 +53,26 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     else:
         cfg.to_yaml(cfg_path)
 
-    Dataset = dataset_by_name(cfg.dataset)
-    print(Dataset.__name__)
+    if train_datasets:
+        print('Using provided training datasets.')
+    else:
+        print('Creating datasets from config: %s.' % ', '.join(cfg.train_names))
+        train_datasets = []
+        for i, name in enumerate(cfg.train_names):
+            # Allow overriding poses paths, assume valid if non-empty.
+            poses_path = cfg.train_poses_path[i] if cfg.train_poses_path else None
+            ds = create_dataset(name, cfg, poses_path=poses_path)
+            train_datasets.append(ds)
+
+    if val_datasets:
+        print('Using provided training datasets.')
+    else:
+        print('Creating datasets from config: %s.' % ', '.join(cfg.val_names))
+        val_datasets = []
+        for i, name in enumerate(cfg.val_names):
+            poses_path = cfg.val_poses_path[i] if cfg.val_poses_path else None
+            ds = create_dataset(name, cfg, poses_path=poses_path)
+            val_datasets.append(ds)
 
     loss_fun = loss_by_name(cfg.loss)
     print(cfg.loss, loss_fun.__name__)
@@ -70,18 +88,11 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     train_pose_deltas = []
     train_neighbors = [None] * len(cfg.train_names)
     train_masks = [None] * len(cfg.train_names)
-    for i, name in enumerate(cfg.train_names):
+    for i, ds in enumerate(train_datasets):
         # Allow overriding poses paths, assume valid if non-empty.
-        poses_path = cfg.train_poses_path[i] if cfg.train_poses_path else None
         clouds = []
         poses = []
-        if train_datasets:
-            print('Using provided training datasets.')
-            ds = train_datasets[i]
-        else:
-            ds = Dataset(name, poses_path=poses_path)[::cfg.data_step]
         for cloud, pose in ds:
-            cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             # If poses are not optimized, depth can be corrected on global
             # feature clouds.
@@ -95,12 +106,6 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         poses = torch.as_tensor(poses, device=cfg.device)
         train_poses.append(poses)
         if cfg.pose_correction == PoseCorrection.common and not train_pose_deltas:
-            # Use same tensor if possible,
-            # train_pose_deltas will contain multiple references to same tensor.
-            # if train_pose_deltas:
-            #     pose_deltas = train_pose_deltas[0]
-            # else:
-            #     pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
             # Use a common correction for all poses.
             pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
         elif cfg.pose_correction == PoseCorrection.sequence:
@@ -119,18 +124,10 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     val_pose_deltas = []
     val_neighbors = [None] * len(cfg.val_names)
     val_masks = [None] * len(cfg.val_names)
-    for i, name in enumerate(cfg.val_names):
-        # Allow overriding poses paths, assume valid if non-empty.
-        poses_path = cfg.val_poses_path[i] if cfg.val_poses_path else None
+    for i, ds in enumerate(val_datasets):
         clouds = []
         poses = []
-        if val_datasets:
-            print('Using provided validation datasets.')
-            ds = val_datasets[i]
-        else:
-            ds = Dataset(name, poses_path=poses_path)[::cfg.data_step]
         for cloud, pose in ds:
-            cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             clouds.append(cloud)
             poses.append(pose)

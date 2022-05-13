@@ -635,11 +635,12 @@ def dataset_by_name(name):
     raise ValueError('Unknown dataset: %s.' % name)
 
 
-def create_dataset(name, cfg: Config):
+def create_dataset(name, cfg: Config, **kwargs):
     Dataset = dataset_by_name(name)
-    d = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs)
-    d = d[::cfg.data_step]
-    return d
+    ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
+    ds = ds[::cfg.data_step]
+    ds = FilteredDataset(ds, cfg)
+    return ds
 
 
 def demo():

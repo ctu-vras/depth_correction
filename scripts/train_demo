@@ -151,8 +151,8 @@ class TrainingDemo(TrainCallbacks):
         self.tf_static_pub.publish(TFMessage(self.tfs))
 
     def create_ground_truth(self):
-        self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
-        self.ds = FilteredDataset(self.ds, self.cfg)
+        poses_path = self.cfg.train_poses_path[0] if self.cfg.train_poses_path else None
+        self.ds = create_dataset(self.cfg.train_names[0], self.cfg, poses_path=poses_path)
         clouds = []
         poses = []
         self.tfs = []

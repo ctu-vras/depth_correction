@@ -14,6 +14,8 @@ from depth_correction.preproc import filtered_cloud, global_cloud, local_feature
 from depth_correction.train import train, TrainCallbacks
 from depth_correction.utils import delta_transform, rotation_angle, translation_norm
 from geometry_msgs.msg import Transform, TransformStamped
+import matplotlib
+matplotlib.rcParams['axes.formatter.useoffset'] = False
 import matplotlib.pyplot as plt
 import numpy as np
 from ros_numpy import msgify

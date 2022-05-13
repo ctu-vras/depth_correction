@@ -5,14 +5,14 @@ from copy import copy
 from .depth_cloud import DepthCloud
 from .preproc import filtered_cloud
 from .model import BaseModel
-from .utils import cached, hashable, timing, transform, transform_inv
+from .utils import cached, hashable, timing, transform, transform_inv, load_mesh
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
 from tf.transformations import euler_matrix
 import open3d as o3d
 import warnings
-from copy import deepcopy
 import os
+from pytorch3d.ops import sample_points_from_meshes
 
 
 def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=np.random.default_rng()):
@@ -417,43 +417,26 @@ class MeshDataset(BaseDataset):
         :param pts_src: 'sampled_from_mesh': sample points from mesh, 'mesh_vertices': use mesh vertices
         """
         assert pts_src == 'sampled_from_mesh' or pts_src == 'mesh_vertices'
-        mesh = o3d.io.read_triangle_mesh(self.mesh_path)
-        if not mesh.has_vertex_normals():
-            warnings.warn("Mesh doesn't have vertex normals. Estimating them ...")
-            mesh.compute_vertex_normals()
-        assert mesh.has_vertex_normals()
-        # if not mesh.has_triangle_normals():
-        #     warnings.warn("Mesh doesn't have triangle normals. Estimating them ...")
-        #     mesh.compute_triangle_normals()
-        # assert mesh.has_triangle_normals()
-        normals = None
-        if pts_src == 'mesh_vertices':
-            pts = np.asarray(mesh.vertices)
-            normals = np.asarray(mesh.vertex_normals)
-        elif pts_src == 'sampled_from_mesh':
-            pcd = mesh.sample_points_uniformly(number_of_points=self.n_pts_to_sample)
-            pts = np.asarray(pcd.points)
-        else:
-            raise ValueError("pts_src variable must be either 'mesh_vertices' or 'sampled_from_mesh'")
+        mesh = load_mesh(self.mesh_path)
+
+        pts = sample_points_from_meshes(mesh, num_samples=self.n_pts_to_sample).squeeze().numpy()
         # cropping points in a volume defined by size variable
         X, Y, Z = pts[:, 0], pts[:, 1], pts[:, 2]
         mask = np.logical_and(np.logical_and(np.logical_and(X >= self.size[0][0], X <= self.size[0][1]),
                                              np.logical_and(Y >= self.size[1][0], Y <= self.size[1][1])),
                               np.logical_and(Z >= self.size[2][0], Z <= self.size[2][1]))
         pts = pts[mask]
-        if normals is None:
+        if self.normals is None:
             print('Estimating normals for sampled from mesh point cloud ...')
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(pts)
-            pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.2, max_nn=20))
-            pcd.normalize_normals()
-            # pcd.orient_normals_consistent_tangent_plane(k=20)
-            normals = np.asarray(pcd.normals)
-        else:
-            normals = normals[mask]
-        assert pts.shape == normals.shape
+            dc = DepthCloud.from_structured_array(unstructured_to_structured(pts, names=['x', 'y', 'z']))
+            assert isinstance(dc, DepthCloud)
+            if dc.normals is None:
+                dc.update_all(k=20, r=0.2)
+            normals = dc.normals.numpy()
+            self.normals = normals
+        assert pts.shape == self.normals.shape
         self.n_pts = len(pts)
-        return pts, normals
+        return pts, self.normals
 
     def __getitem__(self, i):
         if isinstance(i, int):

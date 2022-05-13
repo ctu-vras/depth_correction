@@ -234,7 +234,6 @@ class BaseDataset:
         self.normals = None
         self.n_poses = n_poses
         self.size = size
-        self.poses = [np.eye(4) for _ in range(self.n_poses)]
         self.ids = range(self.n_poses)
 
     def __len__(self):
@@ -243,36 +242,28 @@ class BaseDataset:
         """
         return len(self.ids)
 
-    def load_poses(self):
-        poses = []
-        for i in range(self.n_poses):
-            cloud = self.local_cloud(i)
-            cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
-            vp = deepcopy(cloud[np.random.choice(range(len(cloud)))])
-            vp[2] += np.random.uniform(0.1, 2.)
-            pose = np.eye(4)
-            pose[:3, 3] = vp
-            poses.append(pose)
-        assert len(poses) == self.n_poses
-        return poses
-
     def local_cloud(self, i):
-        assert self.poses is not None
-        assert len(self.poses) > 0
-        idxs_mask = np.random.choice(range(self.n_pts), self.n_pts // self.n_poses)
-        cloud = self.pts[idxs_mask]
-        normals = self.normals[idxs_mask]
-        # transform the point cloud to view point frame as it was sampled from global map
-        R, t = self.poses[i][:3, :3], self.poses[i][:3, 3]
-        cloud = cloud @ R - R.T @ t
+        rng = np.random.default_rng(i)
+
+        mask = rng.choice(range(self.n_pts), size=self.n_pts // self.n_poses)
+        cloud = self.pts[mask]
+        normals = self.normals[mask]
         assert cloud.shape == (self.n_pts // self.n_poses, 3)
+
         cloud = unstructured_to_structured(cloud, names=['x', 'y', 'z'])
         normals = unstructured_to_structured(normals, names=['normal_x', 'normal_y', 'normal_z'])
         cloud = merge_arrays([cloud, normals], flatten=True)
+
+        # transform the point cloud to view point frame as it was sampled from global map
+        T_inv = transform_inv(self.cloud_pose(i))
+        cloud = transform(T_inv, cloud)
         return cloud
 
     def cloud_pose(self, i):
-        pose = self.poses[i]
+        rng = np.random.default_rng(i)
+        pose = np.eye(4)
+        for p in range(3):
+            pose[p, 3] = rng.uniform(low=self.size[p][0], high=self.size[p][1])
         return pose
 
     @staticmethod
@@ -286,7 +277,6 @@ class BaseDataset:
             return self.local_cloud(id), self.cloud_pose(id)
 
         ds = BaseDataset(name=self.name, n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
-        ds.poses = self.poses
         ds.pts = self.pts
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
@@ -332,7 +322,6 @@ class PlaneDataset(BaseDataset):
             return self.local_cloud(id), self.cloud_pose(id)
 
         ds = PlaneDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
-        ds.poses = self.poses
         ds.pts = self.pts
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
@@ -363,7 +352,6 @@ class AngleDataset(PlaneDataset):
                                                      degrees=degrees, axis='Y')
             self.normals[self.n_pts // 2:] = self.rotate(self.normals[self.n_pts // 2:], origin=(0, 0, 0),
                                                          degrees=degrees, axis='Y')
-        self.poses = self.load_poses()
 
     @staticmethod
     def rotate(p, origin=(0, 0, 0), degrees=0.0, axis='X'):
@@ -390,7 +378,6 @@ class AngleDataset(PlaneDataset):
             return self.local_cloud(id), self.cloud_pose(id)
 
         ds = AngleDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size, degrees=self.degrees)
-        ds.poses = self.poses
         ds.pts = self.pts
         if isinstance(i, (list, tuple)):
             ds.ids = [self.ids[j] for j in i]
@@ -423,7 +410,6 @@ class MeshDataset(BaseDataset):
             print('Loading mesh: %s' % mesh_name)
         self.n_pts_to_sample = n_pts_to_sample
         self.pts, self.normals = self.construct_global_cloud()
-        self.poses = self.load_poses()
 
     def construct_global_cloud(self, pts_src='sampled_from_mesh'):
         """
@@ -474,7 +460,6 @@ class MeshDataset(BaseDataset):
             return self.local_cloud(id), self.cloud_pose(id)
 
         ds = BaseDataset(n_pts=self.n_pts, n_poses=self.n_poses, size=self.size)
-        ds.poses = self.poses
         ds.pts = self.pts
         ds.normals = self.normals
         ds.name = self.name
@@ -646,13 +631,14 @@ def demo():
     cfg = Config()
     cfg.data_step = 1
 
-    cfg.dataset_kwargs = dict(size=20.0, n_pts=10_000, n_poses=20, degrees=80.0)
-    ds = create_dataset(name='angle', cfg=cfg)
+    # cfg.dataset_kwargs = dict(size=([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0]),
+    #                           n_pts=10_000, n_poses=20, degrees=80.0)
+    # ds = create_dataset(name='angle', cfg=cfg)
 
-    # cfg.dataset_kwargs = dict(size=10.0, n_poses=10)
+    cfg.dataset_kwargs = dict(size=([-6.0, 6.0], [-6.0, 6.0], [-1.0, 5.0]), n_poses=10)
     # ds = create_dataset(name='simple_cave_01.obj', cfg=cfg)
     # ds = create_dataset(name='burning_building_rubble.ply', cfg=cfg)
-    # ds = create_dataset(name='cave_world.ply', cfg=cfg)
+    ds = create_dataset(name='cave_world.ply', cfg=cfg)
     assert ds.normals is not None
 
     clouds = []

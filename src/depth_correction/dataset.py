@@ -220,7 +220,7 @@ class BaseDataset:
                  name: str = None,
                  n_pts: int = 10_000,
                  n_poses: int = 5,
-                 size: float = 20.0):
+                 size: tuple = ([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0])):
         """BaseDataset composed of multiple measurements of a general point cloud.
 
         :param name: Name of the dataset
@@ -301,7 +301,10 @@ class BaseDataset:
 
 
 class PlaneDataset(BaseDataset):
-    def __init__(self, name='plane', n_pts: int = 10_000, n_poses: int = 2, size: float = 20.0):
+    def __init__(self, name='plane',
+                 n_pts: int = 10_000,
+                 n_poses: int = 2,
+                 size: tuple = ([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0])):
         """PlaneDataset composed of multiple measurements of a ground plane.
 
         :param name: Name of the dataset
@@ -311,15 +314,14 @@ class PlaneDataset(BaseDataset):
         """
         super(PlaneDataset, self).__init__(name=name, n_pts=n_pts, n_poses=n_poses, size=size)
         self.pts, self.normals = self.construct_global_cloud()
-        self.poses = self.load_poses()
 
     def construct_global_cloud(self, seed=135):
         # create flat point cloud (a wall)
         np.random.seed(seed)
         pts = np.zeros((self.n_pts, 3), dtype=np.float64)
-        pts[:, :2] = np.concatenate([np.random.uniform(0, self.size / 2, size=(self.n_pts // 2, 2)),
-                                     np.random.uniform(0, self.size / 2, size=(self.n_pts // 2, 2)) + np.array(
-                                            [-self.size / 2, 0])])
+        pts[:, :2] = np.concatenate([np.random.uniform(0, self.size[0][1], size=(self.n_pts // 2, 2)),
+                                     np.random.uniform(0, self.size[1][1], size=(self.n_pts // 2, 2)) +
+                                     np.array([self.size[0][0], 0])])
         normals = np.zeros_like(pts)
         normals[:, 2] = 1.0
         return pts, normals
@@ -341,7 +343,11 @@ class PlaneDataset(BaseDataset):
 
 
 class AngleDataset(PlaneDataset):
-    def __init__(self, name='angle', n_pts: int = 10_000, n_poses: int = 5, size: float = 20.0, degrees: float = 0.0):
+    def __init__(self, name='angle',
+                 n_pts: int = 10_000,
+                 n_poses: int = 5,
+                 size: tuple = ([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0]),
+                 degrees: float = 0.0):
         """AngleDataset composed of multiple point cloud measurements of two intersecting planes forming an angle.
 
         :param name: Name of the dataset
@@ -397,7 +403,7 @@ class AngleDataset(PlaneDataset):
 class MeshDataset(BaseDataset):
     def __init__(self, mesh_name,
                  n_poses: int = 5,
-                 size: float = 20.0,
+                 size: tuple = ([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0]),
                  n_pts_to_sample: int = 10_000_000):
         """MeshDataset composed of multiple point cloud measurements of a ground truth environment represented as a mesh.
 
@@ -444,9 +450,9 @@ class MeshDataset(BaseDataset):
             raise ValueError("pts_src variable must be either 'mesh_vertices' or 'sampled_from_mesh'")
         # cropping points in a volume defined by size variable
         X, Y, Z = pts[:, 0], pts[:, 1], pts[:, 2]
-        mask = np.logical_and(np.logical_and(np.logical_and(X >= -self.size / 2, X <= self.size / 2),
-                                             np.logical_and(Y >= -self.size / 2, Y <= self.size / 2)),
-                              np.logical_and(Z >= -self.size / 2, Z <= self.size / 2))
+        mask = np.logical_and(np.logical_and(np.logical_and(X >= self.size[0][0], X <= self.size[0][1]),
+                                             np.logical_and(Y >= self.size[1][0], Y <= self.size[1][1])),
+                              np.logical_and(Z >= self.size[2][0], Z <= self.size[2][1]))
         pts = pts[mask]
         if normals is None:
             print('Estimating normals for sampled from mesh point cloud ...')

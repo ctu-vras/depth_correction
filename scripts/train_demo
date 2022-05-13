@@ -174,7 +174,7 @@ class TrainingDemo(TrainCallbacks):
         self.gt_clouds = [cloud]
         self.gt_poses = [poses]
         # self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
-        self.ds = DepthBiasDataset(self.ds, self.gt_model)
+        self.ds = DepthBiasDataset(self.ds, self.gt_model, cfg=self.cfg)
         self.ds = NoisyDepthDataset(self.ds, noise=self.depth_noise)
         self.ds = NoisyPoseDataset(self.ds, noise=self.pose_noise, mode=self.pose_noise_mode)
 

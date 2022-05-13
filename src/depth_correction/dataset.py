@@ -3,6 +3,7 @@ from .config import Config
 from .configurable import ValueEnum
 from copy import copy
 from .depth_cloud import DepthCloud
+from .preproc import filtered_cloud
 from .model import BaseModel
 from .utils import cached, hashable, timing, transform, transform_inv
 import numpy as np
@@ -504,6 +505,17 @@ class ForwardingDataset(Forwarding):
         return self.modify_pose(self.target.cloud_pose(id))
 
 
+class FilteredDataset(ForwardingDataset):
+
+    def __init__(self, dataset, cfg: Config):
+        super().__init__(dataset)
+        self.cfg = cfg
+
+    def modify_cloud(self, cloud):
+        cloud = filtered_cloud(cloud, self.cfg)
+        return cloud
+
+
 class NoisyPoseDataset(ForwardingDataset):
 
     class Mode(metaclass=ValueEnum):
@@ -579,17 +591,22 @@ class NoisyDepthDataset(ForwardingDataset):
 
 class DepthBiasDataset(ForwardingDataset):
 
-    def __init__(self, dataset, model=None):
+    def __init__(self, dataset, model=None, cfg: Config=None):
         super().__init__(dataset)
         self.model = model
+        self.cfg = cfg
 
+    @timing
     def modify_cloud(self, cloud):
         if self.model is not None:
             assert isinstance(self.model, BaseModel)
             dc = DepthCloud.from_structured_array(cloud)
             assert isinstance(dc, DepthCloud)
-            assert dc.normals is not None
-            dc.update_incidence_angles()
+            if dc.normals is None:
+                print('Estimating normals from data.')
+                dc.update_all(k=self.cfg.nn_k, r=self.cfg.nn_r)
+            else:
+                dc.update_incidence_angles()
             dc = self.model.inverse(dc)
             pts = dc.to_points().detach().numpy()
             cloud[['x', 'y', 'z']] = unstructured_to_structured(pts, names=['x', 'y', 'z'])

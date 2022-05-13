@@ -1,7 +1,13 @@
 #! /usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from depth_correction.config import Config, Loss, Model, PoseCorrection
-from depth_correction.dataset import create_dataset, DepthBiasDataset, NoisyDepthDataset, NoisyPoseDataset
+from depth_correction.dataset import (
+    create_dataset,
+    DepthBiasDataset,
+    FilteredDataset,
+    NoisyDepthDataset,
+    NoisyPoseDataset,
+)
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import load_model, model_by_name
 from depth_correction.preproc import filtered_cloud, global_cloud, local_feature_cloud
@@ -146,11 +152,11 @@ class TrainingDemo(TrainCallbacks):
 
     def create_ground_truth(self):
         self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
+        self.ds = FilteredDataset(self.ds, self.cfg)
         clouds = []
         poses = []
         self.tfs = []
         for i, (cloud, pose) in enumerate(self.ds):
-            cloud = filtered_cloud(cloud, self.cfg)
             # cloud = local_feature_cloud(cloud, self.cfg)
             # Keep normals, avoid recomputing dependent fields.
             cloud = DepthCloud.from_structured_array(cloud, dtype=self.cfg.numpy_float_type(), device=self.cfg.device)
@@ -168,7 +174,7 @@ class TrainingDemo(TrainCallbacks):
         self.gt_clouds = [cloud]
         self.gt_poses = [poses]
         # self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
-        self.ds = DepthBiasDataset(self.ds, self.gt_model)
+        self.ds = DepthBiasDataset(self.ds, self.gt_model, cfg=self.cfg)
         self.ds = NoisyDepthDataset(self.ds, noise=self.depth_noise)
         self.ds = NoisyPoseDataset(self.ds, noise=self.pose_noise, mode=self.pose_noise_mode)
 

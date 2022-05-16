@@ -91,7 +91,7 @@ class GroundPlaneDataset(object):
 
 
 class OpenBoxDataset(object):
-    def __init__(self, name=None, n=None, size=None, height=None, density=None):
+    def __init__(self, name=None, n=None, size=None, height=None, density=None, **kwargs):
         """Open box dataset with viewpoints inside along a circle.
 
         :param name: Name of the sequence.
@@ -124,6 +124,8 @@ class OpenBoxDataset(object):
                     assert density is None
                     i = parts.index('density')
                     density = float(parts[i + 1])
+        for k, v in kwargs.items():
+            print('Unused key-value argument: %s: %s.' % (k, v))
 
         # Fill defaults.
         if n is None:

@@ -1,4 +1,5 @@
 from __future__ import absolute_import, division, print_function
+from .config import Config
 from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
@@ -10,6 +11,7 @@ import torch
 
 __all__ = [
     'batch_loss',
+    'create_loss',
     'loss_by_name',
     'min_eigval_loss',
     'neighbor_cov',
@@ -226,6 +228,15 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
 def loss_by_name(name):
     assert name in ('min_eigval_loss', 'trace_loss')
     return globals()[name]
+
+
+def create_loss(cfg: Config):
+    loss = loss_by_name(cfg.loss)
+
+    def loss_fun(*args, **kwargs):
+        return loss(*args, **kwargs, **cfg.loss_kwargs)
+
+    return loss_fun
 
 
 def preprocess_cloud(cloud, min_depth=None, max_depth=None, grid_res=None, k=None, r=None):

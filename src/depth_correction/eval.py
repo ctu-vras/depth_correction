@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 from .config import Config, loss_eval_csv, PoseCorrection, slam_eval_bag, slam_eval_csv, slam_poses_csv
 from .filters import filter_eigenvalues
 from .io import append
-from .loss import loss_by_name
+from .loss import create_loss
 from .model import load_model
 from .preproc import filtered_cloud, local_feature_cloud, global_cloud
 from .ros import publish_data
@@ -29,7 +29,7 @@ def eval_loss(cfg: Config):
     if cfg.pose_correction != PoseCorrection.none:
         print('Pose deltas not used.')
 
-    loss_fun = loss_by_name(cfg.loss)
+    loss_fun = create_loss(cfg)
     assert callable(loss_fun)
 
     # TODO: Process individual sequences separately.
@@ -57,7 +57,7 @@ def eval_loss(cfg: Config):
         if cfg.enable_ros:
             publish_data([cloud], [poses], [name], cfg=cfg)
 
-        test_loss, _ = loss_fun(cloud, mask=mask, **cfg.loss_kwargs)
+        test_loss, _ = loss_fun(cloud, mask=mask)
         print('Test loss on %s: %.9f' % (name, test_loss.item()))
         csv = cfg.loss_eval_csv
         assert csv

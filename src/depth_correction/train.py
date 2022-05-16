@@ -1,8 +1,8 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
 from .dataset import create_dataset
-from .loss import loss_by_name
 from .model import load_model, model_by_name
+from .loss import create_loss
 from .preproc import *
 from .ros import *
 from .transform import *
@@ -114,9 +114,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             ds = create_dataset(name, cfg, poses_path=poses_path)
             val_datasets.append(ds)
 
-    loss_fun = loss_by_name(cfg.loss)
-    print(cfg.loss, loss_fun.__name__)
-    print(cfg.loss_kwargs)
+    loss_fun = create_loss(cfg)
 
     # Cloud needs to retain neighbors, weights, and mask from previous
     # iterations.
@@ -223,7 +221,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        train_loss, _ = loss_fun(clouds, mask=train_masks, **cfg.loss_kwargs)
+        train_loss, _ = loss_fun(clouds, mask=train_masks)
         callbacks.train_loss(it, model, clouds, train_poses_upd, train_masks, train_loss)
 
         # Validation
@@ -245,7 +243,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        val_loss, _ = loss_fun(clouds, mask=val_masks, **cfg.loss_kwargs)
+        val_loss, _ = loss_fun(clouds, mask=val_masks)
         callbacks.val_loss(it, model, clouds, val_poses_upd, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:

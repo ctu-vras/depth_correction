@@ -206,6 +206,8 @@ class Config(Configurable):
         # self.loss = Loss.trace_loss
         self.loss_offset = False
         self.loss_kwargs = {}
+        # self.loss_kwargs['sqrt'] = False
+        # self.loss_kwargs['normalization'] = False
         self.n_opt_iters = 100
 
         self.optimizer = 'Adam'

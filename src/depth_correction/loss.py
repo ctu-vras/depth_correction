@@ -117,7 +117,7 @@ def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.M
     return loss, loss_clouds
 
 
-def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, reduction=Reduction.MEAN):
+def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalize=False, reduction=Reduction.MEAN):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -128,36 +128,42 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, reduction=Reducti
     :param mask:
     :param offset: Source cloud to offset point-wise loss values, optional.
     :param sqrt: Whether to use square root of eigenvalue.
+    :param normalize: Whether to normalize minimum eigenvalue by total variance.
     :param reduction:
     :return:
     """
     # If a batch of clouds is (as a list), process them separately,
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        return batch_loss(min_eigval_loss, cloud, mask=mask, offset=offset, sqrt=sqrt, reduction=reduction)
-
-    assert isinstance(cloud, (DepthCloud, list, tuple))
-
-    assert offset is None or isinstance(offset, DepthCloud)
-    # assert eigenvalue_bounds is None or len(eigenvalue_bounds) == 2
+        return batch_loss(min_eigval_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, normalize=normalize,
+                          reduction=reduction)
 
     assert isinstance(cloud, DepthCloud)
     assert cloud.eigvals is not None
+    assert offset is None or isinstance(offset, DepthCloud)
 
-    if mask is None:
-        loss = cloud.eigvals[:, 0]
-    else:
-        assert isinstance(mask, torch.Tensor)
-        loss = cloud.eigvals[mask, 0]
+    eigvals = cloud.eigvals
+    if mask is not None:
+        eigvals = eigvals[mask]
+    loss = eigvals[:, 0]
+
+    if normalize:
+        loss = loss / eigvals.sum(dim=-1)
 
     if offset is not None:
+        # Offset the loss using loss computed on local clouds.
         assert isinstance(offset, DepthCloud)
         assert offset.eigvals is not None
-        # Offset the loss using trace from the offset cloud.
-        if mask is None:
-            loss = loss - offset.eigvals[:, 0]
-        else:
-            loss = loss - offset.eigvals[mask, 0]
+
+        offset_eigvals = offset.eigvals
+        if mask is not None:
+            offset_eigvals = offset_eigvals[mask]
+        offset_loss = offset_eigvals[:, 0]
+
+        if normalize:
+            offset_loss = offset_loss / offset_eigvals.sum(dim=-1)
+
+        loss = loss - offset_loss
 
     # Ensure positive loss.
     loss = torch.relu(loss)
@@ -192,25 +198,30 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     # If a batch of clouds is (as a list), process them separately,
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        return batch_loss(trace_loss, cloud, mask=mask, offset=offset, sqrt=sqrt, reduction=reduction)
+        return batch_loss(trace_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, reduction=reduction)
 
     assert isinstance(cloud, DepthCloud)
     assert cloud.cov is not None
+    assert offset is None or isinstance(offset, DepthCloud)
 
-    if mask is None:
-        loss = trace(cloud.cov)
-    else:
-        assert isinstance(mask, torch.Tensor)
-        loss = trace(cloud.cov[mask])
+    cov = cloud.cov
+    if mask is not None:
+        cov = cov[mask]
+
+    loss = trace(cov)
 
     if offset is not None:
+        # Offset the loss using loss computed on local clouds.
         assert isinstance(offset, DepthCloud)
         assert offset.cov is not None
-        # Offset the loss using trace from the offset cloud.
-        if mask is None:
-            loss = loss - trace(offset.cov)
-        else:
-            loss = loss - trace(offset.cov[mask])
+
+        offset_cov = offset.cov
+        if mask is not None:
+            offset_cov = offset_cov[mask]
+
+        offset_loss = trace(offset_cov)
+
+        loss = loss - offset_loss
 
     # Ensure positive loss.
     loss = torch.relu(loss)

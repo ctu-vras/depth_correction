@@ -83,28 +83,31 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def batch_loss(loss_fun, clouds, mask=None, offset=None, sqrt=False, reduction=Reduction.MEAN):
+def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.MEAN, **kwargs):
     """General batch loss of a sequence of clouds.
 
     :param loss_fun: Loss function.
-    :param clouds: Sequence of clouds, optional.
-    :param mask: Sequence of masks, optional.
-    :param offset: Source cloud to offset point-wise loss values, optional.
-    :param sqrt: Whether to use square root of point-wise losses.
+    :param clouds: Sequence of clouds.
+    :param masks: Sequence of masks, optional.
+    :param offsets: Sequences of offset clouds, optional.
     :param reduction: Loss reduction mode.
+    :param kwargs: Other key-value loss arguments.
     :return: Reduced loss and loss clouds.
     """
     assert callable(loss_fun)
     assert isinstance(clouds, (list, tuple))
-    assert mask is None or isinstance(mask, (list, tuple))
-    assert offset is None or isinstance(offset, (list, tuple))
+    if masks is None:
+        masks = len(clouds) * [None]
+    if offsets is None:
+        offsets = len(clouds) * [None]
+    assert isinstance(masks, (list, tuple))
+    assert len(masks) == len(clouds)
+    assert isinstance(offsets, (list, tuple))
+    assert len(offsets) == len(clouds)
 
     losses, loss_clouds = [], []
-    for i in range(len(clouds)):
-        c = clouds[i]
-        m = None if mask is None else mask[i]
-        o = None if offset is None else offset[i]
-        loss, loss_cloud = loss_fun(c, mask=m, offset=o, sqrt=sqrt, reduction=Reduction.NONE)
+    for cloud, mask, offset in zip(clouds, masks, offsets):
+        loss, loss_cloud = loss_fun(cloud, mask=mask, offset=offset, reduction=Reduction.NONE, **kwargs)
         losses.append(loss)
         loss_clouds.append(loss_cloud)
     # Double reduction (average of averages)

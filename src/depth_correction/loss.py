@@ -117,7 +117,7 @@ def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.M
     return loss, loss_clouds
 
 
-def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalize=False, reduction=Reduction.MEAN):
+def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=False, reduction=Reduction.MEAN):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -128,14 +128,14 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalize=False, 
     :param mask:
     :param offset: Source cloud to offset point-wise loss values, optional.
     :param sqrt: Whether to use square root of eigenvalue.
-    :param normalize: Whether to normalize minimum eigenvalue by total variance.
+    :param normalization: Whether to normalize minimum eigenvalue by total variance.
     :param reduction:
     :return:
     """
     # If a batch of clouds is (as a list), process them separately,
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        return batch_loss(min_eigval_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, normalize=normalize,
+        return batch_loss(min_eigval_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, normalization=normalization,
                           reduction=reduction)
 
     assert isinstance(cloud, DepthCloud)
@@ -147,7 +147,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalize=False, 
         eigvals = eigvals[mask]
     loss = eigvals[:, 0]
 
-    if normalize:
+    if normalization:
         loss = loss / eigvals.sum(dim=-1)
 
     if offset is not None:
@@ -160,7 +160,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalize=False, 
             offset_eigvals = offset_eigvals[mask]
         offset_loss = offset_eigvals[:, 0]
 
-        if normalize:
+        if normalization:
             offset_loss = offset_loss / offset_eigvals.sum(dim=-1)
 
         loss = loss - offset_loss

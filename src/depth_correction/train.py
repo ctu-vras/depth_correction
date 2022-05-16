@@ -206,6 +206,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         train_poses_upd = create_corrected_poses(train_poses, train_pose_deltas, cfg)
 
         clouds = [global_cloud(c, model, p) for c, p in zip(train_clouds, train_poses_upd)]
+        offsets = [offset_cloud(c, model) for c in train_clouds] if cfg.loss_offset else None
 
         for i in range(len(clouds)):
             cloud = clouds[i]
@@ -222,12 +223,14 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             clouds[i] = cloud
 
         train_loss, _ = loss_fun(clouds, mask=train_masks)
+        train_loss, _ = loss_fun(clouds, mask=train_masks, offset=offsets)
         callbacks.train_loss(it, model, clouds, train_poses_upd, train_masks, train_loss)
 
         # Validation
         val_poses_upd = create_corrected_poses(val_poses, val_pose_deltas, cfg)
 
         clouds = [global_cloud(c, model, p) for c, p in zip(val_clouds, val_poses_upd)]
+        offsets = [offset_cloud(c, model) for c in val_clouds] if cfg.loss_offset else None
 
         for i in range(len(clouds)):
             cloud = clouds[i]
@@ -244,6 +247,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             clouds[i] = cloud
 
         val_loss, _ = loss_fun(clouds, mask=val_masks)
+        val_loss, _ = loss_fun(clouds, mask=val_masks, offset=offsets)
         callbacks.val_loss(it, model, clouds, val_poses_upd, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:

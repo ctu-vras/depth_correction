@@ -12,6 +12,7 @@ __all__ = [
     'global_cloud',
     'global_cloud_mask',
     'local_feature_cloud',
+    'offset_cloud',
 ]
 
 
@@ -47,6 +48,19 @@ def local_feature_cloud(cloud, cfg: Config):
         if cloud.mask is None:
             cloud.mask = torch.ones((len(cloud),), dtype=torch.bool, device=cloud.device())
         cloud.mask = cloud.mask & filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+    return cloud
+
+
+def offset_cloud(clouds: (list, tuple),
+                 model: BaseModel):
+    corrected_clouds = []
+    for i, cloud in enumerate(clouds):
+        # Model updates the cloud using its mask.
+        if model is not None:
+            cloud = model(cloud)
+        corrected_clouds.append(cloud)
+    fields = DepthCloud.source_fields + ['eigvals']
+    cloud = DepthCloud.concatenate(corrected_clouds, fields=fields)
     return cloud
 
 

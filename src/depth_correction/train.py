@@ -1,8 +1,8 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, PoseCorrection
 from .dataset import create_dataset
-from .model import load_model, model_by_name
 from .loss import create_loss
+from .model import load_model
 from .preproc import *
 from .ros import *
 from .transform import *

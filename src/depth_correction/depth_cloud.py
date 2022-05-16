@@ -515,7 +515,12 @@ class DepthCloud(object):
                     for i in range(len(xs)):
                         xs[i] += shift[i]
 
-                kwargs[f] = torch.concat(xs)
+                try:
+                    kwargs[f] = torch.concat(xs)
+                except RuntimeError as ex:
+                    print('Could not concatenate field %s and tensors %s: %s.'
+                          % (f, ', '.join(str(x.shape) for x in xs), ex))
+                    raise
 
             # Warn if clouds are heterogeneous.
             elif any(valid):

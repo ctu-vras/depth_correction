@@ -11,7 +11,6 @@ __all__ = [
     'filtered_cloud',
     'global_cloud',
     'global_cloud_mask',
-    'global_clouds',
     'local_feature_cloud',
 ]
 
@@ -95,11 +94,3 @@ def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
         mask &= within_bounds(cloud.vp_dispersion_to_depth2(), bounds=cfg.vp_dispersion_to_depth2_bounds,
                               log_variable='vp dispersion to depth2')
     return mask
-
-
-def global_clouds(clouds, model, poses):
-    ret = []
-    for c, p in zip(clouds, poses):
-        cloud = global_cloud(c, model, p)
-        ret.append(cloud)
-    return ret

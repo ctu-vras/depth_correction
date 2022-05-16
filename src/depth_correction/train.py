@@ -207,7 +207,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         # Allow optimizing pose deltas.
         train_poses_upd = create_corrected_poses(train_poses, train_pose_deltas, cfg)
 
-        clouds = global_clouds(train_clouds, model, train_poses_upd)
+        clouds = [global_cloud(c, model, p) for c, p in zip(train_clouds, train_poses_upd)]
 
         for i in range(len(clouds)):
             cloud = clouds[i]
@@ -229,7 +229,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         # Validation
         val_poses_upd = create_corrected_poses(val_poses, val_pose_deltas, cfg)
 
-        clouds = global_clouds(val_clouds, model, val_poses_upd)
+        clouds = [global_cloud(c, model, p) for c, p in zip(val_clouds, val_poses_upd)]
 
         for i in range(len(clouds)):
             cloud = clouds[i]

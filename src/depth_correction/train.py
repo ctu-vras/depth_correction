@@ -36,6 +36,46 @@ class TrainCallbacks(object):
         pass
 
 
+def initialize_pose_corrections(datasets, cfg: Config):
+    pose_deltas = []
+    for ds in enumerate(datasets):
+        if cfg.pose_correction == PoseCorrection.common:
+            # Use a common correction for all sequences and poses.
+            if pose_deltas:
+                pose_delta = pose_deltas[0]
+            else:
+                pose_delta = torch.zeros((1, 6), dtype=cfg.torch_float_type(), requires_grad=True)
+        elif cfg.pose_correction == PoseCorrection.sequence:
+            # Single correction per sequence (sensor rig calibration).
+            pose_delta = torch.zeros((1, 6), dtype=cfg.torch_float_type(), requires_grad=True)
+        elif cfg.pose_correction == PoseCorrection.pose:
+            # Correct every pose (e.g. from odometry or SLAM).
+            pose_delta = torch.zeros((len(ds), 6), dtype=cfg.torch_float_type(), requires_grad=True)
+        else:
+            pose_delta = None
+        if pose_delta is not None:
+            pose_deltas.append(pose_delta)
+        # pose_deltas.append(pose_delta)
+
+    return pose_deltas
+
+
+def create_corrected_poses(train_poses, train_pose_deltas, cfg: Config):
+    if cfg.pose_correction == PoseCorrection.none:
+        train_poses_upd = train_poses
+    else:
+        assert len(train_poses) == len(train_pose_deltas)
+        # For common pose correction, there is a same correction for all sequences.
+        if cfg.pose_correction == PoseCorrection.common:
+            assert all(d is train_pose_deltas[0] for d in train_pose_deltas[1:])
+        train_poses_upd = []
+        for i in range(len(train_poses)):
+            pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
+            train_poses_upd.append(torch.matmul(train_poses[i], pose_deltas_mat))
+
+    return train_poses_upd
+
+
 def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     """Train depth correction model, validate it, and return best config.
 
@@ -85,7 +125,6 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     train_clouds = []
     train_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    train_pose_deltas = []
     train_neighbors = [None] * len(cfg.train_names)
     train_masks = [None] * len(cfg.train_names)
     for i, ds in enumerate(train_datasets):
@@ -105,23 +144,11 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
         train_poses.append(poses)
-        if cfg.pose_correction == PoseCorrection.common and not train_pose_deltas:
-            # Use a common correction for all poses.
-            pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
-        elif cfg.pose_correction == PoseCorrection.sequence:
-            pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
-        elif cfg.pose_correction == PoseCorrection.pose:
-            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype, requires_grad=True)
-        else:
-            pose_deltas = None
-
-        if pose_deltas is not None:
-            train_pose_deltas.append(pose_deltas)
+    train_pose_deltas = initialize_pose_corrections(train_datasets, cfg)
 
     val_clouds = []
     val_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    val_pose_deltas = []
     val_neighbors = [None] * len(cfg.val_names)
     val_masks = [None] * len(cfg.val_names)
     for i, ds in enumerate(val_datasets):
@@ -135,17 +162,12 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
         val_poses.append(poses)
-        # For sequence and individual pose correction, validation poses are
-        # optimized for given model.
-        if cfg.pose_correction == PoseCorrection.sequence:
-            pose_deltas = torch.zeros((1, 6), dtype=poses.dtype, requires_grad=True)
-        elif cfg.pose_correction == PoseCorrection.pose:
-            pose_deltas = torch.zeros((poses.shape[0], 6), dtype=poses.dtype, requires_grad=True)
-        else:
-            pose_deltas = None
 
-        if pose_deltas is not None:
-            val_pose_deltas.append(pose_deltas)
+    if cfg.pose_correction == PoseCorrection.common:
+        # Reuse pose correction from training.
+        val_pose_deltas = len(val_datasets) * [train_pose_deltas[0]]
+    else:
+        val_pose_deltas = initialize_pose_corrections(val_datasets, cfg)
 
     model = load_model(cfg=cfg, eval_mode=False)
     print(model)
@@ -160,11 +182,12 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     optimizer = eval(cfg.optimizer)(params, *args, **kwargs)
     print('Optimizer: %s' % optimizer)
 
-    # Optimizable parameters and optimizer for validation sequences.
+    # Optimizable parameters and optimizer for validation sequences,
+    # only for sequence- or pose-wise corrections.
     if (cfg.pose_correction == PoseCorrection.sequence
             or cfg.pose_correction == PoseCorrection.pose):
         val_params = [{'params': val_pose_deltas, 'lr': cfg.lr}]
-        # Initialize optimizer.
+
         args = cfg.optimizer_args if cfg.optimizer_args else []
         kwargs = cfg.optimizer_kwargs if cfg.optimizer_kwargs else {}
         val_optimizer = eval(cfg.optimizer)(val_params, *args, **kwargs)
@@ -182,23 +205,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
         # Training
         # Allow optimizing pose deltas.
-        if cfg.pose_correction == PoseCorrection.none:
-            train_poses_upd = train_poses
-        # else:
-        elif cfg.pose_correction == PoseCorrection.common:
-            # Convert pose deltas to matrices (list of varlen batches).
-            pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[0])
-            train_poses_upd = []
-            for i in range(len(train_poses)):
-                train_poses_upd.append(torch.matmul(train_poses[i], pose_deltas_mat))
-        else:
-            assert (cfg.pose_correction == PoseCorrection.sequence
-                    or cfg.pose_correction == PoseCorrection.pose)
-            assert len(train_poses) == len(train_pose_deltas)
-            train_poses_upd = []
-            for i in range(len(train_poses)):
-                pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
-                train_poses_upd.append(torch.matmul(train_poses[i], pose_deltas_mat))
+        train_poses_upd = create_corrected_poses(train_poses, train_pose_deltas, cfg)
 
         clouds = global_clouds(train_clouds, model, train_poses_upd)
 
@@ -220,23 +227,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         callbacks.train_loss(it, model, clouds, train_poses_upd, train_masks, train_loss)
 
         # Validation
-        if cfg.pose_correction == PoseCorrection.none:
-            val_poses_upd = val_poses
-        elif cfg.pose_correction == PoseCorrection.common:
-            # Use the single delta pose from training, defined above.
-            pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[0])
-            val_poses_upd = []
-            for i in range(len(val_poses)):
-                val_poses_upd.append(torch.matmul(val_poses[i], pose_deltas_mat))
-        else:
-            assert (cfg.pose_correction == PoseCorrection.sequence
-                    or cfg.pose_correction == PoseCorrection.pose)
-            assert len(val_poses) == len(val_pose_deltas)
-            # Use the deltas from validation.
-            val_poses_upd = []
-            for i in range(len(val_poses)):
-                pose_deltas_mat = xyz_axis_angle_to_matrix(val_pose_deltas[i])
-                val_poses_upd.append(torch.matmul(val_poses[i], pose_deltas_mat))
+        val_poses_upd = create_corrected_poses(val_poses, val_pose_deltas, cfg)
 
         clouds = global_clouds(val_clouds, model, val_poses_upd)
 

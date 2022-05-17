@@ -185,7 +185,6 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     if (cfg.pose_correction == PoseCorrection.sequence
             or cfg.pose_correction == PoseCorrection.pose):
         val_params = [{'params': val_pose_deltas, 'lr': cfg.lr}]
-
         args = cfg.optimizer_args if cfg.optimizer_args else []
         kwargs = cfg.optimizer_kwargs if cfg.optimizer_kwargs else {}
         val_optimizer = eval(cfg.optimizer)(val_params, *args, **kwargs)
@@ -222,7 +221,6 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        train_loss, _ = loss_fun(clouds, mask=train_masks)
         train_loss, _ = loss_fun(clouds, mask=train_masks, offset=offsets)
         callbacks.train_loss(it, model, clouds, train_pose_deltas, train_poses_upd, train_masks, train_loss)
 
@@ -246,7 +244,6 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
             clouds[i] = cloud
 
-        val_loss, _ = loss_fun(clouds, mask=val_masks)
         val_loss, _ = loss_fun(clouds, mask=val_masks, offset=offsets)
         callbacks.val_loss(it, model, clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
 

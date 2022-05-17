@@ -29,10 +29,10 @@ class TrainCallbacks(object):
     def val_inputs(self, iter, clouds, poses):
         pass
 
-    def train_loss(self, iter, model, clouds, poses, masks, loss):
+    def train_loss(self, iter, model, clouds, pose_deltas, poses, masks, loss):
         pass
 
-    def val_loss(self, iter, model, clouds, poses, masks, loss):
+    def val_loss(self, iter, model, clouds, pose_deltas, poses, masks, loss):
         pass
 
 
@@ -224,7 +224,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
         train_loss, _ = loss_fun(clouds, mask=train_masks)
         train_loss, _ = loss_fun(clouds, mask=train_masks, offset=offsets)
-        callbacks.train_loss(it, model, clouds, train_poses_upd, train_masks, train_loss)
+        callbacks.train_loss(it, model, clouds, train_pose_deltas, train_poses_upd, train_masks, train_loss)
 
         # Validation
         val_poses_upd = create_corrected_poses(val_poses, val_pose_deltas, cfg)
@@ -248,7 +248,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
         val_loss, _ = loss_fun(clouds, mask=val_masks)
         val_loss, _ = loss_fun(clouds, mask=val_masks, offset=offsets)
-        callbacks.val_loss(it, model, clouds, val_poses_upd, val_masks, val_loss)
+        callbacks.val_loss(it, model, clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:

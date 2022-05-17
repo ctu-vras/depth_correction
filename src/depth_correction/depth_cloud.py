@@ -384,10 +384,13 @@ class DepthCloud(object):
         self.normals = self.eigvecs[..., 0]
         self.orient_normals()
 
-    def update_incidence_angles(self):
+    def update_incidence_angles(self, use_normal_sign=False):
         assert self.dirs is not None
         assert self.normals is not None
-        inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
+        if use_normal_sign:
+            inc_angles = torch.arccos(-(self.dirs * self.normals).sum(dim=-1)).unsqueeze(-1)
+        else:
+            inc_angles = torch.arccos((self.dirs * self.normals).sum(dim=-1).abs()).unsqueeze(-1)
         self.inc_angles = inc_angles
 
     def update_features(self):

@@ -142,9 +142,13 @@ class DepthCloud(object):
         R = T[:3, :3]
         # print('det(R) = ', torch.linalg.det(R))
         t = T[:3, 3:]
-        vps = torch.matmul(self.vps, R.transpose(-1, -2)) + t.transpose(-1, -2)
-        dirs = torch.matmul(self.dirs, R.transpose(-1, -2))
-        dc = DepthCloud(vps, dirs, self.depth, mask=self.mask)
+        vps = torch.matmul(self.vps, R.t()) + t.t()
+        dirs = torch.matmul(self.dirs, R.t())
+        kwargs = {}
+        kwargs['mask'] = self.mask
+        if self.normals is not None:
+            kwargs['normals'] = torch.matmul(self.normals, R.t())
+        dc = DepthCloud(vps, dirs, self.depth, **kwargs)
         return dc
 
     def __getitem__(self, item):

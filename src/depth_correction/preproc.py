@@ -95,16 +95,18 @@ def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
               % (mask.double().mean(), mask.sum(), mask.numel()))
 
     # Enforce bound on eigenvalues (done for local clouds).
-    # if cfg.eigenvalue_bounds:
-    #     mask &= filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+    if cfg.eigenvalue_bounds:
+        mask &= filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
     # Enforce minimum direction and viewpoint spread for bias estimation.
     if cfg.dir_dispersion_bounds:
         # cloud.visualize(colors=cloud.dir_dispersion(), window_name='Direction dispersion')
-        mask &= within_bounds(cloud.dir_dispersion(), bounds=cfg.dir_dispersion_bounds, log_variable='dir dispersion')
+        mask &= within_bounds(cloud.dir_dispersion(), bounds=cfg.dir_dispersion_bounds,
+                              log_variable='dir dispersion' if cfg.log_filters else None)
     if cfg.vp_dispersion_bounds:
         # cloud.visualize(colors=cloud.vp_dispersion(), window_name='Viewpoint dispersion')
-        mask &= within_bounds(cloud.vp_dispersion(), bounds=cfg.vp_dispersion_bounds, log_variable='vp dispersion')
+        mask &= within_bounds(cloud.vp_dispersion(), bounds=cfg.vp_dispersion_bounds,
+                              log_variable='vp dispersion' if cfg.log_filters else None)
     if cfg.vp_dispersion_to_depth2_bounds:
         mask &= within_bounds(cloud.vp_dispersion_to_depth2(), bounds=cfg.vp_dispersion_to_depth2_bounds,
-                              log_variable='vp dispersion to depth2')
+                              log_variable='vp dispersion to depth2' if cfg.log_filters else None)
     return mask

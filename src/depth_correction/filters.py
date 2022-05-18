@@ -5,6 +5,16 @@ from numpy.lib.recfunctions import structured_to_unstructured
 import torch
 import torch.nn.functional as fun
 
+__all__ = [
+    'filter_depth',
+    'filter_eigenvalue',
+    'filter_eigenvalues',
+    'filter_grid',
+    'filter_shadow_points',
+    'filter_valid_neighbors',
+    'within_bounds',
+]
+
 default_rng = np.random.default_rng(135)
 
 
@@ -122,6 +132,18 @@ def filter_depth(cloud, min=None, max=None, only_mask=False, log=False):
         depth = torch.linalg.norm(x - vp, dim=1, keepdim=True)
 
     keep = within_bounds(depth, min=min, max=max, log_variable='depth' if log else None)
+    if only_mask:
+        return keep
+    filtered = cloud[keep]
+    return filtered
+
+
+def filter_valid_neighbors(cloud, min=None, only_mask=False, log=False):
+    """Keep points with enough valid neighbors."""
+    assert isinstance(cloud, DepthCloud)
+    assert cloud.neighbors is not None
+    num_valid = cloud.valid_neighbor_mask().sum(dim=-1)
+    keep = within_bounds(num_valid, min=min, log_variable='valid neighbors' if log else None)
     if only_mask:
         return keep
     filtered = cloud[keep]

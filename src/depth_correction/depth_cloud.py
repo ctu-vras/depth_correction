@@ -190,10 +190,14 @@ class DepthCloud(object):
         d = torch.linalg.norm(x.unsqueeze(dim=1) - x[self.neighbors], dim=-1)
         self.distances = d
 
+    def valid_neighbor_mask(self):
+        assert self.neighbors is not None
+        return self.neighbors >= 0
+
     def update_neighbors(self, k=None, r=None):
         assert self.points is not None
         self.distances, self.neighbors = nearest_neighbors(self.get_points(), self.get_points(), k=k, r=r)
-        self.weights = (self.neighbors >= 0).float()[..., None]
+        self.weights = self.valid_neighbor_mask().float()[..., None]
         self.neighbor_points = None
         # TODO: Add singleton dim where used.
 

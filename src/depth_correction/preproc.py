@@ -2,7 +2,7 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
 from .depth_cloud import DepthCloud
-from .filters import filter_depth, filter_eigenvalues, filter_grid, filter_shadow_points, within_bounds
+from .filters import *
 from .model import *
 import numpy as np
 import torch
@@ -94,6 +94,8 @@ def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
         print('%.3f = %i / %i points kept (previous filters).'
               % (mask.double().mean(), mask.sum(), mask.numel()))
 
+    if cfg.min_valid_neighbors:
+        mask &= filter_valid_neighbors(cloud, min=cfg.min_valid_neighbors, only_mask=True, log=cfg.log_filters)
     # Enforce bound on eigenvalues (done for local clouds).
     if cfg.eigenvalue_bounds:
         mask &= filter_eigenvalues(cloud, eig_bounds=cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)

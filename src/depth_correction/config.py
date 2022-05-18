@@ -172,6 +172,7 @@ class Config(Configurable):
         self.nn_r = 0.2
 
         # Depth correction
+        self.min_valid_neighbors = 5
         self.shadow_neighborhood_angle = 0.017453  # 1 deg
         self.shadow_angle_bounds = [radians(5.), float('inf')]
         # self.shadow_angle_bounds = None

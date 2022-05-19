@@ -144,7 +144,7 @@ class Polynomial(BaseModel):
 
     def __init__(self, p0=None, p1=None, w=None, exponent=None, learnable_exponents=False,
                  device=torch.device('cpu')):
-        super(ScaledPolynomial, self).__init__(device=device)
+        super().__init__(device=device)
 
         if exponent is None:
             assert w is None
@@ -213,7 +213,7 @@ class ScaledPolynomial(BaseModel):
 
     def __init__(self, p0=None, p1=None, w=None, exponent=None, learnable_exponents=False,
                  device=torch.device('cpu')):
-        super(ScaledPolynomial, self).__init__(device=device)
+        super().__init__(device=device)
 
         if exponent is None:
             assert w is None

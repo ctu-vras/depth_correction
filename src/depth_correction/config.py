@@ -157,24 +157,26 @@ class Config(Configurable):
         self.model_class = Model.ScaledPolynomial
         self.model_args = []
         self.model_kwargs = {}
+        self.model_kwargs['w'] = [0.0]
+        self.model_kwargs['exponent'] = [6.0]
+        self.model_kwargs['learnable_exponents'] = False
         self.model_state_dict = ''
         self.float_type = 'float64'
         self.device = 'cpu'
 
         # Cloud preprocessing
         self.min_depth = 1.0
-        self.max_depth = 25.0
-        # self.grid_res = 0.05
+        self.max_depth = 20.0
         self.grid_res = 0.1
         # Neighborhood
         self.nn_k = 0
-        # self.nn_r = 0.15
-        self.nn_r = 0.2
+        self.nn_r = 0.25
 
         # Depth correction
         self.min_valid_neighbors = 5
         self.shadow_neighborhood_angle = 0.017453  # 1 deg
-        self.shadow_angle_bounds = [radians(5.), float('inf')]
+        # self.shadow_angle_bounds = [radians(5.), float('inf')]
+        self.shadow_angle_bounds = []
         # self.shadow_angle_bounds = None
         self.dir_dispersion_bounds = [0.09, float('inf')]
         self.vp_dispersion_bounds = [0.36, float('inf')]
@@ -207,20 +209,23 @@ class Config(Configurable):
         # self.loss = Loss.trace_loss
         self.loss_offset = False
         self.loss_kwargs = {}
-        # self.loss_kwargs['sqrt'] = False
-        # self.loss_kwargs['normalization'] = False
-        self.n_opt_iters = 100
+        self.loss_kwargs['sqrt'] = False
+        self.loss_kwargs['normalization'] = True
+        self.n_opt_iters = 250
 
         self.optimizer = 'Adam'
         self.optimizer_args = []
         self.optimizer_kwargs = {}
-        self.lr = 1e-4
+        self.optimizer_kwargs['betas'] = (0.5, 0.9)
+        self.optimizer_kwargs['weight_decay'] = 0.1
+        self.lr = 2e-4
         # self.optimizer = 'SGD'
         # self.optimizer_args = []
         # self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
         # self.lr = 5e-3
 
-        self.pose_correction = PoseCorrection.none
+        # self.pose_correction = PoseCorrection.none
+        self.pose_correction = PoseCorrection.common
         self.train_pose_deltas = None
         self.loss_eval_csv = None
         self.slam_eval_csv = None

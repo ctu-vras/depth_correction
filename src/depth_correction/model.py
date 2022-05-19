@@ -43,6 +43,9 @@ def load_model(class_name: str=None,
     if isinstance(device, str):
         device = torch.device(device)
 
+    if 'device' not in model_kwargs:
+        model_kwargs['device'] = device
+
     Class = model_by_name(class_name)
     model = Class(*model_args, **model_kwargs)
     assert isinstance(model, BaseModel)

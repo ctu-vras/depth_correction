@@ -138,7 +138,7 @@ class DepthCloud(object):
         assert isinstance(self.dirs, torch.Tensor)
         assert isinstance(T, torch.Tensor)
         assert T.shape == (4, 4)
-        T = T.to(dtype=self.vps.dtype)
+        T = T.to(dtype=self.vps.dtype, device=self.vps.device)
         R = T[:3, :3]
         # print('det(R) = ', torch.linalg.det(R))
         t = T[:3, 3:]

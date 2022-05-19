@@ -38,24 +38,28 @@ class TrainCallbacks(object):
 
 def initialize_pose_corrections(datasets, cfg: Config):
     pose_deltas = []
+    kwargs = {
+        'dtype': cfg.torch_float_type(),
+        'device': cfg.device,
+        'requires_grad': True,
+    }
     for ds in enumerate(datasets):
         if cfg.pose_correction == PoseCorrection.common:
             # Use a common correction for all sequences and poses.
             if pose_deltas:
                 pose_delta = pose_deltas[0]
             else:
-                pose_delta = torch.zeros((1, 6), dtype=cfg.torch_float_type(), requires_grad=True)
+                pose_delta = torch.zeros((1, 6), **kwargs)
         elif cfg.pose_correction == PoseCorrection.sequence:
             # Single correction per sequence (sensor rig calibration).
-            pose_delta = torch.zeros((1, 6), dtype=cfg.torch_float_type(), requires_grad=True)
+            pose_delta = torch.zeros((1, 6), **kwargs)
         elif cfg.pose_correction == PoseCorrection.pose:
             # Correct every pose (e.g. from odometry or SLAM).
-            pose_delta = torch.zeros((len(ds), 6), dtype=cfg.torch_float_type(), requires_grad=True)
+            pose_delta = torch.zeros((len(ds), 6), **kwargs)
         else:
             pose_delta = None
         if pose_delta is not None:
             pose_deltas.append(pose_delta)
-        # pose_deltas.append(pose_delta)
 
     return pose_deltas
 

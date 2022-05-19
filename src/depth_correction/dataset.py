@@ -593,9 +593,10 @@ class DepthBiasDataset(ForwardingDataset):
             dc = DepthCloud.from_structured_array(cloud)
             assert isinstance(dc, DepthCloud)
             if dc.normals is None:
-                print('Estimating normals from data.')
+                print('Estimating normals from data for introducing depth bias.')
                 dc.update_all(k=self.cfg.nn_k, r=self.cfg.nn_r)
             else:
+                print('Using provided normals for introducing depth bias.')
                 dc.update_incidence_angles()
             dc = self.model.inverse(dc)
             pts = dc.to_points().detach().numpy()

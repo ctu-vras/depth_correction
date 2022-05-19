@@ -473,6 +473,9 @@ class Forwarding(object):
     def __iter__(self):
         return self.target.__iter__()
 
+    def __str__(self):
+        return str(self.target)
+
 
 class ForwardingDataset(Forwarding):
     def __init__(self, target):

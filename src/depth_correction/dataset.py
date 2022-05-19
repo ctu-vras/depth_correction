@@ -252,7 +252,7 @@ class BaseDataset:
         assert self.pts is not None
         rng = np.random.default_rng(i)
 
-        mask = rng.choice(range(self.n_pts), size=self.n_pts // self.n_poses)
+        mask = rng.choice(range(self.n_pts), size=self.n_pts // self.n_poses, replace=False)
         cloud = self.pts[mask]
         normals = self.normals[mask]
         assert cloud.shape == (self.n_pts // self.n_poses, 3)

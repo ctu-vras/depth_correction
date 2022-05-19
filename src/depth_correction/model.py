@@ -245,6 +245,12 @@ class ScaledPolynomial(BaseModel):
             dc_corr.depth[mask] = dc_corr.depth[mask] / (1. - bias)
         return dc_corr
 
+    def to(self, *args, **kwargs):
+        ret = super().to(*args, **kwargs)
+        if not isinstance(ret.exponent, torch.nn.Parameter):
+            ret.exponent = ret.exponent.to(*args, **kwargs)
+        return ret
+
     def __str__(self):
         if self.legacy:
             return 'ScaledPolynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())

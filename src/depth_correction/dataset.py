@@ -408,8 +408,10 @@ class MeshDataset(BaseDataset):
         :param n_pts_to_sample: Number of points to sample from the mesh to form a global cloud.
         """
         super(MeshDataset, self).__init__(name=mesh_name, n_poses=n_poses, size=size)
-
-        self.mesh_path = os.path.join(os.path.dirname(__file__), '../../data/meshes/%s' % self.name)
+        if os.path.isabs(self.name):
+            self.mesh_path = self.name
+        else:
+            self.mesh_path = os.path.join(Config().pkg_dir, 'data', 'meshes', self.name)
         if not os.path.exists(self.mesh_path):
             raise FileExistsError('Mesh file %s does not exist, download meshes from'
                                   'https://drive.google.com/drive/folders/1S3UlJ4MgNsU72PTwJku-gyHZbv3aw26Z?usp=sharing'

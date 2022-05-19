@@ -98,9 +98,9 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         cfg.to_yaml(cfg_path)
 
     if train_datasets:
-        print('Using provided training datasets.')
+        print('Using provided training datasets: %s.' % ', '.join([str(ds) for ds in train_datasets]))
     else:
-        print('Creating datasets from config: %s.' % ', '.join(cfg.train_names))
+        print('Creating training datasets from config: %s.' % ', '.join(cfg.train_names))
         train_datasets = []
         for i, name in enumerate(cfg.train_names):
             # Allow overriding poses paths, assume valid if non-empty.
@@ -109,9 +109,9 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             train_datasets.append(ds)
 
     if val_datasets:
-        print('Using provided training datasets.')
+        print('Using provided validation datasets: %s.' % ', '.join([str(ds) for ds in val_datasets]))
     else:
-        print('Creating datasets from config: %s.' % ', '.join(cfg.val_names))
+        print('Creating validation datasets from config: %s.' % ', '.join(cfg.val_names))
         val_datasets = []
         for i, name in enumerate(cfg.val_names):
             poses_path = cfg.val_poses_path[i] if cfg.val_poses_path else None
@@ -127,8 +127,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     train_clouds = []
     train_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    train_neighbors = [None] * len(cfg.train_names)
-    train_masks = [None] * len(cfg.train_names)
+    train_neighbors = [None] * len(train_datasets)
+    train_masks = [None] * len(train_datasets)
     for i, ds in enumerate(train_datasets):
         # Allow overriding poses paths, assume valid if non-empty.
         clouds = []
@@ -151,8 +151,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     val_clouds = []
     val_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    val_neighbors = [None] * len(cfg.val_names)
-    val_masks = [None] * len(cfg.val_names)
+    val_neighbors = [None] * len(val_datasets)
+    val_masks = [None] * len(val_datasets)
     for i, ds in enumerate(val_datasets):
         clouds = []
         poses = []
@@ -286,13 +286,15 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         writer.add_scalar("%s/val" % cfg.loss, val_loss, it)
         if train_pose_deltas:
             # TODO: Add summary histogram for all sequences.
-            for i in range(len(cfg.train_names)):
-                writer.add_histogram("pose_correction/train/%s/dx" % cfg.train_names[i], train_pose_deltas[i][:, 0], it)
-                writer.add_histogram("pose_correction/train/%s/dy" % cfg.train_names[i], train_pose_deltas[i][:, 1], it)
-                writer.add_histogram("pose_correction/train/%s/dz" % cfg.train_names[i], train_pose_deltas[i][:, 2], it)
-                writer.add_histogram("pose_correction/train/%s/dax" % cfg.train_names[i], train_pose_deltas[i][:, 3], it)
-                writer.add_histogram("pose_correction/train/%s/day" % cfg.train_names[i], train_pose_deltas[i][:, 4], it)
-                writer.add_histogram("pose_correction/train/%s/daz" % cfg.train_names[i], train_pose_deltas[i][:, 5], it)
+            for i in range(len(train_datasets)):
+                name = str(train_datasets[i])
+                writer.add_histogram("pose_correction/train/%s/dx" % name, train_pose_deltas[i][:, 0], it)
+                writer.add_histogram("pose_correction/train/%s/dy" % name, train_pose_deltas[i][:, 1], it)
+                writer.add_histogram("pose_correction/train/%s/dz" % name, train_pose_deltas[i][:, 2], it)
+                writer.add_histogram("pose_correction/train/%s/dax" % name, train_pose_deltas[i][:, 3], it)
+                writer.add_histogram("pose_correction/train/%s/day" % name, train_pose_deltas[i][:, 4], it)
+                writer.add_histogram("pose_correction/train/%s/daz" % name, train_pose_deltas[i][:, 5], it)
+
 
         # Optimization step
         optimizer.zero_grad()

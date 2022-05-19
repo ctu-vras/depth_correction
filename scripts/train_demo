@@ -36,6 +36,8 @@ class TrainingDemo(TrainCallbacks):
         self.train_losses = []
         self.l2_losses = []
         self.pose_losses = []
+        self.pose_deltas = []
+        self.pose_delta_grads = []
         self.weights = []
         self.exponents = []
 
@@ -61,10 +63,10 @@ class TrainingDemo(TrainCallbacks):
 
         # OKAY
         # self.cfg.train_names = ['asl_laser/apartment']
-        # self.cfg.train_names = ['asl_laser/eth']
+        self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
         # NOT OKAY (lr 1e-3, pose and depth noise, def eigval bounds)
         # heavy shortening with noise
-        self.cfg.train_names = ['asl_laser/gazebo_summer']
+        # self.cfg.train_names = ['asl_laser/gazebo_summer']
         # first shorten, than 0 for up to 100 iter., terminated
         # self.cfg.train_names = ['asl_laser/gazebo_winter']
         # shortening (+0.002 instead -0.01)
@@ -76,9 +78,11 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_names = ['asl_laser/wood_summer']
         # self.cfg.train_names = ['asl_laser/wood_autumn']
         self.cfg.data_step = 4
+        # self.cfg.data_step = 8
 
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
-        self.cfg.val_names = self.cfg.train_names
+        # self.cfg.val_names = self.cfg.train_names
+        # self.cfg.val_names = ['asl_laser/stairs']
 
         # Depth and grid filters prevent computing L2 loss since the points don't match.
         # self.cfg.min_depth = 0.0
@@ -88,10 +92,11 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.max_depth = 10.0
         # self.cfg.grid_res = 0.0
         # self.cfg.grid_res = 0.1
-        self.cfg.grid_res = 0.2
+        self.cfg.grid_res = 0.1
         self.cfg.nn_k = 0
         # self.cfg.nn_r = 0.2
-        self.cfg.nn_r = 0.4
+        self.cfg.nn_r = 0.25
+        # self.cfg.nn_r = 0.4
         self.cfg.shadow_angle_bounds = []
         # self.cfg.eigenvalue_bounds = []
         # self.cfg.eigenvalue_bounds = [[0, -float('inf'), (self.cfg.nn_r / 8)**2],
@@ -110,68 +115,29 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.pose_correction = PoseCorrection.none
 
         self.cfg.model_class = Model.ScaledPolynomial
-        self.cfg.model_kwargs['w'] = [-0.002]
-        # self.cfg.model_kwargs['w'] = [0.0]
-        self.cfg.model_kwargs['exponent'] = [4.0]
+        # self.cfg.model_kwargs['w'] = [-0.002]
+        self.cfg.model_kwargs['w'] = [0.0]
+        self.cfg.model_kwargs['exponent'] = [6.0]
         # self.cfg.model_kwargs['w'] = [-0.005, -0.005]
         # self.cfg.model_kwargs['exponent'] = [2.0, 4.0]
-        # self.cfg.model_kwargs['learnable_exponents'] = False
-        # self.cfg.model_kwargs['learnable_exponents'] = True
+        self.cfg.model_kwargs['learnable_exponents'] = False
         self.cfg.model_state_dict = None
-        self.gt_model = model_by_name(self.cfg.model_class)(**self.cfg.model_kwargs)
         # del self.cfg.model_kwargs['w']
-        self.cfg.model_kwargs['w'] = [0.0]
-        # self.cfg.model_kwargs['w'] = [-0.005]
-        # self.cfg.model_kwargs['w'] = [-0.015]
-        # self.cfg.model_kwargs['w'] = [-0.011]
-        # self.cfg.model_kwargs['w'] = [-0.012]
+        # self.cfg.model_kwargs['w'] = [0.0]
         # No distortion.
         # self.cfg.model_class = 'BaseModel'
         # self.cfg.model_state_dict = None
-        # self.gt_model = model_by_name(self.cfg.model_class)(**self.cfg.model_kwargs)
+        self.gt_model = model_by_name(self.cfg.model_class)(**self.cfg.model_kwargs)
 
         self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
         self.cfg.loss_offset = False
-        # self.cfg.loss_offset = True
         self.cfg.loss_kwargs['sqrt'] = False
-        # self.cfg.loss_kwargs['sqrt'] = True
-        # self.cfg.loss_kwargs['normalization'] = True
-        # self.cfg.optimizer = 'SGD'
-        # self.cfg.optimizer_kwargs['momentum'] = 0.9
+        self.cfg.loss_kwargs['normalization'] = True
         self.cfg.optimizer = 'Adam'
         self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
-        # self.cfg.optimizer_kwargs['weight_decay'] = 0.001
-        # self.cfg.lr = 0.002  # depth corr model
-        # self.cfg.lr = 0.01  # depth corr model
-        # self.cfg.lr = 0.001  # lr for poses (okayish, decreasing but oscilates)
-        # self.cfg.lr = 0.0005  # lr for poses (okayish, oscilates less)
-        self.cfg.lr = 0.0002  # lr for poses (becoming slow, oscilates less)
-        # self.cfg.lr = 0.0001  # lr for poses (too slow)
-
-        # Training config examples.
-        # self.cfg.loss = Loss.min_eigval_loss
-        # self.cfg.loss_kwargs = dict(sqrt=True)
-        # self.cfg.optimizer = 'SGD'
-        # self.cfg.optimizer_kwargs = dict(weight_decay=0.001)
-        # self.cfg.lr = 0.002
-
-        # self.cfg.loss = Loss.min_eigval_loss
-        # self.cfg.loss_kwargs = dict(sqrt=True)
-        # self.cfg.optimizer = 'Adam'
-        # self.cfg.lr = 0.001
-
-        # self.cfg.loss = Loss.min_eigval_loss
-        # self.cfg.loss_kwargs = dict(sqrt=True)
-        # self.cfg.optimizer = 'SGD'
-        # self.cfg.lr = 0.0001
-
-        # ADAM with lower momentum params, avoids oscillation.
-        # self.cfg.loss = Loss.min_eigval_loss
-        # self.cfg.loss_kwargs['sqrt'] = True
-        # self.cfg.optimizer = 'Adam'
-        # self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
-        # self.cfg.lr = 0.002
+        self.cfg.optimizer_kwargs['weight_decay'] = 0.1
+        self.cfg.lr = 0.0002
 
         self.cfg.n_opt_iters = 1000
 
@@ -191,15 +157,23 @@ class TrainingDemo(TrainCallbacks):
         self.tf_static_pub = rospy.Publisher('/tf_static', TFMessage, latch=True, queue_size=2)
         self.tf_static_pub.publish(TFMessage(self.tfs))
 
+    def noisy_dataset(self, ds):
+        ds = DepthBiasDataset(ds, self.gt_model, cfg=self.cfg)
+        ds = NoisyDepthDataset(ds, noise=self.depth_noise)
+        ds = NoisyPoseDataset(ds, noise=self.pose_noise, mode=self.pose_noise_mode)
+        return ds
+
     def create_ground_truth(self):
         kwargs = {}
         if self.cfg.train_poses_path:
             kwargs['poses_path'] = self.cfg.train_poses_path[0]
-        self.ds = create_dataset(self.cfg.train_names[0], self.cfg, **kwargs)
+        # self.ds = create_dataset(self.cfg.train_names[0], self.cfg, **kwargs)
+        self.ds = [create_dataset(name, self.cfg, **kwargs) for name in self.cfg.train_names]
         clouds = []
         poses = []
         self.tfs = []
-        for i, (cloud, pose) in enumerate(self.ds):
+        # FIXME: Using ground truth from first cloud. Use all?
+        for i, (cloud, pose) in enumerate(self.ds[0]):
             # cloud = local_feature_cloud(cloud, self.cfg)
             # Keep normals, avoid recomputing dependent fields.
             cloud = DepthCloud.from_structured_array(cloud, dtype=self.cfg.numpy_float_type(), device=self.cfg.device)
@@ -218,22 +192,19 @@ class TrainingDemo(TrainCallbacks):
         self.gt_clouds = [cloud]
         self.gt_poses = [poses]
         # self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
-        self.ds = DepthBiasDataset(self.ds, self.gt_model, cfg=self.cfg)
-        self.ds = NoisyDepthDataset(self.ds, noise=self.depth_noise)
-        self.ds = NoisyPoseDataset(self.ds, noise=self.pose_noise, mode=self.pose_noise_mode)
+        self.ds = [self.noisy_dataset(ds) for ds in self.ds]
 
     def spin(self):
-        train(self.cfg, callbacks=self, train_datasets=[self.ds], val_datasets=[self.ds])
-        # train(self.cfg, callbacks=self, train_datasets=[self.ds], val_datasets=[])
+        train(self.cfg, callbacks=self, train_datasets=self.ds, val_datasets=self.ds)
 
     def iteration_started(self, iter):
-        # print(iter)
         pass
 
     def compute_l2_loss(self, clouds):
-        assert len(clouds) == 1
+        # assert len(clouds) == 1
         l2_loss = 0.0
         with torch.no_grad():
+            # TODO: Handle multiple gt clouds (zip takes shortest).
             for gt_cloud, cloud in zip(self.gt_clouds, clouds):
                 assert isinstance(gt_cloud, DepthCloud)
                 assert isinstance(cloud, DepthCloud)
@@ -246,9 +217,10 @@ class TrainingDemo(TrainCallbacks):
             return l2_loss
 
     def compute_pose_loss(self, poses):
-        assert len(poses) == 1
+        # assert len(poses) == 1
         r_loss, t_loss, n = 0.0, 0.0, 0
         with torch.no_grad():
+            # TODO: Handle multiple gt poses (zip takes shortest).
             for ds_gt_poses, ds_poses in zip(self.gt_poses, poses):
                 for gt_pose, pose in zip(ds_gt_poses, ds_poses):
                     if isinstance(gt_pose, torch.Tensor):
@@ -272,19 +244,26 @@ class TrainingDemo(TrainCallbacks):
         self.iterations.append(iter)
         self.l2_losses.append(self.compute_l2_loss(clouds))
         # self.poses.append(poses[0].detach().cpu().numpy().copy())
-        print(pose_deltas)
+        # print(pose_deltas[0])
+        # print(pose_deltas[0].grad)
+        self.pose_deltas.append(pose_deltas[0].detach().cpu().numpy().flatten().copy())
+        if pose_deltas[0].grad is not None:
+            self.pose_delta_grads.append(pose_deltas[0].grad.detach().cpu().numpy().flatten().copy())
+        else:
+            self.pose_delta_grads.append(np.array(6 * [float('nan')]))
         self.pose_losses.append(self.compute_pose_loss(poses))
         self.weights.append(model.w.detach().cpu().numpy().flatten().tolist())
         self.exponents.append(model.exponent.detach().cpu().numpy().flatten().tolist())
         self.train_losses.append(loss.detach().cpu().item())
-        if iter % 10 == 0:
+        if iter % 5 == 0:
             self.visualize(model, clouds, poses)
             self.publish_cloud(self.gt_cloud_pub, self.gt_clouds[0])
             self.publish_cloud(self.corrected_cloud_pub, clouds[0])
 
     def setup_visualization(self):
         # self.fig, self.ax = plt.subplots(3, 2, figsize=(8.0, 10.0), squeeze=False)
-        self.fig, self.ax = plt.subplots(4, 2, figsize=(8.0, 10.0), squeeze=False)
+        self.fig, self.ax = plt.subplots(4, 2, figsize=(8.0, 10.0), constrained_layout=True, squeeze=False)
+        self.pose_delta_grad_ax = self.ax[2, 0].twinx()
 
     # @timing
     def plot_cloud(self, ax, cloud, marker, dims=(0, 1), n=100, **kwargs):
@@ -327,6 +306,14 @@ class TrainingDemo(TrainCallbacks):
         ax.grid()
         # ax.legend()
 
+        ax = self.ax[0, 1]
+        ax.cla()
+        ax.plot(self.iterations, self.l2_losses)
+        ax.set_xlabel('Iteration')
+        ax.set_ylabel('Point Loss')
+        ax.grid()
+        # ax.legend()
+
         if self.weights:
             ax = self.ax[1, 0]
             ax.cla()
@@ -353,11 +340,23 @@ class TrainingDemo(TrainCallbacks):
 
         ax = self.ax[2, 0]
         ax.cla()
-        ax.plot(self.iterations, self.l2_losses)
+        labels = ['tx', 'ty', 'tz', 'rx', 'ry', 'rz']
+        vars = [list(var) for var in zip(*self.pose_deltas)]
+        for var, label in zip(vars, labels):
+            ax.plot(self.iterations, var, label=label)
         ax.set_xlabel('Iteration')
-        ax.set_ylabel('Point Loss')
+        ax.set_ylabel('Pose Delta')
         ax.grid()
-        # ax.legend()
+        ax.legend(loc='upper left')
+
+        ax = self.pose_delta_grad_ax
+        ax.cla()
+        vars = [list(var) for var in zip(*self.pose_delta_grads)]
+        for var, label in zip(vars, labels):
+            ax.plot(self.iterations, var, '--', label=label + ' grad')
+        ax.set_ylabel('Pose Delta Gradient')
+        ax.grid()
+        ax.legend(loc='lower left')
 
         ax = self.ax[2, 1]
         ax.cla()
@@ -393,8 +392,11 @@ class TrainingDemo(TrainCallbacks):
             ax.grid()
             ax.legend()
 
-        self.fig.tight_layout()
+        # self.fig.tight_layout()
+        # plt.subplots_adjust(left=0.15, top=0.975, right=0.975, bottom=0.05, hspace=0.5, wspace=0.75)
+        # plt.subplots_adjust(left=0.05, top=0.975, right=0.975, bottom=0.05, hspace=0.25, wspace=0.5)
         plt.pause(0.001)
+        # plt.show()
 
         print(self.cfg.log_dir)
         path = os.path.join(self.cfg.log_dir, 'train_demo.png')

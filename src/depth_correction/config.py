@@ -143,7 +143,7 @@ class Config(Configurable):
         self.pkg_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
         # self.version = '{git_log}\n{git_diff}'.format(git_log=cmd_out(['git', 'log',  '-1'], cwd=self.pkg_dir)[0],
         #                                               git_diff=cmd_out(['git', 'diff'], cwd=self.pkg_dir)[0])
-        self.version = cmd_out(['git', 'rev-parse', 'HEAD'], cwd=self.pkg_dir)[0]
+        self.version = cmd_out(['git', 'rev-parse', 'HEAD'], cwd=self.pkg_dir)[0].strip()
         # print(self.version)
         # Output directory root.
         self.out_dir = os.path.join(self.pkg_dir, 'gen')

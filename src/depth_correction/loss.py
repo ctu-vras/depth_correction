@@ -181,7 +181,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     return loss, cloud
 
 
-def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN):
+def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN, **kwargs):
     """Map consistency loss based on the trace of covariance matrix.
 
     Pre-filter cloud before, or set the mask to select points to be used in

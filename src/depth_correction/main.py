@@ -104,6 +104,8 @@ def eval_slam_baselines(base_cfg: Config=None):
         print('Log dir:', cfg.log_dir)
         os.makedirs(cfg.log_dir, exist_ok=True)
         cfg.model_class = 'BaseModel'
+        cfg.model_args = []
+        cfg.model_kwargs = {}
         cfg.model_state_dict = ''
         cfg.ros_master_port = base_cfg.ros_master_port + i_exp
         print('Port: %i' % cfg.ros_master_port)
@@ -191,6 +193,8 @@ def eval_loss_baselines(base_cfg: Config=None):
         print('Log dir:', cfg.log_dir)
         os.makedirs(cfg.log_dir, exist_ok=True)
         cfg.model_class = 'BaseModel'
+        cfg.model_args = []
+        cfg.model_kwargs = {}
         cfg.model_state_dict = ''
         cfg.ros_master_port = base_cfg.ros_master_port + i_exp
         print('Port: %i' % cfg.ros_master_port)

@@ -475,6 +475,9 @@ class Forwarding(object):
     def __iter__(self):
         return self.target.__iter__()
 
+    def __len__(self):
+        return len(self.target)
+
     def __str__(self):
         return str(self.target)
 

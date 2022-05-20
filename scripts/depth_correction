@@ -14,9 +14,11 @@ from timeit import default_timer as timer
 class DepthCorrection(object):
     def __init__(self):
         self.cfg = Config()
+        cfg_path = rospy.get_param('~config', None)
+        if cfg_path:
+            self.cfg.from_yaml(cfg_path)
         self.cfg.from_rosparam()
         self.max_age = rospy.get_param('~max_age', 1.0)
-
         self.model = load_model(cfg=self.cfg)
 
         publish_filtered = any([self.cfg.min_depth, self.cfg.max_depth, self.cfg.grid_res])

@@ -211,7 +211,7 @@ class Config(Configurable):
         self.loss_kwargs = {}
         self.loss_kwargs['sqrt'] = False
         self.loss_kwargs['normalization'] = True
-        self.n_opt_iters = 250
+        self.n_opt_iters = 100
 
         self.optimizer = 'Adam'
         self.optimizer_args = []

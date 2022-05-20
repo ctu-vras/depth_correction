@@ -28,9 +28,9 @@ def load_model(class_name: str=None,
         if class_name is None:
             class_name = cfg.model_class
         if model_args is None:
-            model_args = cfg.model_args
+            model_args = cfg.model_args[:] if cfg.model_args else []
         if model_kwargs is None:
-            model_kwargs = cfg.model_kwargs
+            model_kwargs = cfg.model_kwargs.copy() if cfg.model_kwargs else {}
         if state_dict is None:
             state_dict = cfg.model_state_dict
         if device is None:

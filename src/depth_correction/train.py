@@ -43,7 +43,7 @@ def initialize_pose_corrections(datasets, cfg: Config):
         'device': cfg.device,
         'requires_grad': True,
     }
-    for ds in enumerate(datasets):
+    for ds in datasets:
         if cfg.pose_correction == PoseCorrection.common:
             # Use a common correction for all sequences and poses.
             if pose_deltas:

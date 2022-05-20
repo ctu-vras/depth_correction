@@ -271,6 +271,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             best_cfg = cfg.copy()
             best_cfg.model_state_dict = state_dict_path
             best_cfg.train_pose_deltas = pose_deltas_path
+            best_cfg.to_yaml(os.path.join(cfg.log_dir, 'best.yaml'))
 
         else:
             saved = False
@@ -309,9 +310,6 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
     writer.flush()
     writer.close()
-
-    best_cfg_path = os.path.join(cfg.log_dir, 'best.yaml')
-    best_cfg.to_yaml(best_cfg_path)
 
     return best_cfg
 

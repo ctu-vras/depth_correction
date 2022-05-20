@@ -11,6 +11,9 @@ class CloudFilter(object):
 
     def __init__(self):
         self.cfg = Config()
+        cfg_path = rospy.get_param('~config', None)
+        if cfg_path:
+            self.cfg.from_yaml(cfg_path)
         self.cfg.from_rosparam()
         self.max_age = rospy.get_param('~max_age', 1.0)
 

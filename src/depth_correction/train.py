@@ -64,20 +64,20 @@ def initialize_pose_corrections(datasets, cfg: Config):
     return pose_deltas
 
 
-def create_corrected_poses(train_poses, train_pose_deltas, cfg: Config):
+def create_corrected_poses(poses, pose_deltas, cfg: Config):
     if cfg.pose_correction == PoseCorrection.none:
-        train_poses_upd = train_poses
+        poses_upd = poses
     else:
-        assert len(train_poses) == len(train_pose_deltas)
+        assert len(poses) == len(pose_deltas)
         # For common pose correction, there is a same correction for all sequences.
         if cfg.pose_correction == PoseCorrection.common:
-            assert all(d is train_pose_deltas[0] for d in train_pose_deltas[1:])
-        train_poses_upd = []
-        for i in range(len(train_poses)):
-            pose_deltas_mat = xyz_axis_angle_to_matrix(train_pose_deltas[i])
-            train_poses_upd.append(torch.matmul(train_poses[i], pose_deltas_mat))
+            assert all(d is pose_deltas[0] for d in pose_deltas[1:])
+        poses_upd = []
+        for i in range(len(poses)):
+            pose_deltas_mat = xyz_axis_angle_to_matrix(pose_deltas[i])
+            poses_upd.append(torch.matmul(poses[i], pose_deltas_mat))
 
-    return train_poses_upd
+    return poses_upd
 
 
 def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):

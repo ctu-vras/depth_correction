@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from depth_correction.config import Config
-from depth_correction.model import BaseModel, load_model
+from depth_correction.model import load_model
 from depth_correction.preproc import local_feature_cloud
-from depth_correction.utils import timing
 from ros_numpy import msgify, numpify
 import rospy
 from sensor_msgs.msg import PointCloud2

@@ -22,6 +22,11 @@ class ValueEnum(type):
         return item in iter(self)
 
 
+class Format(metaclass=ValueEnum):
+    yaml = 'yaml'
+    none = 'none'
+
+
 class Configurable(object):
     """Object configurable from command-line arguments or YAML."""
 
@@ -74,22 +79,29 @@ class Configurable(object):
 
         return remainder
 
-    def from_rosparam(self, prefix='~'):
+    def from_rosparam(self, prefix='~', format=Format.none):
+        assert format in Format
         import rospy
         for k in self:
             name = prefix + k
             if rospy.has_param(name):
                 v = rospy.get_param(name, self[k])
-                if isinstance(self[k], str):
+                # Allow parsing strings as YAML, if needed.
+                if isinstance(v, str) and format == Format.yaml:
                     try:
                         self[k] = yaml.safe_load(v)
                     except YAMLError as ex:
                         print('Could not parse YAML "%s" from rosparam %s: %s.' % (v, name, ex), file=sys.stderr)
+                # Note, that YAML is already parsed within rosparam, so values
+                # from parameter server shouldn't be parsed (again) in general.
+                else:
+                    self[k] = v
 
     def to_dict(self):
         return vars(self)
 
-    def to_roslaunch_args(self, non_default=False, keys=None):
+    def to_roslaunch_args(self, non_default=False, keys=None, format=Format.yaml):
+        assert format in Format
         if not keys:
             if non_default:
                 keys = self.non_default().keys()
@@ -98,26 +110,49 @@ class Configurable(object):
 
         args = []
         for k in keys:
-            v = yaml.safe_dump(self[k], default_flow_style=True)
-            # Remove trailing newlines and document end indicator ("...");
-            # this depends on the input value / dict.
-            v = v.strip('\n')
-            v = v.strip('\n...')
+            if format == Format.yaml:
+                v = yaml.safe_dump(self[k], default_flow_style=True)
+                # Remove trailing newlines and document end indicator ("...");
+                # this depends on the input value / dict.
+                v = v.strip('\n')
+                v = v.strip('\n...')
+            elif format == Format.none:
+                if isinstance(self[k], bool):
+                    v = 'true' if self[k] else 'false'
+                else:
+                    v = str(self[k])
             arg = '%s:=%s' % (k, v)
             args.append(arg)
 
         return args
 
-    def from_roslaunch_args(self, args):
+    def from_roslaunch_args(self, args, format=Format.yaml):
+        assert format in Format
         for arg in args:
             assert isinstance(arg, str)
             k, v = arg.split(':=', maxsplit=1)
             if k not in self:
                 continue
-            try:
-                self[k] = yaml.safe_load(v)
-            except YAMLError as ex:
-                print('Could not parse YAML "%s" from roslaunch argument %s: %s.' % (v, k, ex), file=sys.stderr)
+            if format == Format.yaml:
+                try:
+                    v = yaml.safe_load(v)
+                    self[k] = v
+                except YAMLError as ex:
+                    print('Could not parse YAML "%s" from roslaunch argument %s: %s.' % (v, k, ex), file=sys.stderr)
+            elif format == Format.none:
+                if v == 'true':
+                    v = True
+                elif v == 'false':
+                    v = False
+                else:
+                    try:
+                        v = int(v)
+                    except ValueError:
+                        try:
+                            v = float(v)
+                        except ValueError:
+                            pass
+                self[k] = v
 
     def to_yaml(self, path=None):
         if path is None:
@@ -146,6 +181,7 @@ def test():
     from math import isnan
 
     cfg = Configurable()
+    cfg.bool_var = True
     cfg.int_var = None
     cfg.float_var = 0.2
     cfg.list_var = [0.1, float('inf'), float('nan'), None]
@@ -172,6 +208,30 @@ def test():
     cfg.from_roslaunch_args(args)
     assert len(cfg.list_var) == len(list_var)
     assert all(a == b or (isnan(a) and isnan(b)) for a, b in zip(cfg.list_var, list_var))
+
+    cfg.from_roslaunch_args(['bool_var:=false'], format=Format.none)
+    assert isinstance(cfg.bool_var, bool)
+    assert cfg.bool_var is False
+    args = cfg.to_roslaunch_args(keys=['bool_var'], format=Format.none)
+    assert args == ['bool_var:=false']
+
+    cfg.from_roslaunch_args(['float_var:=1e-3'], format=Format.none)
+    assert isinstance(cfg.float_var, float)
+    assert cfg.float_var == 1e-3
+    args = cfg.to_roslaunch_args(keys=['float_var'], format=Format.none)
+    assert args == ['float_var:=0.001']
+
+    cfg.from_roslaunch_args(['int_var:=10'], format=Format.none)
+    assert isinstance(cfg.int_var, int)
+    assert cfg.int_var == 10
+    args = cfg.to_roslaunch_args(keys=['int_var'], format=Format.none)
+    assert args == ['int_var:=10']
+
+    cfg.from_roslaunch_args(['str_var:=1e10 string'], format=Format.none)
+    assert isinstance(cfg.str_var, str)
+    assert cfg.str_var == '1e10 string'
+    args = cfg.to_roslaunch_args(keys=['str_var'], format=Format.none)
+    assert args == ['str_var:=1e10 string']
 
 
 def main():

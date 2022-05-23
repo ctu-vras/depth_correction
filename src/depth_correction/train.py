@@ -285,6 +285,21 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
         writer.add_scalar("%s/train" % cfg.loss, train_loss, it)
         writer.add_scalar("%s/val" % cfg.loss, val_loss, it)
+
+        if hasattr(model, 'w'):
+            assert model.w.shape[0] == 1
+            for i in range(model.w.numel()):
+                writer.add_scalar('model/w_%i' % i, model.w[i], it)
+                if model.w.grad is not None:
+                    writer.add_scalar('model/w_%i/grad' % i, model.w.grad[i], it)
+
+        if hasattr(model, 'exponent'):
+            assert model.exponent.shape[0] == 1
+            for i in range(model.exponent.numel()):
+                writer.add_scalar('model/exponent_%i' % i, model.exponent[i], it)
+                if model.exponent.grad is not None:
+                    writer.add_scalar('model/exponent_%i/grad' % i, model.exponent.grad[i], it)
+
         if train_pose_deltas:
             # TODO: Add summary histogram for all sequences.
             for i in range(len(train_datasets)):

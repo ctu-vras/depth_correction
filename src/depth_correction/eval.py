@@ -104,7 +104,6 @@ def eval_slam(cfg: Config):
             name = name[:17]  # semantic_kitti/XY
             # name += '_step_%i' % cfg.data_step
             name += '_end_500_step_1'
-        print('SLAM evaluation on %s started.' % name)
 
         cli_args = [slam_eval_launch]
         cli_args.append('dataset:=%s' % name)
@@ -133,6 +132,7 @@ def eval_slam(cfg: Config):
             launch_kwargs['port'] = cfg.ros_master_port
         parent = roslaunch.parent.ROSLaunchParent(uuid, roslaunch_file, **launch_kwargs)
         parent.start()
+        print('SLAM evaluation on %s started.' % name)
         parent.spin()
         print('SLAM evaluation on %s finished.' % name)
 

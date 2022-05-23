@@ -179,8 +179,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     if cfg.pose_correction != PoseCorrection.none:
         params.append({'params': train_pose_deltas, 'lr': cfg.lr})
     # Initialize optimizer.
-    args = cfg.optimizer_args if cfg.optimizer_args else []
-    kwargs = cfg.optimizer_kwargs if cfg.optimizer_kwargs else {}
+    args = cfg.optimizer_args[:] if cfg.optimizer_args else []
+    kwargs = cfg.optimizer_kwargs.copy() if cfg.optimizer_kwargs else {}
     optimizer = eval(cfg.optimizer)(params, *args, **kwargs)
     print('Optimizer: %s' % optimizer)
 
@@ -189,8 +189,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     if (cfg.pose_correction == PoseCorrection.sequence
             or cfg.pose_correction == PoseCorrection.pose):
         val_params = [{'params': val_pose_deltas, 'lr': cfg.lr}]
-        args = cfg.optimizer_args if cfg.optimizer_args else []
-        kwargs = cfg.optimizer_kwargs if cfg.optimizer_kwargs else {}
+        args = cfg.optimizer_args[:] if cfg.optimizer_args else []
+        kwargs = cfg.optimizer_kwargs.copy() if cfg.optimizer_kwargs else {}
         val_optimizer = eval(cfg.optimizer)(val_params, *args, **kwargs)
         print('Validation optimizer: %s' % val_optimizer)
     else:

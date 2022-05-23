@@ -11,8 +11,10 @@
     <arg name="model_class" default="BaseModel" doc="Class name from module depth_correction.model."/>
     <arg name="model_state_dict" default="''" doc="Path to the model state dict."/>
     <arg name="device" default="cpu" doc="Device to run tensor operations on: cpu or cuda"/>
+    <arg name="required" default="true"/>
 
-    <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen">
+    <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen"
+          required="$(arg required)">
         <rosparam subst_value="true">
             model_class: $(arg model_class)
             model_state_dict: $(arg model_state_dict)

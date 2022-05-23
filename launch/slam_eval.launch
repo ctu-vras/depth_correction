@@ -30,6 +30,8 @@
     <arg name="shadow_angle_bounds" default="[0.087266, .nan]"/>
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0025], [1, 0.0025, .inf]]"/>
     <arg name="model_class" default="BaseModel"/>
+    <arg name="model_args" default="''"/>
+    <arg name="model_kwargs" default="{}"/>
     <arg name="model_state_dict" default=""/>
     <arg name="device" default="cpu"/>
 
@@ -71,6 +73,8 @@
             <arg name="shadow_angle_bounds" value="$(arg shadow_angle_bounds)"/>
             <arg name="eigenvalue_bounds" value="$(arg eigenvalue_bounds)"/>
             <arg name="model_class" value="$(arg model_class)"/>
+            <arg name="model_args" value="$(arg model_args)"/>
+            <arg name="model_kwargs" value="$(arg model_kwargs)"/>
             <arg name="model_state_dict" value="$(arg model_state_dict)"/>
             <arg name="device" value="$(arg device)"/>
         </include>

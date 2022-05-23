@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
     <!-- Evaluation of SLAM pipelines with and without depth correction module. -->
+    <arg name="config" default="''"/>
     <arg name="dataset" default="asl_laser/eth" doc="Dataset and sequence name."/>
     <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
     <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
@@ -58,6 +59,7 @@
             <arg name="slam_poses_csv" value="$(arg slam_poses_csv)"/>
         </include>
         <include file="$(dirname)/cloud_filter.launch">
+            <arg name="config" value="$(arg config)"/>
             <arg name="input" value="cloud"/>
             <arg name="output" value="filtered_cloud"/>
             <arg name="min_depth" value="$(arg min_depth)"/>
@@ -65,6 +67,7 @@
             <arg name="grid_res" value="$(arg grid_res)"/>
         </include>
         <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
+            <arg name="config" value="$(arg config)"/>
             <arg name="input" value="filtered_cloud"/>
             <arg name="output" value="corrected_cloud"/>
             <arg name="nn_k" value="$(arg nn_k)"/>

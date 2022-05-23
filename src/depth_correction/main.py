@@ -268,6 +268,12 @@ def train_and_eval_all(base_cfg: Config=None):
 
         cfg.pose_provider = pose_provider
         cfg.model_class = model
+        if cfg.model_class in (Model.Polynomial, Model.ScaledPolynomial):
+            cfg.model_args = []
+            cfg.model_kwargs = {}
+            cfg.model_kwargs['w'] = [0.0]
+            cfg.model_kwargs['exponent'] = [4.0]
+            cfg.model_kwargs['learnable_exponents'] = False
         cfg.loss = loss
         cfg.train_names = train_names
         cfg.val_names = val_names

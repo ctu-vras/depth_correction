@@ -32,7 +32,7 @@
     <arg name="model_class" default="BaseModel"/>
     <arg name="model_args" default="''"/>
     <arg name="model_kwargs" default="{}"/>
-    <arg name="model_state_dict" default=""/>
+    <arg name="model_state_dict" default="''"/>
     <arg name="device" default="cpu"/>
 
     <group if="$(eval play)">

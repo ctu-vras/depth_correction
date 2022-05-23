@@ -157,9 +157,9 @@ class Config(Configurable):
         self.model_class = Model.ScaledPolynomial
         self.model_args = []
         self.model_kwargs = {}
-        self.model_kwargs['w'] = [0.0]
-        self.model_kwargs['exponent'] = [6.0]
-        self.model_kwargs['learnable_exponents'] = False
+        # self.model_kwargs['w'] = [0.0]
+        # self.model_kwargs['exponent'] = [4.0]
+        # self.model_kwargs['learnable_exponents'] = False
         self.model_state_dict = ''
         self.float_type = 'float64'
         self.device = 'cpu'

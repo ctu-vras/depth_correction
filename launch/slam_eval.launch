@@ -24,7 +24,7 @@
     <arg name="grid_res" default="0.1"/>
     <!-- Depth correction -->
     <arg name="depth_correction" default="false"/>
-    <arg name="nn_k" default=""/>
+    <arg name="nn_k" default="0"/>
     <arg name="nn_r" default="0.2"/>
     <arg name="shadow_neighborhood_angle" default="0.017453"/>
     <arg name="shadow_angle_bounds" default="[0.087266, .nan]"/>

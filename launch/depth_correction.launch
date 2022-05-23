@@ -10,6 +10,8 @@
     <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0004], [1, 0.0025, .inf]]"
          doc="Eigenvalue bounds for correcting depth."/>
     <arg name="model_class" default="BaseModel" doc="Class name from module depth_correction.model."/>
+    <arg name="model_args" default="''" doc="Model constructor positional arguments."/>
+    <arg name="model_kwargs" default="{}" doc="Model constructor key-value arguments."/>
     <arg name="model_state_dict" default="''" doc="Path to the model state dict."/>
     <arg name="device" default="cpu" doc="Device to run tensor operations on: cpu or cuda"/>
     <arg name="required" default="true"/>
@@ -19,6 +21,8 @@
         <rosparam subst_value="true">
             config: $(arg config)
             model_class: $(arg model_class)
+            model_args: $(arg model_args)
+            model_kwargs: $(arg model_kwargs)
             model_state_dict: $(arg model_state_dict)
             device: $(arg device)
             float_type: float64

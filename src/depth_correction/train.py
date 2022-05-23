@@ -304,13 +304,12 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             # TODO: Add summary histogram for all sequences.
             for i in range(len(train_datasets)):
                 name = str(train_datasets[i])
-                writer.add_histogram("pose_correction/train/%s/dx" % name, train_pose_deltas[i][:, 0], it)
-                writer.add_histogram("pose_correction/train/%s/dy" % name, train_pose_deltas[i][:, 1], it)
-                writer.add_histogram("pose_correction/train/%s/dz" % name, train_pose_deltas[i][:, 2], it)
-                writer.add_histogram("pose_correction/train/%s/dax" % name, train_pose_deltas[i][:, 3], it)
-                writer.add_histogram("pose_correction/train/%s/day" % name, train_pose_deltas[i][:, 4], it)
-                writer.add_histogram("pose_correction/train/%s/daz" % name, train_pose_deltas[i][:, 5], it)
-
+                for j, key in enumerate(['tx', 'ty', 'tz', 'rx', 'ry', 'rz']):
+                    writer.add_histogram("pose_correction/train/%s/%s"
+                                         % (name, key), train_pose_deltas[i][:, j], it)
+                    if train_pose_deltas[i].grad is not None:
+                        writer.add_histogram("pose_correction/train/%s/%s/grad"
+                                             % (name, key), train_pose_deltas[i].grad[:, j], it)
 
         # Optimization step
         optimizer.zero_grad()

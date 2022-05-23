@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
+    <arg name="config" default="''"/>
     <arg name="input" default="filtered_cloud" doc="Input cloud topic."/>
     <arg name="output" default="corrected_cloud" doc="Output corrected cloud topic."/>
     <arg name="nn_k" default="0" doc="Nearest neighbor count."/>
@@ -16,6 +17,7 @@
     <node name="depth_correction" pkg="depth_correction" type="depth_correction" output="screen"
           required="$(arg required)">
         <rosparam subst_value="true">
+            config: $(arg config)
             model_class: $(arg model_class)
             model_state_dict: $(arg model_state_dict)
             device: $(arg device)

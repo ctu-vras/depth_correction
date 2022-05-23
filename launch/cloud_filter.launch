@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
+    <arg name="config" default="''"/>
     <arg name="input" default="cloud" doc="Input cloud topic."/>
     <arg name="output" default="filtered_cloud" doc="Output filtered cloud topic."/>
     <arg name="min_depth" default="1.0" doc="Minimum depth to keep."/>
@@ -8,6 +9,7 @@
 
     <node name="cloud_filter" pkg="depth_correction" type="cloud_filter" output="screen">
         <rosparam subst_value="true">
+            config: $(arg config)
             device: cpu
             max_age: 1.0
             min_depth: $(arg min_depth)

@@ -310,8 +310,8 @@ class Config(Configurable):
             if desc:
                 desc += '_'
             desc += 'r%.2f' % self.nn_r
-        if not desc:
-            desc = 'none'
+        # if not desc:
+        #     desc = 'none'
         return desc
 
     def get_eigval_bounds_desc(self):
@@ -320,8 +320,8 @@ class Config(Configurable):
             if desc:
                 desc += '_'
             desc += 'e%i_%.3g-%.3g' % (i, min, max)
-        if not desc:
-            desc = 'none'
+        # if not desc:
+        #     desc = 'none'
         return desc
 
     def get_eigval_ratio_bounds_desc(self):
@@ -330,6 +330,8 @@ class Config(Configurable):
             if desc:
                 desc += '_'
             desc += 'e%ie%i_%.3g-%.3g' % (i, j, min, max)
+        # if not desc:
+        #     desc = 'none'
         return desc
 
     def get_dir_dispersion_desc(self):
@@ -352,9 +354,17 @@ class Config(Configurable):
 
     def get_loss_desc(self):
         desc = self.loss
-        loss_kwargs = '_'.join('%s_%s' % (k, v) for k, v in self.loss_kwargs.items())
-        if loss_kwargs:
-            desc += '_' + loss_kwargs
+        # loss_kwargs = '_'.join('%s_%s' % (k, v) for k, v in self.loss_kwargs.items())
+        # if loss_kwargs:
+        #     desc += '_' + loss_kwargs
+        for k, v in self.loss_kwargs.items():
+            if k == 'normalization':
+                desc += '_norm%i' % v
+                continue
+            if k == 'sqrt':
+                desc += '_sqrt%i' % v
+                continue
+            desc += '%s_%s' % (k, v)
         return desc
 
     def get_preproc_desc(self):

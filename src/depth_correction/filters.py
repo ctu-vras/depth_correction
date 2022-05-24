@@ -8,6 +8,8 @@ import torch.nn.functional as fun
 __all__ = [
     'filter_depth',
     'filter_eigenvalue',
+    'filter_eigenvalue_ratio',
+    'filter_eigenvalue_ratios',
     'filter_eigenvalues',
     'filter_grid',
     'filter_shadow_points',
@@ -170,6 +172,39 @@ def filter_eigenvalues(cloud: DepthCloud, eig_bounds: list, only_mask: bool=Fals
         mask = torch.ones((cloud.size(),), dtype=torch.bool)
     if log and mask is not None:
         print('%.3f = %i / %i points kept (eigenvalues within bounds).'
+              % (mask.double().mean(), mask.sum(), mask.numel()))
+    if only_mask:
+        return mask
+    cloud = cloud[mask]
+    return cloud
+
+
+def filter_eigenvalue_ratio(cloud, eigenvalues=(0, 1), min=None, max=None, only_mask=False, log=False):
+    """Keep points with specific eigenvalue ratio in bounds."""
+    assert cloud.eigvals is not None
+    assert len(eigenvalues) == 2
+    assert all(0 <= i <= 2 for i in eigenvalues)
+    i, j = eigenvalues
+    with torch.no_grad():
+        ratio = cloud.eigvals[:, i] / cloud.eigvals[:, j]
+        keep = within_bounds(ratio, min=min, max=max,
+                             log_variable='eigenvalue %i / eigenvalue %i' % eigenvalues if log else None)
+    if only_mask:
+        return keep
+    filtered = cloud[keep]
+    return filtered
+
+
+def filter_eigenvalue_ratios(cloud: DepthCloud, bounds: list, only_mask: bool=False, log: bool=False):
+    mask = None
+    if bounds:
+        for i, j, min, max in bounds:
+            eig_mask = filter_eigenvalue_ratio(cloud, (i, j), min=min, max=max, only_mask=True, log=log)
+            mask = eig_mask if mask is None else mask & eig_mask
+    else:
+        mask = torch.ones((cloud.size(),), dtype=torch.bool)
+    if log and mask is not None:
+        print('%.3f = %i / %i points kept (eigenvalue ratios within bounds).'
               % (mask.double().mean(), mask.sum(), mask.numel()))
     if only_mask:
         return mask

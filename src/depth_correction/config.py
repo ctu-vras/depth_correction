@@ -184,9 +184,12 @@ class Config(Configurable):
         self.vp_dispersion_to_depth2_bounds = []
         # self.vp_dist_to_depth_bounds = [0.5, None]
         self.vp_dist_to_depth_bounds = []
-        self.eigenvalue_bounds = [[0,      -float('inf'), (self.nn_r / 4)**2],
-                                  [1, (self.nn_r / 4)**2,       float('inf')]]
-        # self.eigenvalue_bounds = []
+        self.eigenvalue_bounds = []
+        # self.eigenvalue_bounds = [[0,      -float('inf'), (self.nn_r / 4)**2],
+        #                           [1, (self.nn_r / 4)**2,       float('inf')]]
+        # self.eigenvalue_ratio_bounds = []
+        self.eigenvalue_ratio_bounds = [[0, 1, -float('inf'),         0.25],
+                                        [1, 2,          0.25, float('inf')]]
 
         # Data
         self.dataset = 'asl_laser'
@@ -321,6 +324,14 @@ class Config(Configurable):
             desc = 'none'
         return desc
 
+    def get_eigval_ratio_bounds_desc(self):
+        desc = ''
+        for i, j, min, max in self.eigenvalue_ratio_bounds:
+            if desc:
+                desc += '_'
+            desc += 'e%ie%i_%.3g-%.3g' % (i, j, min, max)
+        return desc
+
     def get_dir_dispersion_desc(self):
         desc = ''
         if self.dir_dispersion_bounds:
@@ -364,6 +375,7 @@ class Config(Configurable):
                  self.model_class,
                  self.get_nn_desc(),
                  self.get_eigval_bounds_desc(),
+                 self.get_eigval_ratio_bounds_desc(),
                  self.get_dir_dispersion_desc(),
                  self.get_vp_dispersion_desc(),
                  self.get_vp_dispersion_to_depth2_desc(),

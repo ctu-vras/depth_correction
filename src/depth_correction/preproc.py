@@ -48,6 +48,13 @@ def local_feature_cloud(cloud, cfg: Config):
         if cloud.mask is None:
             cloud.mask = torch.ones((len(cloud),), dtype=torch.bool, device=cloud.device())
         cloud.mask = cloud.mask & filter_eigenvalues(cloud, cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+
+    if cfg.eigenvalue_ratio_bounds:
+        if cloud.mask is None:
+            cloud.mask = torch.ones((len(cloud),), dtype=torch.bool, device=cloud.device())
+        cloud.mask = cloud.mask & filter_eigenvalue_ratios(cloud, cfg.eigenvalue_ratio_bounds, only_mask=True,
+                                                           log=cfg.log_filters)
+
     return cloud
 
 

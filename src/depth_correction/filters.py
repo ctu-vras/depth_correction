@@ -154,18 +154,19 @@ def filter_valid_neighbors(cloud, min=None, only_mask=False, log=False):
 
 def filter_eigenvalue(cloud, eigenvalue=0, min=None, max=None, only_mask=False, log=False):
     """Keep points with specific eigenvalue in bounds."""
-    keep = within_bounds(cloud.eigvals[:, eigenvalue],
-                         min=min, max=max, log_variable='eigenvalue %i' % eigenvalue if log else None)
+    with torch.no_grad():
+        keep = within_bounds(cloud.eigvals[:, eigenvalue],
+                             min=min, max=max, log_variable='eigenvalue %i' % eigenvalue if log else None)
     if only_mask:
         return keep
     filtered = cloud[keep]
     return filtered
 
 
-def filter_eigenvalues(cloud: DepthCloud, eig_bounds: list, only_mask: bool=False, log: bool=False):
+def filter_eigenvalues(cloud: DepthCloud, bounds: list, only_mask: bool=False, log: bool=False):
     mask = None
-    if eig_bounds:
-        for eig, min, max in eig_bounds:
+    if bounds:
+        for eig, min, max in bounds:
             eig_mask = filter_eigenvalue(cloud, eig, min=min, max=max, only_mask=True, log=log)
             mask = eig_mask if mask is None else mask & eig_mask
     else:

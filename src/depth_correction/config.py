@@ -381,6 +381,7 @@ class Config(Configurable):
 
     def get_exp_desc(self):
         parts = [self.pose_provider,
+                 self.pose_correction,
                  self.model_class,
                  self.get_nn_desc(),
                  self.get_eigval_bounds_desc(),

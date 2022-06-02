@@ -227,8 +227,7 @@ class Config(Configurable):
         # self.optimizer_kwargs = {'momentum': 0.9, 'nesterov': True}
         # self.lr = 5e-3
 
-        # self.pose_correction = PoseCorrection.none
-        self.pose_correction = PoseCorrection.common
+        self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
         self.loss_eval_csv = None
         self.slam_eval_csv = None

@@ -1,10 +1,11 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, loss_eval_csv, PoseCorrection, slam_eval_bag, slam_eval_csv, slam_poses_csv
+from .dataset import create_dataset
 from .filters import filter_eigenvalues
 from .io import append
 from .loss import create_loss
-from .model import load_model
-from .preproc import filtered_cloud, local_feature_cloud, global_cloud
+from .model import BaseModel, load_model
+from .preproc import filtered_cloud, global_cloud, global_cloud_mask, local_feature_cloud
 from .ros import publish_data
 from argparse import ArgumentParser
 import numpy as np
@@ -12,19 +13,62 @@ import os
 import torch
 
 
-def eval_loss(cfg: Config):
+def eval_loss_single(cfg: Config, dataset, model: BaseModel=None, loss_fun=None):
+
+    if model is None:
+        model = load_model(cfg=cfg, eval_mode=True)
+
+    if loss_fun is None:
+        loss_fun = create_loss(cfg)
+    assert callable(loss_fun)
+
+    name = str(dataset)
+    clouds = []
+    poses = []
+    # for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
+    for cloud, pose in dataset:
+        cloud = filtered_cloud(cloud, cfg)
+        cloud = local_feature_cloud(cloud, cfg)
+        clouds.append(cloud)
+        poses.append(pose)
+    poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
+    poses = torch.as_tensor(poses, device=cfg.device)
+    cloud = global_cloud(clouds, model, poses)
+    cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
+    mask = global_cloud_mask(cloud, None, cfg)
+    print('Testing on %.3f = %i / %i points from %s.'
+          % (mask.float().mean().item(), mask.sum().item(), mask.numel(),
+             name))
+
+    if cfg.enable_ros:
+        publish_data([cloud], [poses], [name], cfg=cfg)
+
+    test_loss, _ = loss_fun(cloud, mask=mask)
+    print('Test loss on %s: %.9f' % (name, test_loss.item()))
+    # if cfg.loss_eval_csv:
+    #     assert cfg.loss_eval_csv
+    #     append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
+    return test_loss
+
+
+def eval_loss(cfg: Config, model=None, test_datasets=None):
     """Evaluate loss on test sequences.
 
-    :param cfg:
+    :param cfg: Config.
+    :param test_datasets: Test datasets, created from config if not provided.
     """
+    if test_datasets:
+        print('Using provided test datasets: %s.' % ', '.join([str(ds) for ds in test_datasets]))
+    else:
+        print('Creating test datasets from config: %s.' % ', '.join(cfg.test_names))
+        test_datasets = []
+        for i, name in enumerate(cfg.test_names):
+            poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
+            ds = create_dataset(name, cfg, poses_path=poses_path)
+            test_datasets.append(ds)
 
-    assert cfg.dataset in ('asl_laser', 'semantic_kitti')
-    if cfg.dataset == 'asl_laser':
-        from data.asl_laser import Dataset
-    elif cfg.dataset == 'semantic_kitti':
-        from data.semantic_kitti import Dataset
-
-    model = load_model(cfg=cfg, eval_mode=True)
+    if model is None:
+        model = load_model(cfg=cfg, eval_mode=True)
 
     if cfg.pose_correction != PoseCorrection.none:
         print('Pose deltas not used.')
@@ -33,23 +77,26 @@ def eval_loss(cfg: Config):
     assert callable(loss_fun)
 
     # TODO: Process individual sequences separately.
-    for i, name in enumerate(cfg.test_names):
+    # for i, name in enumerate(cfg.test_names):
+    for i, ds in enumerate(test_datasets):
+        name = str(ds)
         # Allow overriding poses paths, assume valid if non-empty.
-        poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
+        # poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
         clouds = []
         poses = []
-        for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
+        # for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
+        for cloud, pose in ds:
             cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             clouds.append(cloud)
             poses.append(pose)
         poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
-
         cloud = global_cloud(clouds, model, poses)
         cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-        mask = filter_eigenvalues(cloud, bounds=cfg.eigenvalue_bounds,
-                                  only_mask=True, log=cfg.log_filters)
+        mask = global_cloud_mask(cloud, None, cfg)
+        # mask = filter_eigenvalues(cloud, bounds=cfg.eigenvalue_bounds,
+        #                           only_mask=True, log=cfg.log_filters)
         print('Testing on %.3f = %i / %i points from %s.'
               % (mask.float().mean().item(), mask.sum().item(), mask.numel(),
                  name))
@@ -59,9 +106,9 @@ def eval_loss(cfg: Config):
 
         test_loss, _ = loss_fun(cloud, mask=mask)
         print('Test loss on %s: %.9f' % (name, test_loss.item()))
-        csv = cfg.loss_eval_csv
-        assert csv
-        append(csv, '%s %.9f\n' % (name, test_loss))
+        if cfg.loss_eval_csv:
+            assert cfg.loss_eval_csv
+            append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
 
 
 def eval_loss_all(cfg: Config):

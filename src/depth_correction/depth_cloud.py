@@ -157,8 +157,9 @@ class DepthCloud(object):
         if isinstance(item, list) and len(item) > 0 and isinstance(item[0], str):
             for f in item:
                 kwargs[f] = getattr(self, f)
+        # Filter points using an index (slice, list, mask).
+        # TODO: Allow slicing neighbors etc. (need squeezing).
         else:
-            # TODO: Allow slicing neighbors etc. (need squeezing).
             for f in DepthCloud.sliced_fields:
                 x = getattr(self, f)
                 if x is not None:

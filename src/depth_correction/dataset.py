@@ -470,6 +470,9 @@ class MeshDataset(BaseDataset):
             ds.ids = self.ids[i]
         return ds
 
+    def __str__(self):
+        return self.name
+
 
 class Forwarding(object):
     def __init__(self, target):

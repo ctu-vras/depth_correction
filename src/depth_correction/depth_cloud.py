@@ -185,6 +185,18 @@ class DepthCloud(object):
         ret = self[idx]
         return ret
 
+    def collect_neighbors(self, item):
+        assert self.neighbors is not None
+        idx = self.neighbors[item].unique()
+        idx = idx[idx >= 0]
+        # idx = torch.concat([torch.arange(len(self))[item], idx])
+        # Assume that every point is also its neighbor.
+        return idx
+
+    def filter_with_neighbors(self, item):
+        idx = self.collect_neighbors(item)
+        return self[idx]
+
     def update_distances(self):
         assert self.neighbors is not None
         x = self.get_points()

@@ -216,7 +216,7 @@ class ScaledPolynomial(BaseModel):
         super().__init__(device=device)
 
         if exponent is None:
-            assert w is None
+            assert w is None, w
             self.legacy = True
             exponent = [2.0, 4.0]
             w = [p0 or 0.0, p1 or 0.0]
@@ -225,8 +225,10 @@ class ScaledPolynomial(BaseModel):
 
         if w is None:
             w = [0.0] * len(exponent)
+        elif isinstance(w, float):
+            w = [w]
         w = torch.as_tensor(w, dtype=torch.float64, device=device).view((1, -1))
-        assert w.numel() == len(exponent)
+        assert w.numel() == len(exponent), (w, exponent)
         self.w = torch.nn.Parameter(w)
 
         exponent = torch.as_tensor(exponent, dtype=torch.float64, device=device).view((1, -1))

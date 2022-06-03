@@ -431,7 +431,7 @@ class DepthCloud(object):
             self.update_neighbors(k=k, r=r)
         self.update_features()
 
-    def get_colors(self, colors='z', colormap=cm.gist_rainbow):
+    def get_colors(self, colors='z', colormap=cm.gist_rainbow, interval=None):
         assert (isinstance(colors, torch.Tensor)
                 or colors in ('inc_angles', 'loss', 'min_eigval', 'z'))
 
@@ -454,14 +454,17 @@ class DepthCloud(object):
 
         assert isinstance(vals, torch.Tensor)
         vals = vals.detach().float()
-        valid = torch.isfinite(vals)
-        q = torch.tensor([0.01, 0.99], dtype=vals.dtype, device=vals.device)
-        min_val, max_val = torch.quantile(vals[valid], q)
+        if interval:
+            min_val, max_val = interval
+        else:
+            valid = torch.isfinite(vals)
+            q = torch.tensor([0.01, 0.99], dtype=vals.dtype, device=vals.device)
+            min_val, max_val = torch.quantile(vals[valid], q)
         # print('[%.3g, %.3g]' % (min_val, max_val))
         colors = map_colors(vals, colormap=colormap, min_value=min_val, max_value=max_val)
         return colors
 
-    def to_point_cloud(self, colors=None, colormap=cm.gist_rainbow):
+    def to_point_cloud(self, colors=None, colormap=cm.gist_rainbow, interval=None):
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.get_points().detach().cpu())
         if self.normals is not None:
@@ -471,13 +474,14 @@ class DepthCloud(object):
             if colors in matplotlib.colors.BASE_COLORS:
                 colors = np.array(len(self) * [matplotlib.colors.BASE_COLORS[colors]])
             elif not (isinstance(colors, np.ndarray) and colors.shape[1] == 3):
-                colors = self.get_colors(colors, colormap=colormap)
+                colors = self.get_colors(colors, colormap=colormap, interval=interval)
             pcd.colors = o3d.utility.Vector3dVector(colors)
 
         return pcd
 
-    def visualize(self, window_name='Depth Correction', normals=False, colors=None, colormap=cm.gist_rainbow):
-        pcd = self.to_point_cloud(colors=colors, colormap=colormap)
+    def visualize(self, window_name='Depth Correction', normals=False, colors=None, colormap=cm.gist_rainbow,
+                  interval=None):
+        pcd = self.to_point_cloud(colors=colors, colormap=colormap, interval=interval)
         o3d.visualization.draw_geometries([pcd], window_name=window_name, point_show_normal=normals)
         # def cb():
         #     pcd =

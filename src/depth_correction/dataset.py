@@ -196,6 +196,9 @@ class OpenBoxDataset(object):
         pose[:3, 3] += 0.1 * rng.uniform(size=(3,))
         return pose
 
+    def to_str(self):
+        return 'open_box/n_%i_size_%i_%i_%i_height_%.3g_density_%.3g' % (self.n, *self.size, self.height, self.density)
+
     def __getitem__(self, i):
         if isinstance(i, int):
             id = self.ids[i]
@@ -216,6 +219,9 @@ class OpenBoxDataset(object):
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]
+
+    def __str__(self):
+        return self.to_str()
 
 
 class BaseDataset:

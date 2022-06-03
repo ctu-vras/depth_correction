@@ -103,9 +103,11 @@ def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
 
     if cfg.min_valid_neighbors:
         mask &= filter_valid_neighbors(cloud, min=cfg.min_valid_neighbors, only_mask=True, log=cfg.log_filters)
-    # Enforce bound on eigenvalues (done for local clouds).
+    # Enforce bound on eigenvalues (done for local clouds too).
     if cfg.eigenvalue_bounds:
         mask &= filter_eigenvalues(cloud, bounds=cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+    if cfg.eigenvalue_ratio_bounds:
+        mask &= filter_eigenvalue_ratios(cloud, bounds=cfg.eigenvalue_ratio_bounds, only_mask=True, log=cfg.log_filters)
     # Enforce minimum direction and viewpoint spread for bias estimation.
     if cfg.dir_dispersion_bounds:
         # cloud.visualize(colors=cloud.dir_dispersion(), window_name='Direction dispersion')

@@ -618,6 +618,42 @@ class DepthBiasDataset(ForwardingDataset):
         return cloud
 
 
+class Subscriptable(Forwarding):
+    """General sequence wrapper allowing slicing or indexing.
+
+    >>> list(Subscriptable('qwerasdf')[::2])
+    ['q', 'e', 'a', 'd']
+    >>> Subscriptable('qwerasdf')[[1, 2, 4]][0]
+    'w'
+    >>> len(Subscriptable('qwerasdf')[[1, 2, 4]])
+    3
+    """
+    def __init__(self, target, idx=None):
+        assert len(target) >= 0
+        self.target = target
+        if idx is None:
+            idx = list(range(len(target)))
+        self.idx = idx
+
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            return self.target[self.idx[i]]
+        elif isinstance(i, (list, tuple)):
+            idx = [self.idx[j] for j in i]
+            return Subscriptable(self.target, idx)
+        elif isinstance(i, slice):
+            idx = self.idx[i]
+            return Subscriptable(self.target, idx)
+        raise ValueError('Invalid index: %s' % i)
+
+    def __iter__(self):
+        for i in self.idx:
+            yield self.target[i]
+
+    def __len__(self):
+        return len(self.idx)
+
+
 def dataset_by_name(name):
     parts = name.split('/')
     if len(parts) == 2:
@@ -713,6 +749,11 @@ def demo():
     pcd.points = o3d.utility.Vector3dVector(ds.pts)
     pcd.normals = o3d.utility.Vector3dVector(ds.normals)
     o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)], point_show_normal=True)
+
+
+def test():
+    import doctest
+    doctest.testmod()
 
 
 def main():

@@ -1,18 +1,25 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config
 from .configurable import ValueEnum
-from copy import copy
 from .depth_cloud import DepthCloud
 from .preproc import filtered_cloud
 from .model import BaseModel
 from .utils import cached, hashable, timing, transform, transform_inv, load_mesh
+from copy import copy
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
-from tf.transformations import euler_matrix
 import open3d as o3d
-import warnings
 import os
-from pytorch3d.ops import sample_points_from_meshes
+from pytorch3d.ops import interpolate_face_attributes, sample_points_from_meshes
+from pytorch3d.renderer import (
+    FoVPerspectiveCameras,
+    look_at_view_transform,
+    MeshRasterizer,
+    MeshRenderer,
+    RasterizationSettings,
+)
+from tf.transformations import euler_matrix
+import torch
 
 
 def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=np.random.default_rng()):

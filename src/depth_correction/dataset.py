@@ -761,6 +761,44 @@ def demo():
     o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)], point_show_normal=True)
 
 
+def fragments_to_depth(fragments):
+    """Convert rasterizer output fragments to depth."""
+    # depth = fragments.zbuf.cpu().squeeze().numpy()
+    depth = fragments.zbuf.detach().cpu().numpy()
+    assert depth.shape[0] == 1
+    assert depth.shape[3] == 1
+    depth = depth[0, :, :, 0]
+    return depth
+
+
+def fragments_to_cloud(cameras, mesh, fragments):
+    """Convert rasterizer output fragments and mesh to cloud."""
+    assert fragments.pix_to_face.shape[0] == 1
+    assert fragments.pix_to_face.shape[3] == 1
+    assert len(mesh.verts_list()) == 1
+    assert len(mesh.faces_list()) == 1
+    assert len(mesh.faces_normals_list()) == 1
+
+    with torch.no_grad():
+        face_attrs = mesh.verts_list()[0].detach()[mesh.faces_list()[0]]
+        pts = interpolate_face_attributes(fragments.pix_to_face, fragments.bary_coords.detach(), face_attrs)
+        pts = pts.detach().cpu().reshape((-1, 3)).numpy()
+        pts_struct = unstructured_to_structured(pts, names=['x', 'y', 'z'])
+
+        vps = cameras.get_camera_center().detach().cpu()
+        vps = vps.repeat((pts.shape[0], 1)).numpy()
+        vps_struct = unstructured_to_structured(vps, names=['vp_x', 'vp_y', 'vp_z'])
+
+        normal = mesh.faces_normals_list()[0].detach()[fragments.pix_to_face[0, :, :, 0]]
+        normal = normal / normal.norm(dim=-1, keepdim=True)
+        normal = normal.cpu().numpy()
+        normal_struct = unstructured_to_structured(normal, names=['normal_x', 'normal_y', 'normal_z'])
+
+    cloud = merge_arrays([pts_struct, vps_struct, normal_struct], flatten=True)
+
+    return cloud
+
+
 def test():
     import doctest
     doctest.testmod()

@@ -498,39 +498,39 @@ class Forwarding(object):
         return str(self.target)
 
 
-class ForwardingDataset(Forwarding):
+class TransformingDataset(Forwarding):
     def __init__(self, target):
         super().__init__(target)
 
-    def modify_cloud(self, cloud):
+    def transform_cloud(self, cloud):
         return cloud
 
-    def modify_pose(self, pose):
+    def transform_pose(self, pose):
         return pose
 
     def __iter__(self):
         for cloud, pose in self.target:
-            yield self.modify_cloud(cloud), self.modify_pose(pose)
+            yield self.transform_cloud(cloud), self.transform_pose(pose)
 
     def local_cloud(self, id):
-        return self.modify_cloud(self.target.local_cloud(id))
+        return self.transform_cloud(self.target.local_cloud(id))
 
     def cloud_pose(self, id):
-        return self.modify_pose(self.target.cloud_pose(id))
+        return self.transform_pose(self.target.cloud_pose(id))
 
 
-class FilteredDataset(ForwardingDataset):
+class FilteredDataset(TransformingDataset):
 
     def __init__(self, dataset, cfg: Config):
         super().__init__(dataset)
         self.cfg = cfg
 
-    def modify_cloud(self, cloud):
+    def transform_cloud(self, cloud):
         cloud = filtered_cloud(cloud, self.cfg)
         return cloud
 
 
-class NoisyPoseDataset(ForwardingDataset):
+class NoisyPoseDataset(TransformingDataset):
 
     class Mode(metaclass=ValueEnum):
         pose = 'pose'
@@ -558,7 +558,7 @@ class NoisyPoseDataset(ForwardingDataset):
         return noise
 
     # TODO: Cache
-    def modify_pose(self, pose):
+    def transform_pose(self, pose):
         if self.mode == NoisyPoseDataset.Mode.pose:
             seed = abs(hash(hashable(pose)))
         elif self.mode == NoisyPoseDataset.Mode.common:
@@ -569,7 +569,7 @@ class NoisyPoseDataset(ForwardingDataset):
         return pose
 
 
-class NoisyDepthDataset(ForwardingDataset):
+class NoisyDepthDataset(TransformingDataset):
 
     def __init__(self, dataset, noise=None):
         """
@@ -579,7 +579,7 @@ class NoisyDepthDataset(ForwardingDataset):
         super().__init__(dataset)
         self.noise = noise
 
-    def modify_cloud(self, cloud):
+    def transform_cloud(self, cloud):
         if self.noise:
             pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
             if 'vp_x' in cloud.dtype.names:
@@ -599,14 +599,14 @@ class NoisyDepthDataset(ForwardingDataset):
         return cloud
 
 
-class DepthBiasDataset(ForwardingDataset):
+class DepthBiasDataset(TransformingDataset):
 
     def __init__(self, dataset, model=None, cfg: Config=None):
         super().__init__(dataset)
         self.model = model
         self.cfg = cfg
 
-    def modify_cloud(self, cloud):
+    def transform_cloud(self, cloud):
         if self.model is not None:
             assert isinstance(self.model, BaseModel)
             dc = DepthCloud.from_structured_array(cloud)
@@ -686,8 +686,11 @@ def dataset_by_name(name):
 def create_dataset(name, cfg: Config, **kwargs):
     Dataset = dataset_by_name(name)
     ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
-    ds = ds[::cfg.data_step]
     ds = FilteredDataset(ds, cfg)
+    try:
+        ds = ds[::cfg.data_step]
+    except TypeError as ex:
+        ds = Subscriptable(ds)[::cfg.data_step]
     return ds
 
 

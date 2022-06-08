@@ -773,11 +773,11 @@ def fragments_to_depth(fragments):
 
 def fragments_to_cloud(cameras, mesh, fragments):
     """Convert rasterizer output fragments and mesh to cloud."""
-    assert fragments.pix_to_face.shape[0] == 1
-    assert fragments.pix_to_face.shape[3] == 1
-    assert len(mesh.verts_list()) == 1
-    assert len(mesh.faces_list()) == 1
-    assert len(mesh.faces_normals_list()) == 1
+    assert len(cameras) == 1  # number of meshes
+    assert len(mesh) == 1  # number of meshes
+    # assert len(fragments) == 1  # number of fragments; there can be multiple fragments for some reason.
+    assert fragments.pix_to_face.shape[0] == 1  # batch size
+    assert fragments.pix_to_face.shape[3] == 1  # number of faces
 
     with torch.no_grad():
         face_attrs = mesh.verts_list()[0].detach()[mesh.faces_list()[0]]
@@ -789,13 +789,71 @@ def fragments_to_cloud(cameras, mesh, fragments):
         vps = vps.repeat((pts.shape[0], 1)).numpy()
         vps_struct = unstructured_to_structured(vps, names=['vp_x', 'vp_y', 'vp_z'])
 
-        normal = mesh.faces_normals_list()[0].detach()[fragments.pix_to_face[0, :, :, 0]]
+        normal = mesh.faces_normals_list()[0].detach()[fragments.pix_to_face[0, ..., 0]]
+        normal = normal.reshape((-1, 3))
         normal = normal / normal.norm(dim=-1, keepdim=True)
         normal = normal.cpu().numpy()
         normal_struct = unstructured_to_structured(normal, names=['normal_x', 'normal_y', 'normal_z'])
 
-    cloud = merge_arrays([pts_struct, vps_struct, normal_struct], flatten=True)
+        cloud = merge_arrays([pts_struct, vps_struct, normal_struct], flatten=True)
 
+    return cloud
+
+
+def render_lidar_cloud(mesh, pose, fov=(90., 360.), size=(64, 512)):
+    """Render lidar cloud from mesh."""
+    assert len(fov) == 2
+    assert 0.0 < fov[0] < 180.0
+    assert 0.0 < fov[1] <= 360.0
+    assert len(size) == 2
+    cam = pose[:3, 3][None]
+    x = pose[:3, 0][None]
+    y = pose[:3, 1][None]
+    z = pose[:3, 2][None]
+    fov = torch.deg2rad(torch.as_tensor(fov))
+    size = torch.as_tensor(size)
+
+    # Compose lidar scan of several perspective renders.
+    n = 32
+    image_fov = torch.tensor([fov[0], fov[1] / n])
+    image_size = torch.tensor([size[0], int(size[1] / n)])
+    f = 1.0 / torch.tan(image_fov / 2.0)
+    f = f * image_size / 2.0
+    p = image_size / 2.0
+    f = f.flip(0)  # to xy
+    p = p.flip(0)  # to xy
+    clouds = []
+    for i in range(n):
+        a = torch.as_tensor(-fov[1] / 2 + i * image_fov[1])
+        # Avoid erroneous rotation which cannot be rendered.
+        a = a + 1e-3
+        at = cam + torch.cos(a) * x + torch.sin(a) * y
+        R, T = look_at_view_transform(eye=cam, at=at, up=z)
+        # print(i, a.item())
+        cameras = PerspectiveCameras(focal_length=f[None],
+                                     principal_point=p[None],
+                                     R=R, T=T,
+                                     in_ndc=False,
+                                     image_size=image_size[None])
+        raster_settings = RasterizationSettings(
+            image_size=image_size.tolist(),
+            blur_radius=0.0,
+            faces_per_pixel=1,
+            perspective_correct=True,
+            cull_backfaces=True,
+            z_clip_value=1e-3,
+        )
+        rasterizer = MeshRasterizer(
+            cameras=cameras,
+            raster_settings=raster_settings,
+        )
+        fragments = rasterizer(mesh)
+        cloud = fragments_to_cloud(cameras, mesh, fragments)
+        # DepthCloud.from_structured_array(cloud).visualize()
+        clouds.append(cloud)
+
+    cloud = np.concatenate(clouds)
+    # DepthCloud.from_structured_array(cloud).visualize()
     return cloud
 
 

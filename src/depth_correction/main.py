@@ -399,7 +399,7 @@ def render_meshes(base_cfg: Config=None):
     for name, poses_path in zip(base_cfg.train_names + base_cfg.val_names + base_cfg.test_names,
                                 base_cfg.train_poses_path + base_cfg.val_poses_path + base_cfg.test_poses_path):
 
-        for i in range(base_cfg.data_start, base_cfg.data_stop, renders_per_job):
+        for i in range(base_cfg.data_start, base_cfg.data_stop, renders_per_job * base_cfg.data_step):
 
             i_job += 1
 
@@ -426,8 +426,7 @@ def render_meshes(base_cfg: Config=None):
             cfg.test_names = []
             cfg.test_poses_path = []
             cfg.data_start = i
-            cfg.data_stop = i + renders_per_job
-            cfg.data_step = 1
+            cfg.data_stop = i + renders_per_job * base_cfg.data_step
             print('Poses: %i - %i' % (cfg.data_start, cfg.data_stop))
 
             if cfg.launch_prefix:

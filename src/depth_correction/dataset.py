@@ -701,6 +701,11 @@ class TransformingDataset(Forwarding):
     def transform_pose(self, pose):
         return pose
 
+    def __getitem__(self, item):
+        assert isinstance(item, int), item
+        cloud, pose = self.target[item]
+        return self.transform_cloud(cloud), self.transform_pose(pose)
+
     def __iter__(self):
         for cloud, pose in self.target:
             yield self.transform_cloud(cloud), self.transform_pose(pose)

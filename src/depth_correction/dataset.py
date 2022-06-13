@@ -489,7 +489,7 @@ class MeshDataset(BaseDataset):
 
 class RenderedMeshDataset(object):
 
-    dataset_name = 'rendered_name'
+    dataset_name = 'rendered_mesh'
     cloud_dtype = np.dtype([(f, np.float32) for f in ('x', 'y', 'z',
                                                       'vp_x', 'vp_y', 'vp_z',
                                                       'normal_x', 'normal_y', 'normal_z')])

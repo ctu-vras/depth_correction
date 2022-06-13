@@ -413,7 +413,7 @@ def render_meshes(base_cfg: Config=None):
             cfg = base_cfg.copy()
             assert isinstance(cfg, Config)
 
-            cfg.log_dir = mkdtemp(prefix='render_meshes', dir=base_cfg.log_dir)
+            cfg.log_dir = mkdtemp(prefix='render_meshes_', dir=base_cfg.log_dir)
             os.makedirs(cfg.log_dir, exist_ok=True)
             print('Log dir:', cfg.log_dir)
 

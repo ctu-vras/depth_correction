@@ -970,6 +970,7 @@ def fragments_to_depth(fragments):
 
 def fragments_to_cloud(cameras, mesh, fragments):
     """Convert rasterizer output fragments and mesh to cloud."""
+    # TODO: Use double for positions and viewpoints.
     assert len(cameras) == 1  # number of meshes
     assert len(mesh) == 1  # number of meshes
     # assert len(fragments) == 1  # number of fragments; there can be multiple fragments for some reason.

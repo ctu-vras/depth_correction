@@ -1008,7 +1008,7 @@ def render_lidar_cloud(mesh, pose, fov=(90., 360.), size=(64, 512)):
     size = torch.as_tensor(size)
 
     # Compose lidar scan of several perspective renders.
-    n = 16
+    n = 32
     image_fov = torch.tensor([fov[0], fov[1] / n])
     image_size = torch.tensor([size[0], int(size[1] / n)])
     f = 1.0 / torch.tan(image_fov / 2.0)

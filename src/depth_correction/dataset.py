@@ -1076,14 +1076,41 @@ def demo_rendered_mesh():
     # ds[:100].show_path()
     # ds = ds[::5]
     cfg = Config()
-    cfg.data_start = 100
-    cfg.data_step = 10
-    cfg.dataset_kwargs = {'poses_path': 'poses_gt_simple_cave_02.csv'}
-    ds = create_dataset('rendered_mesh/simple_cave_02.obj', cfg)
-    ds[:100].show_path()
-    for cloud, pose in ds:
-        DepthCloud.from_structured_array(cloud).visualize()
-        print(*pose[:3, 3])
+    cfg.min_depth = 1.0
+    cfg.max_depth = 10.0
+    cfg.grid_res = 0.1
+    # cfg.data_start = 100
+    cfg.data_step = 1
+    # cfg.data_step = 10
+    # cfg.dataset_kwargs = {'poses_path': 'poses_gt_simple_cave_01.csv'}
+    # ds = create_dataset('rendered_mesh/simple_cave_01.obj', cfg)
+    # cfg.dataset_kwargs = {'poses_path': 'poses_gt_simple_cave_02.csv'}
+    # ds = create_dataset('rendered_mesh/simple_cave_02.obj', cfg)
+    cfg.dataset_kwargs = {'poses_path': 'poses_gt_simple_cave_03.csv'}
+    ds = create_dataset('rendered_mesh/simple_cave_03.obj', cfg)
+    # ds[:100].show_path()
+    non_blocking = True
+    if non_blocking:
+        # o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
+        vis = o3d.visualization.Visualizer()
+        vis.create_window()
+        geometry = None
+    for i, (cloud, pose) in enumerate(ds):
+        print(i, *pose[:3, 3])
+        cloud = DepthCloud.from_structured_array(cloud)
+        if non_blocking:
+            if geometry is not None:
+                vis.remove_geometry(geometry, reset_bounding_box=False)
+            geometry = cloud.to_point_cloud()
+            vis.add_geometry(geometry)
+            vis.poll_events()
+            vis.update_renderer()
+            sleep(0.1)
+        else:
+            cloud.visualize()
+
+    if non_blocking:
+        vis.destroy_window()
 
 
 def render_meshes(cfg: Config=None):

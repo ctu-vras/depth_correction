@@ -1092,9 +1092,9 @@ def render_meshes(cfg: Config=None):
                   % ('poses_path', tmp_cfg.dataset_kwargs['poses_path']))
         tmp_cfg.dataset_kwargs['poses_path'] = poses_path
         ds = create_dataset(name, tmp_cfg)
-        # for i, (cloud, pose) in enumerate(ds):
-        #     print('Rendered %s (%s), pose %i: %s.' % (name, poses_path, i, pose[:3, 3]))
         print(name, ds.idx)
+        for i, (cloud, pose) in enumerate(ds):
+            print('Rendered %s (%s), pose %i: %s.' % (name, poses_path, i, pose[:3, 3]))
 
 
 def demo_orthographic():

@@ -137,6 +137,7 @@ class Config(Configurable):
         # Launch and scheduler options.
         self.launch_prefix = None  # Allows setting launch prefix, e.g., for scheduler.
         self.num_jobs = 0  # Allows debugging with fewer jobs.
+        self.items_per_job = 1
         self.force = False   # Allow overwriting existing configs, etc.
         self.random_seed = 135
 

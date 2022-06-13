@@ -395,7 +395,7 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
 
 def render_meshes(base_cfg: Config=None):
     i_job = -1
-    renders_per_job = 10
+    renders_per_job = base_cfg.items_per_job
     for name, poses_path in zip(base_cfg.train_names + base_cfg.val_names + base_cfg.test_names,
                                 base_cfg.train_poses_path + base_cfg.val_poses_path + base_cfg.test_poses_path):
 

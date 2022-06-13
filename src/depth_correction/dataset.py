@@ -5,17 +5,21 @@ from .depth_cloud import DepthCloud
 from .preproc import filtered_cloud
 from .model import BaseModel
 from .utils import cached, hashable, timing, transform, transform_inv, load_mesh
+from argparse import ArgumentParser
 from copy import copy
+from data.asl_laser import read_poses
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
 import open3d as o3d
 import os
+from pytorch3d.io import load_objs_as_meshes
 from pytorch3d.ops import interpolate_face_attributes, sample_points_from_meshes
 from pytorch3d.renderer import (
-    FoVPerspectiveCameras,
+    FoVOrthographicCameras,
     look_at_view_transform,
     MeshRasterizer,
-    MeshRenderer,
+    PerspectiveCameras,
     RasterizationSettings,
 )
 from tf.transformations import euler_matrix
@@ -481,6 +485,192 @@ class MeshDataset(BaseDataset):
         return self.name
 
 
+class RenderedMeshDataset(object):
+
+    dataset_name = 'rendered_mesh'
+    cloud_dtype = np.dtype([(f, np.float32) for f in ('x', 'y', 'z',
+                                                      'vp_x', 'vp_y', 'vp_z',
+                                                      'normal_x', 'normal_y', 'normal_z')])
+
+    def __init__(self, name, n=None, size=(64, 512), fov=(45., 360.), poses_path=None, cache=True, device='cpu'):
+        """Create rendered dataset from mesh.
+
+        :param name: Name of the mesh (possibly with parameters), or absolute path.
+        :param n: Number of poses.
+        :param size: Lidar scan size, (height, width).
+        :param fov: Lidar scan field of view, (vertical, horizontal).
+        :param poses_path: Poses CSV path, default to None.
+        :param cache: Use point cloud cache, default to False.
+        :param device: PyTorch device, default to 'cpu'.
+        """
+        if os.path.isabs(name):
+            path = name
+        else:
+            parts = name.split('/')
+            assert 1 <= len(parts) <= 3, parts
+
+            # if len(parts) > 3:
+            if len(parts) >= 2:
+                assert parts[0] == RenderedMeshDataset.dataset_name
+                # Parse mesh name from qualified name.
+                name = parts[1]
+                if len(parts) >= 3:
+                    # Parse parameters specified in name.
+                    params = parts[2].split('_')
+                    n, size, fov = self.parse_params(params, n, size, fov)
+
+            path = os.path.join(Config().pkg_dir, 'data', 'meshes', name)
+
+        if not os.path.exists(path):
+            raise FileExistsError('Mesh %s does not exist.' % path)
+
+        if poses_path:
+            if not os.path.isabs(poses_path):
+                poses_path = os.path.join(Config().pkg_dir, 'data', 'meshes', poses_path)
+            if not os.path.exists(poses_path):
+                raise FileExistsError('Poses path %s does not exist.' % poses_path)
+
+        # FIXME: Debug
+        # size = (32, 64)
+
+        assert n is None or (isinstance(n, int) and n > 0), n
+        assert len(size) == 2, size
+        assert len(fov) == 2, size
+        assert 0. <= fov[0] <= 180., fov
+        assert 0. <= fov[1] <= 360., fov
+        if not device:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        assert device in ('cpu', 'cuda') or isinstance(device, torch.device), device
+        self.path = path
+        self.mesh = None  # Lazy loading.
+        self.n = n
+        self.size = size
+        self.fov = fov
+        self.poses_path = poses_path
+        self.cache = cache
+        self.device = device
+
+        # Rotation from mesh to ROS.
+        self.mesh_to_ros = np.array([[ 0., 1., 0., 0.],
+                                     [-1., 0., 0., 0.],
+                                     [ 0., 0., 1., 0.],
+                                     [ 0., 0., 0., 1.]])
+        self.ros_to_mesh = np.linalg.inv(self.mesh_to_ros)
+        # Poses are generated with x-forward, y-left, z-up.
+        # Vertical FoV is centered around xy plane.
+        self.ids, self.poses = read_poses(self.get_poses_path())
+        self.poses = np.stack(self.poses)
+        self.n = len(self)
+        self.poses = np.matmul(self.ros_to_mesh, self.poses)
+        self.poses[:, 2, 3] += 1.0
+
+    def get_mesh(self):
+        if self.mesh is None:
+            print('Loading mesh: %s...' % self.path)
+            self.mesh = load_objs_as_meshes([self.path], device=self.device)
+        return self.mesh
+
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            id = self.ids[i]
+            cloud = self.local_cloud(id)
+            pose = self.cloud_pose(id)
+            return cloud, pose
+        ds = copy(self)
+        if isinstance(i, (list, tuple)):
+            ds.ids = [self.ids[j] for j in i]
+        elif isinstance(i, slice):
+            ds.ids = self.ids[i]
+        else:
+            raise ValueError('Invalid index: %s.' % i)
+        return ds
+
+    def __len__(self):
+        return self.poses.shape[0]
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+    def parse_params(self, params, n, size, fov):
+        if 'n' in params:
+            i = params.index('n')
+            n = int(params[i + 1])
+            print('Parsed n=%i from name.' % n)
+        if 'size' in params:
+            i = params.index('size')
+            size = [int(x) for x in params[i + 1:i + 3]]
+            print('Parsed size=(%i, %i) from name.' % size)
+        if 'fov' in params:
+            i = params.index('fov')
+            fov = [float(x) for x in params[i + 1:i + 3]]
+            print('Parsed fov=(%.3g, %.3g) from name.' % size)
+        return n, size, fov
+
+    def dataset_dir(self):
+        name = '%s' % os.path.basename(self.path)
+        path = os.path.join(Config().pkg_dir, 'gen', 'rendered_mesh', name)
+        return path
+
+    def get_poses_path(self):
+        if self.poses_path:
+            return self.poses_path
+        path = os.path.join(self.dataset_dir(), 'n%i' % self.n, 'poses.csv')
+        return path
+
+    def cloud_path(self, id):
+        path = os.path.join(self.dataset_dir(),
+                            'n%i_size_%i_%i_fov_%.0f_%.0f' % (self.n, *self.size, *self.fov),
+                            'cloud_%05i.bin' % id)
+        return path
+
+    def generate_viewpoints(self):
+        """Generate viewpoints "inside" the mesh where something is visible."""
+        path = self.get_poses_path()
+
+        if not os.path.exists(path):
+            poses = np.eye(4)[None]
+            assert isinstance(poses, np.ndarray)
+            poses[0, 2, 3] = 2.0
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            poses.tofile(path)
+
+        assert os.path.exists(path)
+        self.poses = np.fromfile(path)
+
+    def render(self, pose):
+        """Render lidar scan at selected pose."""
+        pose = torch.as_tensor(pose)
+        return render_lidar_cloud(self.get_mesh(), pose, self.fov, self.size)
+
+    def local_cloud(self, id):
+        path = self.cloud_path(id)
+        if self.cache and os.path.exists(path):
+            cloud = np.fromfile(path, dtype=RenderedMeshDataset.cloud_dtype)
+        else:
+            cloud = self.render(self.poses[id])
+        if self.cache and not os.path.exists(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            cloud.tofile(path)
+            assert os.path.exists(path)
+        return cloud
+
+    def cloud_pose(self, id):
+        # self.poses[id][:3, 3])
+        return self.poses[id]
+
+    def show_path(self):
+        fig, axes = plt.subplots(1, 1, figsize=(8.0, 8.0), constrained_layout=True, squeeze=False)
+        ax = axes[0, 0]
+        ax.set_title(os.path.basename(self.get_poses_path()))
+        ax.plot(self.poses[self.ids, 0, 3], self.poses[self.ids, 1, 3], '.')
+        ax.set_aspect('equal')
+        ax.grid()
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('y [m]')
+        plt.show()
+
+
 class Forwarding(object):
     def __init__(self, target):
         self.target = target
@@ -488,8 +678,11 @@ class Forwarding(object):
     def __getattr__(self, item):
         return getattr(self.target, item)
 
+    def __getitem__(self, item):
+        return self.target[item]
+
     def __iter__(self):
-        return self.target.__iter__()
+        return iter(self.target)
 
     def __len__(self):
         return len(self.target)
@@ -507,6 +700,11 @@ class TransformingDataset(Forwarding):
 
     def transform_pose(self, pose):
         return pose
+
+    def __getitem__(self, item):
+        assert isinstance(item, int), item
+        cloud, pose = self.target[item]
+        return self.transform_cloud(cloud), self.transform_pose(pose)
 
     def __iter__(self):
         for cloud, pose in self.target:
@@ -672,6 +870,8 @@ def dataset_by_name(name):
         return OpenBoxDataset
     elif name == 'angle':
         return AngleDataset
+    elif 'rendered_mesh' in name:
+        return RenderedMeshDataset
     elif '.obj' in name or '.ply' in name:
         return MeshDataset
     elif name == 'asl_laser':
@@ -687,10 +887,7 @@ def create_dataset(name, cfg: Config, **kwargs):
     Dataset = dataset_by_name(name)
     ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
     ds = FilteredDataset(ds, cfg)
-    try:
-        ds = ds[::cfg.data_step]
-    except TypeError as ex:
-        ds = Subscriptable(ds)[::cfg.data_step]
+    ds = Subscriptable(ds)[cfg.data_slice()]
     return ds
 
 
@@ -765,14 +962,15 @@ def fragments_to_depth(fragments):
     """Convert rasterizer output fragments to depth."""
     # depth = fragments.zbuf.cpu().squeeze().numpy()
     depth = fragments.zbuf.detach().cpu().numpy()
-    assert depth.shape[0] == 1
-    assert depth.shape[3] == 1
+    assert depth.shape[0] == 1  # batch size
+    # assert depth.shape[3] == 1  # number of faces
     depth = depth[0, :, :, 0]
     return depth
 
 
 def fragments_to_cloud(cameras, mesh, fragments):
     """Convert rasterizer output fragments and mesh to cloud."""
+    # TODO: Use double for positions and viewpoints.
     assert len(cameras) == 1  # number of meshes
     assert len(mesh) == 1  # number of meshes
     # assert len(fragments) == 1  # number of fragments; there can be multiple fragments for some reason.
@@ -806,6 +1004,8 @@ def render_lidar_cloud(mesh, pose, fov=(90., 360.), size=(64, 512)):
     assert 0.0 < fov[0] < 180.0
     assert 0.0 < fov[1] <= 360.0
     assert len(size) == 2
+    device = mesh.device
+    pose = pose.to(device=device, dtype=torch.float32)
     cam = pose[:3, 3][None]
     x = pose[:3, 0][None]
     y = pose[:3, 1][None]
@@ -824,28 +1024,30 @@ def render_lidar_cloud(mesh, pose, fov=(90., 360.), size=(64, 512)):
     p = p.flip(0)  # to xy
     clouds = []
     for i in range(n):
+        print('%i / %i' % (i + 1, n))
         a = torch.as_tensor(-fov[1] / 2 + i * image_fov[1])
         # Avoid erroneous rotation which cannot be rendered.
         a = a + 1e-3
         at = cam + torch.cos(a) * x + torch.sin(a) * y
-        R, T = look_at_view_transform(eye=cam, at=at, up=z)
+        R, T = look_at_view_transform(eye=cam, at=at, up=z, device=device)
         # print(i, a.item())
         cameras = PerspectiveCameras(focal_length=f[None],
                                      principal_point=p[None],
                                      R=R, T=T,
                                      in_ndc=False,
-                                     image_size=image_size[None])
-        raster_settings = RasterizationSettings(
-            image_size=image_size.tolist(),
-            blur_radius=0.0,
-            faces_per_pixel=1,
-            perspective_correct=True,
-            cull_backfaces=True,
-            z_clip_value=1e-3,
-        )
+                                     image_size=image_size[None],
+                                     device=device)
         rasterizer = MeshRasterizer(
             cameras=cameras,
-            raster_settings=raster_settings,
+            raster_settings=RasterizationSettings(
+                image_size=image_size.tolist(),
+                blur_radius=0.0,
+                faces_per_pixel=1,
+                perspective_correct=True,
+                cull_backfaces=True,
+                z_clip_value=1e-3,
+                cull_to_frustum=True,
+            ),
         )
         fragments = rasterizer(mesh)
         cloud = fragments_to_cloud(cameras, mesh, fragments)
@@ -857,13 +1059,137 @@ def render_lidar_cloud(mesh, pose, fov=(90., 360.), size=(64, 512)):
     return cloud
 
 
+def render_mesh(mesh, cameras, rasterizer):
+    fragments = rasterizer(mesh)
+    depth = fragments_to_depth(fragments)
+    cloud = fragments_to_cloud(cameras, mesh, fragments)
+    return depth, cloud
+
+
+def demo_rendered_mesh():
+
+    # ds = RenderedMeshDataset('simple_cave_01.obj')
+    # ds = RenderedMeshDataset('simple_cave_01.obj', poses_path='poses_gt_simple_cave_01.csv')
+    # ds = RenderedMeshDataset('simple_cave_02.obj', poses_path='poses_gt_simple_cave_02.csv')
+    # ds = RenderedMeshDataset('simple_cave_03.obj', poses_path='poses_gt_simple_cave_03.csv')
+    # ds = RenderedMeshDataset('simple_cave_03.obj', poses_path='poses_simple_cave_03.csv')
+    # ds[:100].show_path()
+    # ds = ds[::5]
+    cfg = Config()
+    cfg.min_depth = 1.0
+    cfg.max_depth = 10.0
+    cfg.grid_res = 0.1
+    # cfg.data_start = 100
+    cfg.data_step = 1
+    # cfg.data_step = 10
+    # cfg.dataset_kwargs = {'poses_path': 'poses_gt_simple_cave_01.csv'}
+    # ds = create_dataset('rendered_mesh/simple_cave_01.obj', cfg)
+    # cfg.dataset_kwargs = {'poses_path': 'poses_gt_simple_cave_02.csv'}
+    # ds = create_dataset('rendered_mesh/simple_cave_02.obj', cfg)
+    cfg.dataset_kwargs = {'poses_path': 'poses_gt_simple_cave_03.csv'}
+    ds = create_dataset('rendered_mesh/simple_cave_03.obj', cfg)
+    # ds[:100].show_path()
+    non_blocking = True
+    if non_blocking:
+        # o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
+        vis = o3d.visualization.Visualizer()
+        vis.create_window()
+        geometry = None
+    for i, (cloud, pose) in enumerate(ds):
+        print(i, *pose[:3, 3])
+        cloud = DepthCloud.from_structured_array(cloud)
+        if non_blocking:
+            if geometry is not None:
+                vis.remove_geometry(geometry, reset_bounding_box=False)
+            geometry = cloud.to_point_cloud()
+            vis.add_geometry(geometry)
+            vis.poll_events()
+            vis.update_renderer()
+            sleep(0.1)
+        else:
+            cloud.visualize()
+
+    if non_blocking:
+        vis.destroy_window()
+
+
+def render_meshes(cfg: Config=None):
+    names = cfg.train_names + cfg.val_names + cfg.test_names
+    poses_paths = cfg.train_poses_path + cfg.val_poses_path + cfg.test_poses_path
+    assert len(names) == len(poses_paths)
+    for name, poses_path in zip(names, poses_paths):
+        tmp_cfg = cfg.copy()
+        assert isinstance(tmp_cfg, Config)
+        if 'poses_path' in tmp_cfg.dataset_kwargs:
+            print('Key-value dataset arguments contains %s=%s.'
+                  % ('poses_path', tmp_cfg.dataset_kwargs['poses_path']))
+        tmp_cfg.dataset_kwargs['poses_path'] = poses_path
+        ds = create_dataset(name, tmp_cfg)
+        print(name, ds.idx)
+        for i, (cloud, pose) in enumerate(ds):
+            print('Rendered %s (%s), pose %i: %s.' % (name, poses_path, i, pose[:3, 3]))
+
+
+def demo_orthographic():
+
+    o = torch.tensor([[0.0, 300.0, 50.0]])
+    at = o - torch.tensor([[0.0, 0.0, 1.0]])
+    up = torch.tensor([[0.0, 1.0, 0.0]])  # x right, y up
+    R, T = look_at_view_transform(eye=o, at=at, up=up)
+    cameras = FoVOrthographicCameras(znear=1e-3, zfar=100.0,
+                                     min_y=-300.0, max_y=300.0,
+                                     min_x=-300.0, max_x=300.0,
+                                     R=R, T=T)
+    image_size = torch.tensor([512, 512])
+    rasterizer = MeshRasterizer(
+        cameras=cameras,
+        raster_settings=RasterizationSettings(
+            image_size=image_size.tolist(),
+            blur_radius=0.0,
+            faces_per_pixel=1,
+            cull_backfaces=True,
+            z_clip_value=1e-3,
+        ),
+    )
+    path = os.path.join(Config().pkg_dir, 'data', 'meshes', 'simple_cave_01.obj')
+    mesh = load_objs_as_meshes([path])
+    depth, cloud = render_mesh(mesh, cameras, rasterizer)
+    plt.figure(figsize=(10, 10))
+    plt.imshow(depth)
+    plt.axis('off')
+    plt.show()
+
+    cloud = DepthCloud.from_structured_array(cloud)
+    cloud.visualize()
+
+
 def test():
     import doctest
     doctest.testmod()
 
 
+def run_from_cmdline():
+    parser = ArgumentParser()
+    parser.add_argument('--config', '-c', type=str, required=True)
+    parser.add_argument('arg', type=str)
+    args = parser.parse_args()
+    print('Arguments:')
+    print(args)
+    print()
+    cfg = Config()
+    cfg.from_yaml(args.config)
+    print('Config:')
+    print(cfg.to_yaml())
+    print()
+    if args.arg == 'render_meshes':
+        print('Rendering meshes...')
+        render_meshes(cfg)
+        print('Rendering meshes finished.')
+        print()
+
+
 def main():
-    demo()
+    run_from_cmdline()
 
 
 if __name__ == '__main__':

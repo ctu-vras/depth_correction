@@ -15,11 +15,12 @@ from .config import (
 from argparse import ArgumentParser
 from collections import deque
 from glob import glob
+import importlib
 from itertools import product
 import os
 import random
 import sys
-import importlib
+from tempfile import mkdtemp
 """Launch all experiments.
 
 Generated files:
@@ -392,6 +393,66 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
             eval_slam_all(cfg)
 
 
+def render_meshes(base_cfg: Config=None):
+    i_job = -1
+    renders_per_job = base_cfg.items_per_job
+    for name, poses_path in zip(base_cfg.train_names + base_cfg.val_names + base_cfg.test_names,
+                                base_cfg.train_poses_path + base_cfg.val_poses_path + base_cfg.test_poses_path):
+
+        for i in range(base_cfg.data_start, base_cfg.data_stop, renders_per_job * base_cfg.data_step):
+
+            i_job += 1
+
+            if base_cfg.launch_prefix and i_job >= base_cfg.num_jobs:
+                print('Maximum number of jobs (%i) scheduled.' % base_cfg.num_jobs)
+                break
+
+            print()
+            print('Generating config...')
+
+            cfg = base_cfg.copy()
+            assert isinstance(cfg, Config)
+
+            cfg.log_dir = mkdtemp(prefix='render_meshes_', dir=base_cfg.log_dir)
+            os.makedirs(cfg.log_dir, exist_ok=True)
+            print('Log dir:', cfg.log_dir)
+
+            cfg.train_names = [name]
+            print('Dataset: %s' % cfg.train_names)
+            cfg.train_poses_path = [poses_path]
+            print('Poses path: %s' % cfg.train_poses_path)
+            cfg.val_names = []
+            cfg.val_poses_path = []
+            cfg.test_names = []
+            cfg.test_poses_path = []
+            cfg.data_start = i
+            cfg.data_stop = i + renders_per_job * base_cfg.data_step
+            print('Poses: %i - %i' % (cfg.data_start, cfg.data_stop))
+
+            if cfg.launch_prefix:
+                out_path = os.path.join(cfg.log_dir, 'render_meshes.out.txt')
+                err_path = os.path.join(cfg.log_dir, 'render_meshes.err.txt')
+                cfg_path = os.path.join(cfg.log_dir, 'config.yaml')
+                if os.path.exists(cfg_path):
+                    print('Skipping existing config %s.' % cfg_path)
+                    continue
+                cfg.to_yaml(cfg_path)
+                launch_prefix = cfg.launch_prefix.format(log_dir=cfg.log_dir, name=name, out=out_path, err=err_path)
+                launch_prefix = launch_prefix.split(' ')
+                cmd = launch_prefix + ['python', '-m', 'depth_correction.dataset', '-c', cfg_path, 'render_meshes']
+                print()
+                print('Command line:', cmd)
+                out, err = cmd_out(cmd)
+                if out:
+                    print('Output:', out)
+                if err:
+                    print('Error:', err)
+            else:
+                # Avoid using ROS in global namespace to allow using scheduler.
+                from .dataset import render_meshes
+                render_meshes(cfg=cfg)
+
+
 def main():
     argv = sys.argv[1:]
     print('Command-line arguments:')
@@ -434,6 +495,8 @@ def main():
     elif verb == 'print_config':
         print(Config().to_yaml())
         print()
+    elif verb == 'render_meshes':
+        render_meshes(cmd_cfg)
 
 
 if __name__ == '__main__':

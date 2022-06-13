@@ -77,6 +77,8 @@ cache = {}
 
 
 def cached(f):
+    """Create caching wrapper of the function.
+    Function and its inputs are used as keys to store or retrieve outputs."""
     def cached_wrapper(*args, **kwargs):
         key = (hashable(f), hashable(args), hashable(kwargs))
         if key not in cache:

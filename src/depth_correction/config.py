@@ -203,6 +203,8 @@ class Config(Configurable):
         self.train_poses_path = []
         self.val_poses_path = []
         self.test_poses_path = []
+        self.data_start = None
+        self.data_stop = None
         self.data_step = 5
         self.world_frame = 'world'
 
@@ -244,6 +246,9 @@ class Config(Configurable):
 
         # Override from kwargs
         self.from_dict(kwargs)
+
+    def data_slice(self):
+        return slice(self.data_start, self.data_stop, self.data_step)
 
     def numpy_float_type(self):
         import numpy as np

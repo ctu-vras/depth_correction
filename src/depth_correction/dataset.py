@@ -855,10 +855,7 @@ def create_dataset(name, cfg: Config, **kwargs):
     Dataset = dataset_by_name(name)
     ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
     ds = FilteredDataset(ds, cfg)
-    try:
-        ds = ds[::cfg.data_step]
-    except TypeError as ex:
-        ds = Subscriptable(ds)[::cfg.data_step]
+    ds = Subscriptable(ds)[cfg.data_slice()]
     return ds
 
 

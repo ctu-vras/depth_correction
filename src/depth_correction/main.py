@@ -394,14 +394,16 @@ def eval_configs(base_cfg: Config=None, config=None, arg='all'):
 
 
 def render_meshes(base_cfg: Config=None):
-    i_exp = 0
+    i_job = -1
     renders_per_job = 10
     for name, poses_path in zip(base_cfg.train_names + base_cfg.val_names + base_cfg.test_names,
                                 base_cfg.train_poses_path + base_cfg.val_poses_path + base_cfg.test_poses_path):
 
         for i in range(base_cfg.data_start, base_cfg.data_stop, renders_per_job):
 
-            if base_cfg.launch_prefix and i_exp >= base_cfg.num_jobs:
+            i_job += 1
+
+            if base_cfg.launch_prefix and i_job >= base_cfg.num_jobs:
                 print('Maximum number of jobs (%i) scheduled.' % base_cfg.num_jobs)
                 break
 

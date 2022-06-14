@@ -24,6 +24,7 @@ from pytorch3d.renderer import (
 )
 from tf.transformations import euler_matrix
 import torch
+import importlib
 
 
 def box_point_cloud(size=(1.0, 1.0, 0.0), density=100.0, rng=np.random.default_rng()):
@@ -874,12 +875,9 @@ def dataset_by_name(name):
         return RenderedMeshDataset
     elif '.obj' in name or '.ply' in name:
         return MeshDataset
-    elif name == 'asl_laser':
-        import data.asl_laser
-        return getattr(data.asl_laser, 'Dataset')
-    elif name == 'semantic_kitti':
-        import data.semantic_kitti
-        return getattr(data.semantic_kitti, 'Dataset')
+    elif name in ['asl_laser', 'semantic_kitti', 'newer_college']:
+        imported_module = importlib.import_module("data.%s" % name)
+        return getattr(imported_module, "Dataset")
     raise ValueError('Unknown dataset: %s.' % name)
 
 

@@ -64,6 +64,7 @@ class TrainingDemo(TrainCallbacks):
         # OKAY
         # self.cfg.train_names = ['asl_laser/apartment']
         self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
+        # self.cfg.train_names = ['newer_college/01_short_experiment']
         # NOT OKAY (lr 1e-3, pose and depth noise, def eigval bounds)
         # heavy shortening with noise
         # self.cfg.train_names = ['asl_laser/gazebo_summer']

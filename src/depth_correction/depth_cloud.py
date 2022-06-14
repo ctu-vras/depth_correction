@@ -675,6 +675,7 @@ class DepthCloud(object):
         return pc_msg
 
     def to(self, device=None, dtype=None, float_type=None, int_type=None):
+        kwargs = {}
         for f in DepthCloud.all_fields:
             x = getattr(self, f)
             if x is not None:
@@ -685,8 +686,8 @@ class DepthCloud(object):
                 else:
                     x_type = None
                 x = x.to(device=device, dtype=x_type)
-                setattr(self, f, x)
-        return self
+                kwargs[f] = x
+        return DepthCloud(**kwargs)
 
     def cpu(self):
         return self.to(torch.device('cpu'))

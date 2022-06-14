@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+p = np.random.uniform(-10.0, 10.0, (2, 10))
+# theta = np.arccos(np.clip(np.dot(p, [1, 0]) / np.linalg.norm(p), -1.0, 1.0))
+d0 = 1.0
+dp = np.linalg.norm(p, axis=0)
+vp = p * d0 / dp
+
+plt.figure()
+plt.plot(0, 0, 'x', markersize=5, label='origin')
+plt.plot(p[0, :], p[1, :], 'ro', markersize=5, label='p')
+plt.plot(vp[0, :], vp[1, :], 'go', markersize=5, label='vp')
+plt.legend()
+plt.grid()
+# plt.xlim([-10, 10])
+# plt.ylim([-10, 10])
+plt.axis('equal')
+plt.show()

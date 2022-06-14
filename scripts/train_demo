@@ -56,6 +56,8 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_names = ['simple_tunnel_01.obj']
         # self.cfg.train_names = ['gazebo_cave_world.ply']
         # self.cfg.train_names = ['burning_building_rubble.ply']
+        # self.cfg.train_names = ['newer_college.ply']
+
         # self.cfg.dataset_kwargs['n_poses'] = 5
         # self.cfg.dataset_kwargs['size'] = ([100., 140.], [-20., 20.], [-50., 50.])
         # self.cfg.dataset_kwargs['size'] = ([-20., 20.], [-20., 20.], [-20., 20.])
@@ -64,6 +66,7 @@ class TrainingDemo(TrainCallbacks):
         # OKAY
         # self.cfg.train_names = ['asl_laser/apartment']
         self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
+        # self.cfg.train_names = ['newer_college/01_short_experiment']
         # NOT OKAY (lr 1e-3, pose and depth noise, def eigval bounds)
         # heavy shortening with noise
         # self.cfg.train_names = ['asl_laser/gazebo_summer']
@@ -297,6 +300,10 @@ class TrainingDemo(TrainCallbacks):
 
     @timing
     def visualize(self, model, clouds, poses=None):
+        clouds = [cloud.detach() for cloud in clouds]
+        if poses is not None:
+            poses = [pose.detach() for pose in poses]
+
         ax = self.ax[0, 0]
         ax.cla()
         ax.plot(self.iterations, self.train_losses)

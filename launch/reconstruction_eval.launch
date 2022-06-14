@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <arg name="dataset" default="new_college/01_short_experiment" doc="Dataset and sequence name."/>
+    <arg name="dataset" default="newer_college/01_short_experiment" doc="Dataset and sequence name."/>
     <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
     <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
 

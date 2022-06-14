@@ -4,7 +4,7 @@ import torch
 import rospy
 from sensor_msgs.msg import PointCloud2
 from timeit import default_timer as timer
-from ros_numpy import msgify, numpify
+from ros_numpy import numpify, msgify
 import tf2_ros
 import numpy as np
 import importlib
@@ -12,7 +12,7 @@ import open3d as o3d
 from typing import Union
 from pytorch3d.ops.knn import knn_points
 from pytorch3d.structures import Pointclouds
-from numpy.lib.recfunctions import structured_to_unstructured
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 
 
 def _validate_chamfer_reduction_inputs(
@@ -164,7 +164,7 @@ class ReconstructionEval:
         self.map = None
 
         self.dataset_path = rospy.get_param('~dataset_path', "")
-        self.dataset_name = rospy.get_param('~dataset', 'new_college/01_short_experiment')
+        self.dataset_name = rospy.get_param('~dataset', 'newer_college/01_short_experiment')
         self.dataset_poses_path = rospy.get_param('~dataset_poses_path', "")
         imported_module = importlib.import_module("data.%s" % self.dataset_name.split('/')[0])
         Dataset = getattr(imported_module, "Dataset")
@@ -177,16 +177,17 @@ class ReconstructionEval:
 
         # obtaining the constructed map (reward cloud)
         rospy.Subscriber(self.map_topic, PointCloud2, self.get_constructed_map)
+        self.pc_pub = rospy.Publisher('~cloud_gt', PointCloud2, queue_size=1)
 
         # evaluation runner
         rospy.Timer(rospy.Duration(1. / self.rate), self.run)
 
-    def load_ground_truth(self):
+    def load_ground_truth(self, voxel_size=0.5):
         if not getattr(self.dataset, "get_ground_truth_cloud"):
             rospy.logwarn_once("Dataset does not have ground truth map")
             return
         rospy.loginfo("Loading ground truth cloud...")
-        cloud = self.dataset.get_ground_truth_cloud(voxel_size=0.5)
+        cloud = self.dataset.get_ground_truth_cloud(voxel_size=voxel_size)
         if isinstance(cloud, np.ndarray):
             cloud = torch.from_numpy(cloud)
         elif isinstance(cloud, o3d.geometry.PointCloud):
@@ -230,6 +231,13 @@ class ReconstructionEval:
             cd = chamfer_distance(map, self.map_gt)
             # cd = chamfer_distance(self.map_gt, map)
             rospy.loginfo("Distance from constructed map to ground truth: %f", cd.item())
+
+            # publish ground truth cloud here
+            pcd_gt_msg = msgify(PointCloud2,
+                                unstructured_to_structured(self.map_gt.squeeze().cpu().numpy(), names=['x', 'y', 'z']))
+            pcd_gt_msg.header.stamp = self.pc_msg.header.stamp
+            pcd_gt_msg.header.frame_id = 'map'
+            self.pc_pub.publish(pcd_gt_msg)
 
 
 if __name__ == '__main__':

@@ -126,8 +126,8 @@ class RobotData(object):
             t_norms.append(t_norm)
             rel_angles.append(rel_angle)
             rel_offsets.append(rel_offset)
-            rospy.loginfo('SLAM error at pos. %i (index %i): rot. %.6f deg. (%.3f deg/m), transl. %.6f m (%.3f %%).',
-                          position, index, np.degrees(r_angle), np.degrees(rel_angle), t_norm, 100. * rel_offset)
+            rospy.loginfo('SLAM error at pos. %s (index %i): rot. %.6f deg. (%.3f deg/m), transl. %.6f m (%.3f %%).',
+                          str(position), index, np.degrees(r_angle), np.degrees(rel_angle), t_norm, 100. * rel_offset)
 
         r_angle = np.mean(r_angles).item()
         t_norm = np.mean(t_norms).item()
@@ -148,8 +148,8 @@ class RobotData(object):
                   'poseId, timestamp, T00, T01, T02, T03, T10, T11, T12, T13, T20, T21, T22, T23, T30, T31, T32, T33\n')
             for i, t, T in zip(self.ids, self.eval_stamps, self.slam_poses):
                 assert T.shape == (4, 4)
-                append(self.slam_poses_csv, '%d, %.6f, %s\n'
-                       % (i, t.to_sec(), ', '.join(['%.6f' % x for x in T.flatten()])))
+                append(self.slam_poses_csv, '%s, %.6f, %s\n'
+                       % (str(i), t.to_sec(), ', '.join(['%.6f' % x for x in T.flatten()])))
             rospy.loginfo('SLAM poses written to %s.', os.path.realpath(self.slam_poses_csv))
 
     def start_timer(self, evt):

@@ -21,7 +21,8 @@ scene surfaces with high incidence angle.
 For models evauation we utilize and provide training pipeline on the following datasets:
 
 - [ASL laser](https://projects.asl.ethz.ch/datasets/doku.php?id=laserregistration:laserregistration),
-- [Semantic KITTI](http://www.semantic-kitti.org/dataset.html).
+- [Semantic KITTI](http://www.semantic-kitti.org/dataset.html),
+- [Newer College](https://ori-drs.github.io/newer-college-dataset/).
 
 
 ## Installation

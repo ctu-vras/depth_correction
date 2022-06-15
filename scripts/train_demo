@@ -249,11 +249,12 @@ class TrainingDemo(TrainCallbacks):
         # self.poses.append(poses[0].detach().cpu().numpy().copy())
         # print(pose_deltas[0])
         # print(pose_deltas[0].grad)
-        self.pose_deltas.append(pose_deltas[0].detach().cpu().numpy().flatten().copy())
-        if pose_deltas[0].grad is not None:
-            self.pose_delta_grads.append(pose_deltas[0].grad.detach().cpu().numpy().flatten().copy())
-        else:
-            self.pose_delta_grads.append(np.array(6 * [float('nan')]))
+        if len(pose_deltas) > 0:
+            self.pose_deltas.append(pose_deltas[0].detach().cpu().numpy().flatten().copy())
+            if pose_deltas[0].grad is not None:
+                self.pose_delta_grads.append(pose_deltas[0].grad.detach().cpu().numpy().flatten().copy())
+            else:
+                self.pose_delta_grads.append(np.array(6 * [float('nan')]))
         self.pose_losses.append(self.compute_pose_loss(poses))
         self.weights.append(model.w.detach().cpu().numpy().flatten().tolist())
         self.exponents.append(model.exponent.detach().cpu().numpy().flatten().tolist())

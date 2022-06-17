@@ -593,6 +593,9 @@ class RenderedMeshDataset(object):
         for i in range(len(self)):
             yield self[i]
 
+    def __str__(self):
+        return '%s/%s' % (RenderedMeshDataset.dataset_name, os.path.basename(self.path))
+
     def parse_params(self, params, n, size, fov):
         if 'n' in params:
             i = params.index('n')

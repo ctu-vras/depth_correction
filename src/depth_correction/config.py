@@ -209,6 +209,14 @@ class Config(Configurable):
         self.data_step = 5
         self.world_frame = 'world'
 
+        # Artificial data noise
+        self.depth_bias_model_class = Model.ScaledPolynomial
+        self.depth_bias_model_args = []
+        self.depth_bias_model_kwargs = {}
+        self.depth_noise = 0.0
+        self.pose_noise = 0.0
+        self.pose_noise_mode = None
+
         # Training
         self.loss = Loss.min_eigval_loss
         # self.loss = Loss.trace_loss

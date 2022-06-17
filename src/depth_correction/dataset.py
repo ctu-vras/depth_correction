@@ -888,6 +888,22 @@ def create_dataset(name, cfg: Config, **kwargs):
     Dataset = dataset_by_name(name)
     ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
     ds = FilteredDataset(ds, cfg)
+
+    if cfg.depth_bias_model_class:
+        from .model import model_by_name
+        gt_model = model_by_name(cfg.depth_bias_model_class)(**cfg.depth_bias_model_kwargs)
+        if (gt_model.w != 0.0).any():
+            print('Adding bias from %s.' % gt_model)
+            ds = DepthBiasDataset(ds, gt_model, cfg=cfg)
+
+    if cfg.depth_noise:
+        print('Adding depth noise %.3g.', cfg.depth_noise)
+        ds = NoisyDepthDataset(ds, noise=cfg.depth_noise)
+
+    if cfg.pose_noise:
+        print('Adding pose noise %.3g, %s.', cfg.pose_noise, cfg.pose_noise_mode)
+        ds = NoisyPoseDataset(ds, noise=cfg.pose_noise, mode=cfg.pose_noise_mode)
+
     ds = Subscriptable(ds)[cfg.data_slice()]
     return ds
 

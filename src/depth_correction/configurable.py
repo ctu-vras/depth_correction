@@ -57,7 +57,9 @@ class Configurable(object):
                 except yaml.YAMLError as ex:
                     print(ex)
 
-    def from_args(self, args):
+    def from_args(self, args=None):
+        if args is None:
+            args = sys.argv[1:]
         # Construct argument definitions from current config.
         parser = ArgumentParser()
         for k in self:

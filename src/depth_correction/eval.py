@@ -27,7 +27,7 @@ def eval_loss_single(cfg: Config, dataset, model: BaseModel=None, loss_fun=None)
     poses = []
     # for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
     for cloud, pose in dataset:
-        cloud = filtered_cloud(cloud, cfg)
+        # cloud = filtered_cloud(cloud, cfg)
         cloud = local_feature_cloud(cloud, cfg)
         clouds.append(cloud)
         poses.append(pose)
@@ -51,7 +51,7 @@ def eval_loss_single(cfg: Config, dataset, model: BaseModel=None, loss_fun=None)
     return test_loss
 
 
-def eval_loss(cfg: Config, model=None, test_datasets=None):
+def eval_loss(cfg: Config, test_datasets=None, model=None, loss_fun=None):
     """Evaluate loss on test sequences.
 
     :param cfg: Config.
@@ -73,7 +73,8 @@ def eval_loss(cfg: Config, model=None, test_datasets=None):
     if cfg.pose_correction != PoseCorrection.none:
         print('Pose deltas not used.')
 
-    loss_fun = create_loss(cfg)
+    if loss_fun is None:
+        loss_fun = create_loss(cfg)
     assert callable(loss_fun)
 
     # TODO: Process individual sequences separately.
@@ -86,7 +87,7 @@ def eval_loss(cfg: Config, model=None, test_datasets=None):
         poses = []
         # for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
         for cloud, pose in ds:
-            cloud = filtered_cloud(cloud, cfg)
+            # cloud = filtered_cloud(cloud, cfg)
             cloud = local_feature_cloud(cloud, cfg)
             clouds.append(cloud)
             poses.append(pose)
@@ -105,10 +106,14 @@ def eval_loss(cfg: Config, model=None, test_datasets=None):
             publish_data([cloud], [poses], [name], cfg=cfg)
 
         test_loss, _ = loss_fun(cloud, mask=mask)
+
         print('Test loss on %s: %.9f' % (name, test_loss.item()))
         if cfg.loss_eval_csv:
             assert cfg.loss_eval_csv
             append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
+
+    if len(test_datasets) == 1:
+        return test_loss
 
 
 def eval_loss_all(cfg: Config):

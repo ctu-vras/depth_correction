@@ -161,9 +161,23 @@ class TrainingDemo(TrainCallbacks):
         self.tf_static_pub.publish(TFMessage(self.tfs))
 
     def noisy_dataset(self, ds):
-        ds = DepthBiasDataset(ds, self.gt_model, cfg=self.cfg)
-        ds = NoisyDepthDataset(ds, noise=self.depth_noise)
-        ds = NoisyPoseDataset(ds, noise=self.pose_noise, mode=self.pose_noise_mode)
+        if (self.gt_model.w != 0).any():
+            print('Adding bias from %s.' % self.gt_model)
+            ds = DepthBiasDataset(ds, self.gt_model, cfg=self.cfg)
+        else:
+            print('No bias added.')
+
+        if self.depth_noise:
+            print('Adding depth noise %.3g.', self.depth_noise)
+            ds = NoisyDepthDataset(ds, noise=self.depth_noise)
+        else:
+            print('No depth noise added.')
+
+        if self.pose_noise:
+            print('Adding pose noise %.3g, %s.', self.pose_noise, self.pose_noise_mode)
+            ds = NoisyPoseDataset(ds, noise=self.pose_noise, mode=self.pose_noise_mode)
+        else:
+            print('No pose noise added.')
         return ds
 
     def create_ground_truth(self):

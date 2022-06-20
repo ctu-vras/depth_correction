@@ -37,6 +37,11 @@ def nonempty(iterable):
     return filter(bool, iterable)
 
 
+class NeighborhoodType(metaclass=ValueEnum):
+    ball = 'ball'
+    plane = 'plane'
+
+
 class Loss(metaclass=ValueEnum):
     min_eigval_loss = 'min_eigval_loss'
     trace_loss = 'trace_loss'
@@ -170,6 +175,7 @@ class Config(Configurable):
         self.max_depth = 20.0
         self.grid_res = 0.1
         # Neighborhood
+        self.nn_type = NeighborhoodType.ball
         self.nn_k = 0
         self.nn_r = 0.25
 

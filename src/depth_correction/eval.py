@@ -1,12 +1,15 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, loss_eval_csv, PoseCorrection, slam_eval_bag, slam_eval_csv, slam_poses_csv
 from .dataset import create_dataset
+from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalues
 from .io import append
 from .loss import create_loss
 from .model import BaseModel, load_model
 from .preproc import filtered_cloud, global_cloud, global_cloud_mask, local_feature_cloud
 from .ros import publish_data
+from .segmentation import Planes
+from .utils import covs
 from argparse import ArgumentParser
 import numpy as np
 import os
@@ -111,6 +114,81 @@ def eval_loss(cfg: Config, test_datasets=None, model=None, loss_fun=None):
         if cfg.loss_eval_csv:
             assert cfg.loss_eval_csv
             append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
+
+    if len(test_datasets) == 1:
+        return test_loss
+
+
+def eval_loss_planes(cfg: Config, test_datasets=None, model=None, loss_fun=None):
+    """Evaluate loss on test sequences.
+
+    :param cfg: Config.
+    :param test_datasets: Test datasets, created from config if not provided.
+    """
+    if test_datasets:
+        print('Using provided test datasets: %s.' % ', '.join([str(ds) for ds in test_datasets]))
+    else:
+        print('Creating test datasets from config: %s.' % ', '.join(cfg.test_names))
+        test_datasets = []
+        for i, name in enumerate(cfg.test_names):
+            poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
+            ds = create_dataset(name, cfg, poses_path=poses_path)
+            test_datasets.append(ds)
+
+    if model is None:
+        model = load_model(cfg=cfg, eval_mode=True)
+
+    if cfg.pose_correction != PoseCorrection.none:
+        print('Pose deltas not used.')
+
+    if loss_fun is None:
+        loss_fun = create_loss(cfg)
+    assert callable(loss_fun)
+
+    # TODO: Process individual sequences separately.
+    # for i, name in enumerate(cfg.test_names):
+    for i, ds in enumerate(test_datasets):
+        name = str(ds)
+        # Allow overriding poses paths, assume valid if non-empty.
+        clouds = []
+        poses = []
+        for cloud, pose in ds:
+            cloud = DepthCloud.from_structured_array(cloud, cfg.numpy_float_type())
+            clouds.append(cloud)
+            poses.append(pose)
+        poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
+        poses = torch.as_tensor(poses, device=cfg.device)
+        cloud = global_cloud(clouds, None, poses)
+        planes = Planes.fit(cloud, cfg.nn_r, min_support=cfg.min_valid_neighbors, num_planes=10, eps=None,
+                            visualize_progress=False, visualize_final=True, verbose=0)
+        planes.visualize()
+        n_used = sum(len(idx) for idx in planes.indices)
+        print('Testing on %.3f = %i / %i points from %s.' % (n_used / cloud.size(), n_used, cloud.size(), name))
+
+        # Update cloud incidence angles from normals and ray directions.
+        segmented = cloud.clone()
+        covs_all = []
+        eigvals_all = []
+        for i in range(planes.size()):
+            # segmented.normals[planes.indices[i]] = planes.params[i, :-1]
+            plane_cloud = cloud[planes.indices[i]]
+            plane_cloud.normals = planes.params[i:i + 1, :-1].expand((len(planes.indices[i]), -1))
+            segmented.update_incidence_angles()
+            corrected = model(segmented)
+            x = corrected.to_points()
+            cov = covs(x)
+            covs_all.append(cov)
+            # eigvals, eigvecs = torch.linalg.eigh(cov)
+            eigvals_all.append(torch.linalg.eigh(cov)[0])
+        planes.cov = torch.concat(covs_all)
+        planes.eigvals = torch.concat(eigvals_all)
+        test_loss, _ = loss_fun(planes)
+        # test_loss, _ = loss_fun(cloud, mask=mask)
+
+        # print('Test loss on %s: %.9f' % (name, test_loss.item()))
+        # if cfg.loss_eval_csv:
+        #     assert cfg.loss_eval_csv
+        #     append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
 
     if len(test_datasets) == 1:
         return test_loss

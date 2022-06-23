@@ -21,13 +21,12 @@ class ReconstructionEval:
     https://pytorch3d.readthedocs.io/en/latest/modules/loss.html#pytorch3d.loss
     """
 
-    def __init__(self, device_id=0):
+    def __init__(self):
         self.tf = tf2_ros.Buffer(cache_time=rospy.Duration(100))
         self.tl = tf2_ros.TransformListener(self.tf)
         # Set the device
         if torch.cuda.is_available():
-            self.device = torch.device("cuda:" + str(device_id))
-            rospy.loginfo("Using GPU device id: %i, name: %s", device_id, torch.cuda.get_device_name(device_id))
+            self.device = torch.device(rospy.get_param('~device', 'cuda:0'))
         else:
             rospy.loginfo("Using CPU")
             self.device = torch.device("cpu")
@@ -38,7 +37,7 @@ class ReconstructionEval:
 
         self.pc_msg = None
         self.map_frame = None
-        self.map = None
+        self.cloud = None
 
         self.dataset_path = rospy.get_param('~dataset_path', "")
         self.dataset_name = rospy.get_param('~dataset', 'newer_college/01_short_experiment')
@@ -50,50 +49,50 @@ class ReconstructionEval:
         else:
             self.dataset = Dataset(self.dataset_name, poses_path=self.dataset_poses_path)
 
-        self.map_gt = self.load_ground_truth()
+        self.cloud_gt = self.load_ground_truth(voxel_size=None)
 
         # obtaining the constructed map (reward cloud)
-        rospy.Subscriber(self.map_topic, PointCloud2, self.get_constructed_map)
+        rospy.Subscriber(self.map_topic, PointCloud2, self.get_constructed_cloud)
         self.pc_pub = rospy.Publisher('~cloud_gt', PointCloud2, queue_size=1)
 
         # evaluation runner
         rospy.Timer(rospy.Duration(1. / self.rate), self.run)
 
-    def load_ground_truth(self, voxel_size=0.5):
+    def load_ground_truth(self, voxel_size=0.1):
         if not getattr(self.dataset, "get_ground_truth_cloud"):
             rospy.logwarn_once("Dataset does not have ground truth map")
             return
         rospy.loginfo("Loading ground truth cloud...")
-        cloud = self.dataset.get_ground_truth_cloud(voxel_size=voxel_size)
-        if isinstance(cloud, np.ndarray):
-            cloud = torch.from_numpy(cloud)
-        elif isinstance(cloud, o3d.geometry.PointCloud):
-            cloud = torch.from_numpy(np.asarray(cloud.points))
-        cloud = torch.as_tensor(cloud.reshape([-1, 3]), dtype=torch.float32).unsqueeze(0).to(self.device)
-        return cloud
+        cloud_gt = self.dataset.get_ground_truth_cloud(voxel_size=voxel_size)
+        if isinstance(cloud_gt, np.ndarray):
+            cloud_gt = torch.from_numpy(cloud_gt)
+        elif isinstance(cloud_gt, o3d.geometry.PointCloud):
+            cloud_gt = torch.from_numpy(np.asarray(cloud_gt.points))
+        cloud_gt = torch.as_tensor(cloud_gt.reshape([-1, 3]), dtype=torch.float32).unsqueeze(0).to(self.device)
+        return cloud_gt
 
-    def get_constructed_map(self, pc_msg):
+    def get_constructed_cloud(self, pc_msg):
         assert isinstance(pc_msg, PointCloud2)
         rospy.logdebug('Received point cloud message')
         t0 = timer()
         self.pc_msg = pc_msg
         self.map_frame = pc_msg.header.frame_id
-        map = numpify(self.pc_msg)
-        map = structured_to_unstructured(map[['x', 'y', 'z']])
-        self.map = torch.as_tensor(map.reshape([-1, 3]), dtype=torch.float32).unsqueeze(0).to(self.device)
-        assert self.map.dim() == 3
-        assert self.map.size()[2] >= 3
+        cloud = numpify(self.pc_msg)
+        cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        self.cloud = torch.as_tensor(cloud.reshape([-1, 3]), dtype=torch.float32).unsqueeze(0).to(self.device)
+        assert self.cloud.dim() == 3
+        assert self.cloud.size()[2] >= 3
         rospy.logdebug('Point cloud conversion took: %.3f s', timer() - t0)
 
     def run(self, event):
-        map = self.map
-        if map is None:
+        cloud = self.cloud
+        if cloud is None:
             rospy.logwarn('Evaluation: Map cloud is not yet received')
             return None
 
-        assert isinstance(map, torch.Tensor)
-        assert map.dim() == 3
-        assert map.size()[2] >= 3  # (1, N1, >=3)
+        assert isinstance(cloud, torch.Tensor)
+        assert cloud.dim() == 3
+        assert cloud.size()[2] >= 3  # (1, N1, >=3)
 
         # Discard old messages.
         time_stamp = rospy.Time.now()
@@ -102,23 +101,23 @@ class ReconstructionEval:
             rospy.logwarn('Evaluation: Discarding points %.1f s > %.1f s old.', age, self.max_age)
             return None
 
-        rospy.logdebug(f'Received map of size {map.size()} for evaluation...')
+        rospy.logdebug(f'Received map of size {cloud.size()} for evaluation...')
         # compare point cloud to mesh here
         with torch.no_grad():
-            cd = chamfer_distance(map, self.map_gt)
+            cd = chamfer_distance(cloud, self.cloud_gt)
             # cd = chamfer_distance(self.map_gt, map)
             rospy.loginfo("Distance from constructed map to ground truth: %f", cd.item())
 
             # publish ground truth cloud here
             pcd_gt_msg = msgify(PointCloud2,
-                                unstructured_to_structured(self.map_gt.squeeze().cpu().numpy(), names=['x', 'y', 'z']))
+                                unstructured_to_structured(self.cloud_gt.squeeze().cpu().numpy(), names=['x', 'y', 'z']))
             pcd_gt_msg.header.stamp = self.pc_msg.header.stamp
             pcd_gt_msg.header.frame_id = 'map'
             self.pc_pub.publish(pcd_gt_msg)
 
 
 if __name__ == '__main__':
-    rospy.init_node('reconstruction_eval', log_level=rospy.DEBUG)
-    proc = ReconstructionEval(device_id=rospy.get_param('~gpu_id', 0))
+    rospy.init_node('reconstruction_eval', log_level=rospy.WARN)
+    proc = ReconstructionEval()
     rospy.loginfo('Mapping evaluation node is initialized.')
     rospy.spin()

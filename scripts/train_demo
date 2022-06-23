@@ -63,10 +63,18 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.dataset_kwargs['size'] = ([-20., 20.], [-20., 20.], [-20., 20.])
         # self.cfg.data_step = 1
 
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_2070_end_2570_step_12']  # converges
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_3291_end_3791_step_12']  # trees: doesn't correct
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_10424_end_10924_step_12']  # trees: doesn't correct
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_7548_end_8048_step_12']  # converges
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_6815_end_7315_step_12']  # converges: shortens distances
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_8651_end_9151_step_12']  # doesn't correct
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_10424_end_10924_step_12']  # trees: doesn't correct
+
         # OKAY
         # self.cfg.train_names = ['asl_laser/apartment']
-        self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
-        # self.cfg.train_names = ['newer_college/01_short_experiment']
+        # self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
+        self.cfg.train_names = ['newer_college/01_short_experiment_start_2070_end_2570_step_12']
         # NOT OKAY (lr 1e-3, pose and depth noise, def eigval bounds)
         # heavy shortening with noise
         # self.cfg.train_names = ['asl_laser/gazebo_summer']
@@ -80,8 +88,8 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_names = ['asl_laser/stairs']
         # self.cfg.train_names = ['asl_laser/wood_summer']
         # self.cfg.train_names = ['asl_laser/wood_autumn']
-        self.cfg.data_step = 4
-        # self.cfg.data_step = 8
+        # self.cfg.data_step = 4
+        self.cfg.data_step = 5
 
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
         # self.cfg.val_names = self.cfg.train_names
@@ -114,8 +122,8 @@ class TrainingDemo(TrainCallbacks):
         # self.pose_noise = 0.005
         # self.pose_noise = 0.05
         self.pose_noise_mode = NoisyPoseDataset.Mode.common
-        self.cfg.pose_correction = PoseCorrection.common
-        # self.cfg.pose_correction = PoseCorrection.none
+        # self.cfg.pose_correction = PoseCorrection.common
+        self.cfg.pose_correction = PoseCorrection.none
 
         self.cfg.model_class = Model.ScaledPolynomial
         # self.cfg.model_kwargs['w'] = [-0.002]

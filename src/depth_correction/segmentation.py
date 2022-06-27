@@ -66,14 +66,17 @@ class Primitives(PointCloud):
         #     colors = map_colors(labels, colormap=cm.viridis, min_value=0.0, max_value=1.0)
         #     pcd.colors = o3d.utility.Vector3dVector(colors)
         #     o3d.visualization.draw_geometries([pcd])
-
-        cloud = self.cloud[0]
+        # cloud = self.cloud[0]
+        if x is None:
+            x = self.cloud[0]
         pcd = o3d.geometry.PointCloud()
-        if isinstance(cloud, DepthCloud):
-            cloud = cloud.to_points()
-        pcd.points = o3d.utility.Vector3dVector(cloud)
+        # if isinstance(cloud, DepthCloud):
+        #     cloud = cloud.to_points()
+        if isinstance(x, DepthCloud):
+            x = x.to_points()
+        pcd.points = o3d.utility.Vector3dVector(x)
         num_primitives = self.size()
-        num_points = len(cloud)
+        num_points = len(x)
         labels = np.full(num_points, -1, dtype=int)
         for i in range(num_primitives):
             labels[self.indices[i]] = i
@@ -119,7 +122,7 @@ class Planes(Primitives):
 def fit_planes_open3d(x, distance_threshold, min_support=3, num_planes=int(1e9), eps=None,
                       visualize_progress=False, visualize_final=False, verbose=0):
     ransac_n = 3  # Number of points to use to construct model (does LS?).
-    num_iters = 1000
+    num_iters = 2000
     n = x.shape[0]
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(x)
@@ -214,7 +217,9 @@ def fit_planes_open3d(x, distance_threshold, min_support=3, num_planes=int(1e9),
     print('%i planes (highest label %i) with minimum support of %i points were found.'
           % (len(planes), labels.max(), min_support))
 
-    planes = Planes(torch.as_tensor([p for p, _ in planes]), len(planes) * [x], [i for _, i in planes])
+    planes = Planes(torch.as_tensor(np.concatenate([p for p, _ in planes])),
+                    len(planes) * [x],
+                    [i for _, i in planes])
 
     # if visualize_final:
         # label = labels.max()

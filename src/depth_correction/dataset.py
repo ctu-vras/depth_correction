@@ -1162,6 +1162,56 @@ def save_newer_college_poses():
         write_poses(ids, poses, path, ts=ds.ts)
 
 
+def demo_rendered_newer_college():
+    from data.newer_college import data_dir, Dataset, dataset_names
+    mesh_path = os.path.join(data_dir,
+                             '2020-ouster-os1-64-realsense',
+                             '03_new_college_prior_map',
+                             'mesh.ply')
+    nc = Dataset(zero_origin=False)
+    # poses = np.stack([pose for _, pose in Dataset(start_at_zero=False)])
+    ds = RenderedMeshDataset(mesh_path, poses=nc.poses)
+    ds.show_path(nc.name)
+    # return
+
+    for i, name in enumerate(dataset_names):
+        poses = np.stack([pose for _, pose in Dataset(name, start_at_zero=False)])
+        ds = RenderedMeshDataset(mesh_path, poses=poses)
+        ds.show_path('%s (%i)' % (name, i))
+    return
+
+    nc = Dataset(dataset_names[4], start_at_zero=False)
+    poses = np.stack([pose for _, pose in nc])
+    # ds = RenderedMeshDataset(mesh_path, size=(16, 64), fov=(45., 360.), num_segments=8, poses=poses)
+    ds = RenderedMeshDataset(mesh_path, size=(8, 32), fov=(30., 180.), num_segments=4, poses=poses)
+    non_blocking = True
+    # non_blocking = False
+    if non_blocking:
+        # o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
+        vis = o3d.visualization.Visualizer()
+        vis.create_window()
+        geometry = None
+    for i, (cloud, pose) in enumerate(ds):
+        print(i, *pose[:3, 3])
+        # x = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        # print('xyz min: %.3f, %.3f, %.3f, max: %.3f, %.3f, %.3f'
+        #       % tuple(np.nanmin(x, axis=0).tolist() + np.nanmax(x, axis=0).tolist()))
+        cloud = DepthCloud.from_structured_array(cloud)
+        if non_blocking:
+            if geometry is not None:
+                vis.remove_geometry(geometry, reset_bounding_box=False)
+            geometry = cloud.to_point_cloud()
+            vis.add_geometry(geometry)
+            vis.poll_events()
+            vis.update_renderer()
+            sleep(0.1)
+        else:
+            cloud.visualize()
+
+    if non_blocking:
+        vis.destroy_window()
+
+
 def render_meshes(cfg: Config=None):
     names = cfg.train_names + cfg.val_names + cfg.test_names
     poses_paths = cfg.train_poses_path + cfg.val_poses_path + cfg.test_poses_path

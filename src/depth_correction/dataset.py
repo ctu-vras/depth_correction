@@ -1150,6 +1150,18 @@ def demo_rendered_mesh():
         vis.destroy_window()
 
 
+def save_newer_college_poses():
+    from data.newer_college import Dataset, dataset_names
+    from data.asl_laser import write_poses
+    for i, name in enumerate(dataset_names):
+        ds = Dataset(name, zero_origin=False)
+        ids = list(range(len(ds)))
+        poses = [ds.cloud_pose(id) for id in ds.ids]
+        path = os.path.join(Config().out_dir, 'rendered_mesh', 'newer_college', name, 'ouster_lidar_poses.txt')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_poses(ids, poses, path, ts=ds.ts)
+
+
 def render_meshes(cfg: Config=None):
     names = cfg.train_names + cfg.val_names + cfg.test_names
     poses_paths = cfg.train_poses_path + cfg.val_poses_path + cfg.test_poses_path

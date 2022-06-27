@@ -3,6 +3,7 @@ from .config import Config
 from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
+from .point_cloud import PointCloud
 from .utils import timing, trace
 from enum import Enum
 import numpy as np
@@ -138,9 +139,9 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
         return batch_loss(min_eigval_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, normalization=normalization,
                           reduction=reduction)
 
-    assert isinstance(cloud, DepthCloud)
+    assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.eigvals is not None
-    assert offset is None or isinstance(offset, DepthCloud)
+    assert offset is None or isinstance(offset, (DepthCloud, PointCloud))
 
     eigvals = cloud.eigvals
     if mask is not None:
@@ -152,7 +153,6 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
 
     if offset is not None:
         # Offset the loss using loss computed on local clouds.
-        assert isinstance(offset, DepthCloud)
         assert offset.eigvals is not None
 
         offset_eigvals = offset.eigvals
@@ -200,9 +200,9 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     if isinstance(cloud, (list, tuple)):
         return batch_loss(trace_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, reduction=reduction)
 
-    assert isinstance(cloud, DepthCloud)
+    assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.cov is not None
-    assert offset is None or isinstance(offset, DepthCloud)
+    assert offset is None or isinstance(offset, (DepthCloud, PointCloud))
 
     cov = cloud.cov
     if mask is not None:
@@ -212,7 +212,6 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
 
     if offset is not None:
         # Offset the loss using loss computed on local clouds.
-        assert isinstance(offset, DepthCloud)
         assert offset.cov is not None
 
         offset_cov = offset.cov

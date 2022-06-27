@@ -353,18 +353,27 @@ class DepthCloud(object):
         ret = self.mean_vp_dist() / self.mean_depth()
         return ret
 
+    def update_weights(self, scale=None):
+        assert self.mean is not None
+        weights = self.valid_neighbor_mask().float()[..., None]
+        # Adjust weights based on distance from mean.
+        if scale is not None:
+            print('Updating weights using scale %.3f m.' % scale)
+            dist = (self.get_points() - self.mean).norm(dim=1, keepdim=True)
+            weights = weights * torch.exp(-(dist / scale)**2)
+        self.weights = weights
+
     def update_cov(self, correction=1, invalid=0.0):
         cov = covs(self.get_neighbor_points(), weights=self.weights)
         self.cov = cov
         return
-
         invalid = torch.full((3, 3), invalid, device=self.points.device)
         fun = lambda p, q: torch.cov(p.transpose(-1, -2), correction=correction) if p.shape[0] >= 2 else invalid
         cov = self.neighbor_fun(fun)
         cov = torch.stack(cov)
         self.cov = cov
 
-    def compute_eig(self, invalid=0.0):
+    def compute_eig(self):
         assert self.cov is not None
         # TODO: Switch to a faster cuda eigh/svd implementation once available.
         # For now, use faster cpu eigh/svd implementation.
@@ -414,22 +423,22 @@ class DepthCloud(object):
             inc_angles = torch.arccos((self.dirs * self.normals).sum(dim=-1).abs()).unsqueeze(-1)
         self.inc_angles = inc_angles
 
-    def update_features(self):
+    def update_features(self, scale=None):
         self.update_mean()
+        self.update_weights(scale=scale)
         self.update_cov()
-        # self.update_eigvals()
         self.update_eig()
         self.update_normals()
         # Keep incidence angles from the original observations?
         self.update_incidence_angles()
 
-    def update_all(self, k=None, r=None, keep_neighbors=False):
+    def update_all(self, k=None, r=None, scale=None, keep_neighbors=False):
         self.update_points()
         if keep_neighbors:
             self.update_distances()
         else:
             self.update_neighbors(k=k, r=r)
-        self.update_features()
+        self.update_features(scale=scale)
 
     def get_colors(self, colors='z', colormap=cm.gist_rainbow, interval=None):
         assert (isinstance(colors, torch.Tensor)

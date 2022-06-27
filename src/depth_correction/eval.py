@@ -159,36 +159,28 @@ def eval_loss_planes(cfg: Config, test_datasets=None, model=None, loss_fun=None)
         poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
         cloud = global_cloud(clouds, None, poses)
-        planes = Planes.fit(cloud, cfg.nn_r, min_support=cfg.min_valid_neighbors, num_planes=10, eps=None,
-                            visualize_progress=False, visualize_final=True, verbose=0)
+        planes = Planes.fit(cloud, cfg.nn_r, min_support=cfg.min_valid_neighbors, num_planes=10,
+                            eps=np.sqrt(3) * cfg.grid_res,
+                            visualize_progress=False, visualize_final=False, verbose=0)
         planes.visualize()
         n_used = sum(len(idx) for idx in planes.indices)
         print('Testing on %.3f = %i / %i points from %s.' % (n_used / cloud.size(), n_used, cloud.size(), name))
 
         # Update cloud incidence angles from normals and ray directions.
-        segmented = cloud.clone()
         covs_all = []
         eigvals_all = []
         for i in range(planes.size()):
-            # segmented.normals[planes.indices[i]] = planes.params[i, :-1]
             plane_cloud = cloud[planes.indices[i]]
             plane_cloud.normals = planes.params[i:i + 1, :-1].expand((len(planes.indices[i]), -1))
-            segmented.update_incidence_angles()
-            corrected = model(segmented)
-            x = corrected.to_points()
+            plane_cloud.update_incidence_angles()
+            plane_cloud = model(plane_cloud)
+            x = plane_cloud.to_points()
             cov = covs(x)
             covs_all.append(cov)
-            # eigvals, eigvecs = torch.linalg.eigh(cov)
             eigvals_all.append(torch.linalg.eigh(cov)[0])
-        planes.cov = torch.concat(covs_all)
-        planes.eigvals = torch.concat(eigvals_all)
+        planes.cov = torch.stack(covs_all)
+        planes.eigvals = torch.stack(eigvals_all)
         test_loss, _ = loss_fun(planes)
-        # test_loss, _ = loss_fun(cloud, mask=mask)
-
-        # print('Test loss on %s: %.9f' % (name, test_loss.item()))
-        # if cfg.loss_eval_csv:
-        #     assert cfg.loss_eval_csv
-        #     append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
 
     if len(test_datasets) == 1:
         return test_loss

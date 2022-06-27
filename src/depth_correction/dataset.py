@@ -1156,11 +1156,11 @@ def save_newer_college_poses():
     from data.asl_laser import write_poses
     for i, name in enumerate(dataset_names):
         ds = Dataset(name, zero_origin=False)
-        ids = list(range(len(ds)))
         poses = [ds.cloud_pose(id) for id in ds.ids]
         path = os.path.join(Config().out_dir, 'rendered_mesh', 'newer_college', name, 'ouster_lidar_poses.txt')
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        write_poses(ids, poses, path, ts=ds.ts)
+        ids = list(range(len(ds)))
+        write_poses(ids, poses, path)
 
 
 def demo_rendered_newer_college():

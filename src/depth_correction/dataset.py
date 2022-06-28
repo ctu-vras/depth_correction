@@ -568,8 +568,9 @@ class RenderedMeshDataset(object):
         if poses is None:
             self.ids, self.poses = read_poses(self.get_poses_path())
             self.poses = np.stack(self.poses)
-            self.poses = np.matmul(self.ros_to_mesh, self.poses)
-            self.poses[:, 2, 3] += 1.0
+            if 'simple_cave' in name:
+                self.poses = np.matmul(self.ros_to_mesh, self.poses)
+                self.poses[:, 2, 3] += 1.0
         else:
             self.poses = poses
             self.ids = list(range(len(poses)))

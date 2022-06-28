@@ -668,7 +668,7 @@ class RenderedMeshDataset(object):
         if self.cache and os.path.exists(path):
             cloud = np.fromfile(path, dtype=RenderedMeshDataset.cloud_dtype)
         else:
-            cloud = self.render(self.poses[id])
+            cloud = self.render(self.cloud_pose(id))
             x = structured_to_unstructured(cloud[['x', 'y', 'z']])
             keep = np.isfinite(x).all(axis=1)
             cloud = cloud[keep]
@@ -695,6 +695,21 @@ class RenderedMeshDataset(object):
         if title:
             ax.set_title(title)
         plt.show()
+
+    def show_global_cloud(self, data_step=5):
+        clouds = []
+        for id in self.ids[::data_step]:
+            cloud, pose = self.local_cloud(id), self.cloud_pose(id)
+            cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
+            cloud = np.matmul(cloud, pose[:3, :3].T) + pose[:3, 3:].T
+            clouds.append(cloud)
+        cloud = np.concatenate(clouds)
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(cloud)
+        o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
+        del pcd
+        return cloud
 
 
 class Forwarding(object):
@@ -1172,17 +1187,18 @@ def demo_rendered_newer_college():
                              'mesh.ply')
     nc = Dataset(zero_origin=False)
     # poses = np.stack([pose for _, pose in Dataset(start_at_zero=False)])
-    ds = RenderedMeshDataset(mesh_path, poses=nc.poses)
+    ds = RenderedMeshDataset(mesh_path, poses=nc.poses,)
     ds.show_path(nc.name)
     # return
 
-    for i, name in enumerate(dataset_names):
-        poses = np.stack([pose for _, pose in Dataset(name, start_at_zero=False)])
-        ds = RenderedMeshDataset(mesh_path, poses=poses)
-        ds.show_path('%s (%i)' % (name, i))
+    for i, name in enumerate(dataset_names[:2]):
+        poses = np.stack([pose for _, pose in Dataset(name, zero_origin=False)])
+        ds = RenderedMeshDataset(mesh_path, poses=poses, device='cuda')
+        # ds.show_path('%s (%i)' % (name, i))
+        ds.show_global_cloud()
     return
 
-    nc = Dataset(dataset_names[4], start_at_zero=False)
+    nc = Dataset(dataset_names[4], zero_origin=False)
     poses = np.stack([pose for _, pose in nc])
     # ds = RenderedMeshDataset(mesh_path, size=(16, 64), fov=(45., 360.), num_segments=8, poses=poses)
     ds = RenderedMeshDataset(mesh_path, size=(8, 32), fov=(30., 180.), num_segments=4, poses=poses)

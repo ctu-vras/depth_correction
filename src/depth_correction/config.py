@@ -37,6 +37,11 @@ def nonempty(iterable):
     return filter(bool, iterable)
 
 
+class NeighborhoodType(metaclass=ValueEnum):
+    ball = 'ball'
+    plane = 'plane'
+
+
 class Loss(metaclass=ValueEnum):
     min_eigval_loss = 'min_eigval_loss'
     trace_loss = 'trace_loss'
@@ -170,8 +175,11 @@ class Config(Configurable):
         self.max_depth = 20.0
         self.grid_res = 0.1
         # Neighborhood
+        self.nn_type = NeighborhoodType.ball
         self.nn_k = 0
         self.nn_r = 0.25
+        # self.nn_scale = self.nn_r / 2
+        self.nn_scale = None
 
         # Depth correction
         self.min_valid_neighbors = 5
@@ -208,6 +216,14 @@ class Config(Configurable):
         self.data_stop = None
         self.data_step = 5
         self.world_frame = 'world'
+
+        # Artificial data noise
+        self.depth_bias_model_class = Model.ScaledPolynomial
+        self.depth_bias_model_args = []
+        self.depth_bias_model_kwargs = {}
+        self.depth_noise = 0.0
+        self.pose_noise = 0.0
+        self.pose_noise_mode = None
 
         # Training
         self.loss = Loss.min_eigval_loss

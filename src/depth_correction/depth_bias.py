@@ -34,6 +34,26 @@ def domain(model, n=100):
     raise ValueError('Invalid domain input, only polynomial or data sample is supported.')
 
 
+def plot_perp_error():
+    d = 1.0
+    w = -0.001
+    exp = 2.0
+    theta = np.linspace(0.0, np.pi / 2, 100)
+    # theta = np.linspace(-np.pi, np.pi, 100)
+    def ed(theta): return d * w * theta**exp
+    def ep(theta): return -ed(theta) * np.cos(theta)
+    fig, ax = plt.subplots(1, 1, figsize=(6.4, 6.4))
+    ax.plot(np.rad2deg(theta), ed(theta), 'r-', linewidth=2, label='depth')
+    ax.plot(np.rad2deg(theta), ep(theta), 'b--', linewidth=2, label='out of plane')
+    ax.set_xlabel('incidence angle')
+    ax.set_ylabel('error')
+    ax.set_title('depth %.1f, %.3fx^%.1f' % (d, w, exp))
+    ax.grid(True)
+    ax.legend()
+    fig.tight_layout()
+    fig.show()
+
+
 def plot_fit(x, y, y_corr=None, x_label='x', y_label='y', x_lims=None, y_lims=None):
     if x_lims is None:
         x_lims = lims(x)

@@ -52,13 +52,13 @@ def load_model(class_name: str=None,
 
     if state_dict:
         model.load_state_dict(state_dict)
-    print('Using model: %s.' % model)
+    # print('Using model: %s.' % model)
 
     if eval_mode:
         model.eval()
 
     model.to(device)
-    print('Model moved to %s.' % device)
+    # print('Model moved to %s.' % device)
     return model
 
 

@@ -56,15 +56,25 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_names = ['simple_tunnel_01.obj']
         # self.cfg.train_names = ['gazebo_cave_world.ply']
         # self.cfg.train_names = ['burning_building_rubble.ply']
+        # self.cfg.train_names = ['newer_college.ply']
+
         # self.cfg.dataset_kwargs['n_poses'] = 5
         # self.cfg.dataset_kwargs['size'] = ([100., 140.], [-20., 20.], [-50., 50.])
         # self.cfg.dataset_kwargs['size'] = ([-20., 20.], [-20., 20.], [-20., 20.])
         # self.cfg.data_step = 1
 
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_2070_end_2570_step_12']  # converges
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_3291_end_3791_step_12']  # trees: doesn't correct
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_10424_end_10924_step_12']  # trees: doesn't correct
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_7548_end_8048_step_12']  # converges
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_6815_end_7315_step_12']  # converges: shortens distances
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_8651_end_9151_step_12']  # doesn't correct
+        # self.cfg.train_names = ['newer_college/01_short_experiment_start_10424_end_10924_step_12']  # trees: doesn't correct
+
         # OKAY
         # self.cfg.train_names = ['asl_laser/apartment']
-        self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
-        # self.cfg.train_names = ['newer_college/01_short_experiment']
+        # self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
+        self.cfg.train_names = ['newer_college/01_short_experiment_start_2070_end_2570_step_12']
         # NOT OKAY (lr 1e-3, pose and depth noise, def eigval bounds)
         # heavy shortening with noise
         # self.cfg.train_names = ['asl_laser/gazebo_summer']
@@ -78,8 +88,8 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_names = ['asl_laser/stairs']
         # self.cfg.train_names = ['asl_laser/wood_summer']
         # self.cfg.train_names = ['asl_laser/wood_autumn']
-        self.cfg.data_step = 4
-        # self.cfg.data_step = 8
+        # self.cfg.data_step = 4
+        self.cfg.data_step = 5
 
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
         # self.cfg.val_names = self.cfg.train_names
@@ -112,8 +122,8 @@ class TrainingDemo(TrainCallbacks):
         # self.pose_noise = 0.005
         # self.pose_noise = 0.05
         self.pose_noise_mode = NoisyPoseDataset.Mode.common
-        self.cfg.pose_correction = PoseCorrection.common
-        # self.cfg.pose_correction = PoseCorrection.none
+        # self.cfg.pose_correction = PoseCorrection.common
+        self.cfg.pose_correction = PoseCorrection.none
 
         self.cfg.model_class = Model.ScaledPolynomial
         # self.cfg.model_kwargs['w'] = [-0.002]
@@ -159,9 +169,23 @@ class TrainingDemo(TrainCallbacks):
         self.tf_static_pub.publish(TFMessage(self.tfs))
 
     def noisy_dataset(self, ds):
-        ds = DepthBiasDataset(ds, self.gt_model, cfg=self.cfg)
-        ds = NoisyDepthDataset(ds, noise=self.depth_noise)
-        ds = NoisyPoseDataset(ds, noise=self.pose_noise, mode=self.pose_noise_mode)
+        if (self.gt_model.w != 0).any():
+            print('Adding bias from %s.' % self.gt_model)
+            ds = DepthBiasDataset(ds, self.gt_model, cfg=self.cfg)
+        else:
+            print('No bias added.')
+
+        if self.depth_noise:
+            print('Adding depth noise %.3g.', self.depth_noise)
+            ds = NoisyDepthDataset(ds, noise=self.depth_noise)
+        else:
+            print('No depth noise added.')
+
+        if self.pose_noise:
+            print('Adding pose noise %.3g, %s.', self.pose_noise, self.pose_noise_mode)
+            ds = NoisyPoseDataset(ds, noise=self.pose_noise, mode=self.pose_noise_mode)
+        else:
+            print('No pose noise added.')
         return ds
 
     def create_ground_truth(self):
@@ -247,11 +271,12 @@ class TrainingDemo(TrainCallbacks):
         # self.poses.append(poses[0].detach().cpu().numpy().copy())
         # print(pose_deltas[0])
         # print(pose_deltas[0].grad)
-        self.pose_deltas.append(pose_deltas[0].detach().cpu().numpy().flatten().copy())
-        if pose_deltas[0].grad is not None:
-            self.pose_delta_grads.append(pose_deltas[0].grad.detach().cpu().numpy().flatten().copy())
-        else:
-            self.pose_delta_grads.append(np.array(6 * [float('nan')]))
+        if len(pose_deltas) > 0:
+            self.pose_deltas.append(pose_deltas[0].detach().cpu().numpy().flatten().copy())
+            if pose_deltas[0].grad is not None:
+                self.pose_delta_grads.append(pose_deltas[0].grad.detach().cpu().numpy().flatten().copy())
+            else:
+                self.pose_delta_grads.append(np.array(6 * [float('nan')]))
         self.pose_losses.append(self.compute_pose_loss(poses))
         self.weights.append(model.w.detach().cpu().numpy().flatten().tolist())
         self.exponents.append(model.exponent.detach().cpu().numpy().flatten().tolist())
@@ -298,6 +323,10 @@ class TrainingDemo(TrainCallbacks):
 
     @timing
     def visualize(self, model, clouds, poses=None):
+        clouds = [cloud.detach() for cloud in clouds]
+        if poses is not None:
+            poses = [pose.detach() for pose in poses]
+
         ax = self.ax[0, 0]
         ax.cla()
         ax.plot(self.iterations, self.train_losses)
@@ -374,7 +403,7 @@ class TrainingDemo(TrainCallbacks):
             self.plot_cloud(ax, self.gt_clouds[0], 'bx', mfc='none', markersize=5, label='Ground Truth Cloud')
             self.plot_cloud(ax, clouds[0], 'ro', mfc='none', markersize=5, label='Corrected Cloud')
             if self.gt_poses:
-                self.plot_poses(ax, self.gt_poses[0], 'bs', mfc='none', markersize=5, label='Ground-Truth Viewpoints')
+                self.plot_poses(ax, self.gt_poses[0], 'b+', mfc='none', markersize=5, label='Ground-Truth Viewpoints')
             if poses:
                 self.plot_poses(ax, poses[0], 'rs', mfc='none', markersize=5, label='Corrected Viewpoints')
             ax.set_xlabel('x [m]')
@@ -387,6 +416,10 @@ class TrainingDemo(TrainCallbacks):
             ax.cla()
             self.plot_cloud(ax, self.gt_clouds[0], 'bx', dims=(0, 2), mfc='none', markersize=5, label='Ground Truth')
             self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
+            if self.gt_poses:
+                self.plot_poses(ax, self.gt_poses[0], 'b+', mfc='none', markersize=5, label='Ground-Truth Viewpoints')
+            if poses:
+                self.plot_poses(ax, poses[0], 'rs', mfc='none', markersize=5, label='Corrected Viewpoints')
             ax.set_xlabel('x [m]')
             ax.set_ylabel('z [m]')
             # ax.set_aspect('equal')

@@ -146,3 +146,6 @@ gen*/
 
 # Pytorch models weights
 *.pth
+
+# results
+*.csv

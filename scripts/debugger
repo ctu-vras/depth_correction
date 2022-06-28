@@ -1,0 +1,94 @@
+#!/usr/bin/env python
+
+import torch
+import rospy
+from sensor_msgs.msg import PointCloud2
+from ros_numpy import numpify, msgify
+from depth_correction.config import Config
+from depth_correction.preproc import local_feature_cloud
+from depth_correction.metrics import chamfer_distance
+import message_filters
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
+from pytorch3d.ops.knn import knn_points
+import numpy as np
+
+
+class Debug:
+    """
+    This ROS node subscribes to point cloud topic with PointCloud2 msgs
+    and processes it.
+    """
+
+    def __init__(self, device_id=0):
+        # Set the device
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda:" + str(device_id))
+            rospy.loginfo("Using GPU device id: %i, name: %s", device_id, torch.cuda.get_device_name(device_id))
+        else:
+            rospy.loginfo("Using CPU")
+            self.device = torch.device("cpu")
+        # parameters
+        self.cfg = Config()
+        self.cfg.min_depth = 1.0
+        self.cfg.max_depth = 15.0
+        self.cfg.grid_res = 0.2
+        self.cfg.nn_k = 0
+        self.cfg.nn_r = 1.2
+        self.cfg.shadow_angle_bounds = []
+        self.map_topic = rospy.get_param('~cloud_topic', 'corrected_cloud')
+        self.subscribe_once = rospy.get_param('~subscribe_once', False)
+
+        self.pc_sub = None
+        # self.pc_sub = rospy.Subscriber(self.map_topic, PointCloud2, self.process_cloud)
+        self.pc_pub = rospy.Publisher(self.map_topic, PointCloud2, queue_size=2)
+
+        cloud_sub = message_filters.Subscriber('corrected_cloud', PointCloud2)
+        gt_cloud_sub = message_filters.Subscriber('ground_truth_cloud', PointCloud2)
+        ts = message_filters.ApproximateTimeSynchronizer([cloud_sub, gt_cloud_sub], queue_size=2, slop=5.0)
+        ts.registerCallback(self.reconstruction_error)
+
+    def process_cloud(self, pc_msg):
+        assert isinstance(pc_msg, PointCloud2)
+        rospy.logdebug('Received point cloud message')
+        cloud = numpify(pc_msg)
+        cloud = local_feature_cloud(cloud, cfg=self.cfg)
+        cloud.visualize(normals=True, colors='inc_angles')
+        self.pc_sub.unregister()
+        rospy.sleep(rospy.Duration.from_sec(0.2))
+        if self.subscribe_once:
+            rospy.signal_shutdown('Processing is complete')
+
+    def reconstruction_error(self, cloud_msg, gt_cloud_msg):
+        rospy.logdebug('Received point cloud messages')
+        cloud_struct = numpify(cloud_msg)
+        cloud = structured_to_unstructured(cloud_struct[['x', 'y', 'z']])
+        cloud = torch.as_tensor(cloud.reshape([-1, 3]), dtype=torch.float32).unsqueeze(0).to(self.device)
+
+        cloud_gt = numpify(gt_cloud_msg)
+        cloud_gt = structured_to_unstructured(cloud_gt[['x', 'y', 'z']])
+        cloud_gt = torch.as_tensor(cloud_gt.reshape([-1, 3]), dtype=torch.float32).unsqueeze(0).to(self.device)
+
+        n_pts = cloud.shape[1]
+        cloud_vis = np.zeros((n_pts,), dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('distances', 'f4')])
+        for f in ['x', 'y', 'z']:
+            cloud_vis[f] = cloud_struct[f]
+
+        # compare point cloud to ground truth
+        with torch.no_grad():
+            # cd = chamfer_distance(cloud, cloud_gt)
+            # rospy.loginfo("Distance from corrected cloud to ground truth: %f", cd.item())
+            nn = knn_points(cloud, cloud_gt, K=1)
+            cloud_vis['distances'] = nn.dists.sqrt().squeeze().cpu().numpy()
+            pc_msg = msgify(PointCloud2, cloud_vis)
+            pc_msg.header = cloud_msg.header
+            self.pc_pub.publish(pc_msg)
+
+        if self.subscribe_once:
+            rospy.signal_shutdown('Processing is complete')
+
+
+if __name__ == '__main__':
+    rospy.init_node('debugger_node', log_level=rospy.DEBUG)
+    proc = Debug(device_id=rospy.get_param('~gpu_id', 0))
+    rospy.loginfo('Debug node is initialized')
+    rospy.spin()

@@ -224,6 +224,7 @@ def compute_neighborhood_features(dataset=None, clouds=None, poses=None, model=N
             eigvals_all.append(torch.linalg.eigh(cov)[0])
         if cfg.log_filters:
             visualize_incidence_angles(plane_clouds)
+        planes.plane_cloud = plane_clouds
         planes.cov = torch.stack(covs_all)
         planes.eigvals = torch.stack(eigvals_all)
         planes.check()

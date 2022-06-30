@@ -529,9 +529,11 @@ class RenderedMeshDataset(object):
         if not os.path.exists(path):
             raise FileExistsError('Mesh %s does not exist.' % path)
 
+        self.hash_name = ''
         if poses_path:
             assert poses is None
             if not os.path.isabs(poses_path):
+                self.hash_name = (poses_path.replace(os.path.basename(poses_path), '')).replace('/', '_')
                 poses_path = os.path.join(Config().pkg_dir, 'data', 'meshes', poses_path)
             if not os.path.exists(poses_path):
                 raise FileExistsError('Poses path %s does not exist.' % poses_path)
@@ -574,6 +576,7 @@ class RenderedMeshDataset(object):
         else:
             self.poses = poses
             self.ids = list(range(len(poses)))
+            self.hash_name = str( abs(hash(hashable(poses))) )
         self.n = len(self)
 
     def get_mesh(self):
@@ -632,12 +635,12 @@ class RenderedMeshDataset(object):
     def get_poses_path(self):
         if self.poses_path:
             return self.poses_path
-        path = os.path.join(self.dataset_dir(), 'n%i' % self.n, 'poses.csv')
+        path = os.path.join(self.dataset_dir(), 'hash_%is' % self.hash_name, 'poses.csv')
         return path
 
     def cloud_path(self, id):
         path = os.path.join(self.dataset_dir(),
-                            'n%i_size_%i_%i_fov_%.0f_%.0f' % (self.n, *self.size, *self.fov),
+                            'hash_%s_size_%i_%i_fov_%.0f_%.0f' % (self.hash_name, *self.size, *self.fov),
                             'cloud_%05i.bin' % id)
         return path
 

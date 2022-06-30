@@ -71,10 +71,13 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_names = ['newer_college/01_short_experiment_start_8651_end_9151_step_12']  # doesn't correct
         # self.cfg.train_names = ['newer_college/01_short_experiment_start_10424_end_10924_step_12']  # trees: doesn't correct
 
+        self.cfg.train_names = ['rendered_mesh/newer_college.ply']
+        self.cfg.train_poses_path = ['newer_college/start_14601_end_15301_step_12/ouster_lidar_poses.txt']
+
         # OKAY
         # self.cfg.train_names = ['asl_laser/apartment']
         # self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
-        self.cfg.train_names = ['newer_college/01_short_experiment_start_2070_end_2570_step_12']
+        # self.cfg.train_names = ['newer_college/01_short_experiment/start_2070_end_2570_step_12']
         # NOT OKAY (lr 1e-3, pose and depth noise, def eigval bounds)
         # heavy shortening with noise
         # self.cfg.train_names = ['asl_laser/gazebo_summer']
@@ -103,11 +106,11 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.max_depth = 10.0
         # self.cfg.grid_res = 0.0
         # self.cfg.grid_res = 0.1
-        self.cfg.grid_res = 0.1
+        self.cfg.grid_res = 0.2
         self.cfg.nn_k = 0
         # self.cfg.nn_r = 0.2
-        self.cfg.nn_r = 0.25
-        # self.cfg.nn_r = 0.4
+        # self.cfg.nn_r = 0.25
+        self.cfg.nn_r = 0.4
         self.cfg.shadow_angle_bounds = []
         # self.cfg.eigenvalue_bounds = []
         # self.cfg.eigenvalue_bounds = [[0, -float('inf'), (self.cfg.nn_r / 8)**2],

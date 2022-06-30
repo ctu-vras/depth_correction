@@ -149,7 +149,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     loss = eigvals[:, 0]
 
     if normalization:
-        loss = loss / eigvals.sum(dim=-1)
+        loss = loss / eigvals.sum(dim=-1).clamp(min=1e-6)
 
     if offset is not None:
         # Offset the loss using loss computed on local clouds.

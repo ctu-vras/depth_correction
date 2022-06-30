@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
-from .config import Config, PoseCorrection
+from .config import Config, NeighborhoodType, PoseCorrection
 from .dataset import create_dataset
+from .depth_cloud import DepthCloud
 from .loss import create_loss
 from .model import load_model
 from .preproc import *
@@ -45,21 +46,23 @@ def initialize_pose_corrections(datasets, cfg: Config):
     }
     for ds in datasets:
         if cfg.pose_correction == PoseCorrection.common:
-            # Use a common correction for all sequences and poses.
+            # Use a common correction for all sequences and poses, broadcast to all poses.
             if pose_deltas:
                 pose_delta = pose_deltas[0]
             else:
                 pose_delta = torch.zeros((1, 6), **kwargs)
         elif cfg.pose_correction == PoseCorrection.sequence:
-            # Single correction per sequence (sensor rig calibration).
+            # Single correction per sequence (sensor rig calibration), broadcast to all poses.
             pose_delta = torch.zeros((1, 6), **kwargs)
         elif cfg.pose_correction == PoseCorrection.pose:
             # Correct every pose (e.g. from odometry or SLAM).
             pose_delta = torch.zeros((len(ds), 6), **kwargs)
         else:
             pose_delta = None
-        if pose_delta is not None:
-            pose_deltas.append(pose_delta)
+
+        # if pose_delta is not None:
+        #     pose_deltas.append(pose_delta)
+        pose_deltas.append(pose_delta)
 
     return pose_deltas
 
@@ -127,22 +130,18 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     train_clouds = []
     train_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    train_neighbors = [None] * len(train_datasets)
     train_masks = [None] * len(train_datasets)
     for i, ds in enumerate(train_datasets):
-        # Allow overriding poses paths, assume valid if non-empty.
         clouds = []
         poses = []
         for cloud, pose in ds:
-            cloud = local_feature_cloud(cloud, cfg)
-            # If poses are not optimized, depth can be corrected on global
-            # feature clouds.
-            # If poses are to be optimized, depth can be corrected on local
-            # clouds and these can then be transformed to global cloud.
+            if cfg.nn_type == NeighborhoodType.ball:
+                cloud = local_feature_cloud(cloud, cfg)
+            else:
+                cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type(), device=cfg.device)
             clouds.append(cloud)
             poses.append(pose)
         train_clouds.append(clouds)
-        # poses = np.stack(poses).astype(dtype=cfg.dtype)
         poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
         train_poses.append(poses)
@@ -151,13 +150,15 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     val_clouds = []
     val_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    val_neighbors = [None] * len(val_datasets)
     val_masks = [None] * len(val_datasets)
     for i, ds in enumerate(val_datasets):
         clouds = []
         poses = []
         for cloud, pose in ds:
-            cloud = local_feature_cloud(cloud, cfg)
+            if cfg.nn_type == NeighborhoodType.ball:
+                cloud = local_feature_cloud(cloud, cfg)
+            else:
+                cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type(), device=cfg.device)
             clouds.append(cloud)
             poses.append(pose)
         val_clouds.append(clouds)
@@ -198,6 +199,12 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
     writer = SummaryWriter(cfg.log_dir)
 
+    # Create training and validation neighborhoods.
+    train_ns = [establish_neighborhoods(clouds=clouds, poses=poses, cfg=cfg)
+                for clouds, poses in zip(train_clouds, train_poses)]
+    val_ns = [establish_neighborhoods(clouds=clouds, poses=poses, cfg=cfg)
+              for clouds, poses in zip(val_clouds, val_poses)]
+
     min_loss = np.inf
     best_cfg = None
     for it in range(cfg.n_opt_iters):
@@ -206,49 +213,41 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
         # Training
         # Allow optimizing pose deltas.
+        # TODO: Switch neigh feats and applying model.
+        train_offsets = [offset_cloud(c, model) for c in train_clouds] if cfg.loss_offset else None
         train_poses_upd = create_corrected_poses(train_poses, train_pose_deltas, cfg)
-
-        clouds = [global_cloud(c, model, p) for c, p in zip(train_clouds, train_poses_upd)]
-        offsets = [offset_cloud(c, model) for c in train_clouds] if cfg.loss_offset else None
-
-        for i in range(len(clouds)):
-            cloud = clouds[i]
-            if train_neighbors[i] is None:
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-                train_neighbors[i] = cloud.neighbors, cloud.weights
-                train_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
-                print('Training on %.3f = %i / %i points.'
-                      % (train_masks[i].float().mean().item(),
-                         train_masks[i].sum().item(), train_masks[i].numel()))
-            else:
-                cloud.neighbors, cloud.weights = train_neighbors[i]
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
-            clouds[i] = cloud
-
-        train_loss, _ = loss_fun(clouds, mask=train_masks, offset=offsets)
+        train_global_clouds = [
+            global_cloud(clouds=c, model=model if cfg.nn_type == NeighborhoodType.ball else None, poses=p)
+            for c, p in zip(train_clouds, train_poses_upd)
+        ]
+        train_feat_clouds = [
+            compute_neighborhood_features(cloud=cloud, model=model if cfg.nn_type == NeighborhoodType.plane else None,
+                                          neighborhoods=nn, cfg=cfg)
+            for cloud, nn in zip(train_global_clouds, train_ns)
+        ]
+        # Create point mask once, for depth cloud input only.
+        if (not train_masks or train_masks[0] is None) and isinstance(train_feat_clouds[0], DepthCloud):
+            train_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                           for cloud in train_feat_clouds]
+        train_loss, _ = loss_fun(train_feat_clouds, mask=train_masks, offset=train_offsets)
         callbacks.train_loss(it, model, clouds, train_pose_deltas, train_poses_upd, train_masks, train_loss)
 
         # Validation
+        val_offsets = [offset_cloud(c, model) for c in val_clouds] if cfg.loss_offset else None
         val_poses_upd = create_corrected_poses(val_poses, val_pose_deltas, cfg)
-
-        clouds = [global_cloud(c, model, p) for c, p in zip(val_clouds, val_poses_upd)]
-        offsets = [offset_cloud(c, model) for c in val_clouds] if cfg.loss_offset else None
-
-        for i in range(len(clouds)):
-            cloud = clouds[i]
-            if val_neighbors[i] is None:
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-                val_neighbors[i] = cloud.neighbors, cloud.weights
-                val_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
-                print('Validating on %.3f = %i / %i points.'
-                      % (val_masks[i].float().mean().item(),
-                         val_masks[i].sum().item(), val_masks[i].numel()))
-            else:
-                cloud.neighbors, cloud.weights = val_neighbors[i]
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
-            clouds[i] = cloud
-
-        val_loss, _ = loss_fun(clouds, mask=val_masks, offset=offsets)
+        val_global_clouds = [
+            global_cloud(clouds=c, model=model if cfg.nn_type == NeighborhoodType.ball else None, poses=p)
+            for c, p in zip(val_clouds, val_poses_upd)
+        ]
+        val_feat_clouds = [
+            compute_neighborhood_features(cloud=cloud, model=model if cfg.nn_type == NeighborhoodType.plane else None,
+                                          neighborhoods=nn, cfg=cfg)
+            for cloud, nn in zip(val_global_clouds, val_ns)
+        ]
+        if (not val_masks or val_masks[0] is None) and isinstance(val_feat_clouds[0], DepthCloud):
+            val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                         for cloud in val_feat_clouds]
+        val_loss, _ = loss_fun(val_feat_clouds, mask=val_masks, offset=val_offsets)
         callbacks.val_loss(it, model, clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
@@ -300,7 +299,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 if model.exponent.grad is not None:
                     writer.add_scalar('model/exponent_%i/grad' % i, model.exponent.grad[i], it)
 
-        if train_pose_deltas:
+        if train_pose_deltas and train_pose_deltas[0] is not None:
             # TODO: Add summary histogram for all sequences.
             for i in range(len(train_datasets)):
                 name = str(train_datasets[i])

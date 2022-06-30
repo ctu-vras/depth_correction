@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from depth_correction.config import Config, Loss, Model, PoseCorrection
+from depth_correction.config import Config, Loss, Model, NeighborhoodType, PoseCorrection
 from depth_correction.dataset import (
     create_dataset,
     DepthBiasDataset,
@@ -47,77 +47,50 @@ class TrainingDemo(TrainCallbacks):
         self.corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
 
         self.cfg = Config()
-        # self.cfg.train_names = ['ground_plane/10']
-        # self.cfg.train_names = ['open_box/n_6_density_25.0']
-        # self.cfg.data_step = 1
+        # self.cfg.train_names = ['rendered_mesh/newer_college.ply']
+        # self.cfg.train_poses_path = ['newer_college/start_14601_end_15301_step_12/ouster_lidar_poses.txt']
 
-        # meshes
-        # self.cfg.train_names = ['simple_cave_01.obj']
-        # self.cfg.train_names = ['simple_tunnel_01.obj']
-        # self.cfg.train_names = ['gazebo_cave_world.ply']
-        # self.cfg.train_names = ['burning_building_rubble.ply']
-        # self.cfg.train_names = ['newer_college.ply']
-
-        # self.cfg.dataset_kwargs['n_poses'] = 5
-        # self.cfg.dataset_kwargs['size'] = ([100., 140.], [-20., 20.], [-50., 50.])
-        # self.cfg.dataset_kwargs['size'] = ([-20., 20.], [-20., 20.], [-20., 20.])
-        # self.cfg.data_step = 1
-
-        # self.cfg.train_names = ['newer_college/01_short_experiment_start_2070_end_2570_step_12']  # converges
-        # self.cfg.train_names = ['newer_college/01_short_experiment_start_3291_end_3791_step_12']  # trees: doesn't correct
-        # self.cfg.train_names = ['newer_college/01_short_experiment_start_10424_end_10924_step_12']  # trees: doesn't correct
-        # self.cfg.train_names = ['newer_college/01_short_experiment_start_7548_end_8048_step_12']  # converges
-        # self.cfg.train_names = ['newer_college/01_short_experiment_start_6815_end_7315_step_12']  # converges: shortens distances
-        # self.cfg.train_names = ['newer_college/01_short_experiment_start_8651_end_9151_step_12']  # doesn't correct
-        # self.cfg.train_names = ['newer_college/01_short_experiment_start_10424_end_10924_step_12']  # trees: doesn't correct
-
-        self.cfg.train_names = ['rendered_mesh/newer_college.ply']
-        self.cfg.train_poses_path = ['newer_college/start_14601_end_15301_step_12/ouster_lidar_poses.txt']
-
-        # OKAY
-        # self.cfg.train_names = ['asl_laser/apartment']
-        # self.cfg.train_names = ['asl_laser/apartment', 'asl_laser/eth']
-        # self.cfg.train_names = ['newer_college/01_short_experiment/start_2070_end_2570_step_12']
-        # NOT OKAY (lr 1e-3, pose and depth noise, def eigval bounds)
-        # heavy shortening with noise
-        # self.cfg.train_names = ['asl_laser/gazebo_summer']
-        # first shorten, than 0 for up to 100 iter., terminated
-        # self.cfg.train_names = ['asl_laser/gazebo_winter']
-        # shortening (+0.002 instead -0.01)
-        # without eigenvalue filter got to -0.0039
-        # self.cfg.train_names = ['asl_laser/plain']
-        # stays around zero for 20 iter.
-        # learns better with no depth and pose noise, stays halfway
-        # self.cfg.train_names = ['asl_laser/stairs']
-        # self.cfg.train_names = ['asl_laser/wood_summer']
-        # self.cfg.train_names = ['asl_laser/wood_autumn']
-        # self.cfg.data_step = 4
-        self.cfg.data_step = 5
-
+        from data.asl_laser import dataset_names
+        prefix = 'asl_laser'
+        dataset_names = ['apartment', 'eth', 'gazebo_winter', 'stairs']
+        # from data.newer_college import dataset_names, prefix
+        # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:4]]
+        # self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[4:6]]
+        # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:2]]
+        # self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[2:4]]
+        self.cfg.train_names = ['%s/%s' % (prefix, name) for name in ['apartment', 'eth', 'stairs']]
+        self.cfg.val_names = ['%s/%s' % (prefix, name) for name in ['gazebo_winter']]
+        self.cfg.data_step = 4
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
-        # self.cfg.val_names = self.cfg.train_names
-        # self.cfg.val_names = ['asl_laser/stairs']
 
         # Depth and grid filters prevent computing L2 loss since the points don't match.
         # self.cfg.min_depth = 0.0
-        # self.cfg.max_depth = float('inf')
         self.cfg.min_depth = 1.0
-        self.cfg.max_depth = 15.0
-        # self.cfg.max_depth = 10.0
+        # self.cfg.max_depth = 15.0
+        self.cfg.max_depth = 20.0
         # self.cfg.grid_res = 0.0
-        # self.cfg.grid_res = 0.1
-        self.cfg.grid_res = 0.2
+        self.cfg.grid_res = 0.1
+        # self.cfg.grid_res = 0.2
+
+        self.cfg.nn_type = NeighborhoodType.ball
         self.cfg.nn_k = 0
-        # self.cfg.nn_r = 0.2
-        # self.cfg.nn_r = 0.25
-        self.cfg.nn_r = 0.4
+        self.cfg.nn_r = 0.25
+        # self.cfg.nn_r = 0.5
+
+        self.cfg.nn_type = NeighborhoodType.plane
+        self.cfg.ransac_model_size = 3
+        self.cfg.ransac_dist_thresh = 0.03
+        self.cfg.num_ransac_iters = 500
+        self.cfg.min_valid_neighbors = 1000
+        self.cfg.max_neighborhoods = 5
+
         self.cfg.shadow_angle_bounds = []
         # self.cfg.eigenvalue_bounds = []
         # self.cfg.eigenvalue_bounds = [[0, -float('inf'), (self.cfg.nn_r / 8)**2],
         #                               [1, (self.cfg.nn_r / 4)**2, float('inf')]]
         # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
-        self.cfg.log_filters = True
+        # self.cfg.log_filters = True
 
         self.depth_noise = 0.0
         # self.depth_noise = 0.03
@@ -152,7 +125,6 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         self.cfg.optimizer_kwargs['weight_decay'] = 0.1
         self.cfg.lr = 0.0002
-
         self.cfg.n_opt_iters = 1000
 
         self.cfg.from_rosparam()
@@ -197,6 +169,7 @@ class TrainingDemo(TrainCallbacks):
             kwargs['poses_path'] = self.cfg.train_poses_path[0]
         # self.ds = create_dataset(self.cfg.train_names[0], self.cfg, **kwargs)
         self.ds = [create_dataset(name, self.cfg, **kwargs) for name in self.cfg.train_names]
+        self.val_ds = [create_dataset(name, self.cfg, **kwargs) for name in self.cfg.val_names]
         clouds = []
         poses = []
         self.tfs = []
@@ -204,7 +177,8 @@ class TrainingDemo(TrainCallbacks):
         for i, (cloud, pose) in enumerate(self.ds[0]):
             # cloud = local_feature_cloud(cloud, self.cfg)
             # Keep normals, avoid recomputing dependent fields.
-            cloud = DepthCloud.from_structured_array(cloud, dtype=self.cfg.numpy_float_type(), device=self.cfg.device)
+            if isinstance(cloud, np.ndarray):
+                cloud = DepthCloud.from_structured_array(cloud, dtype=self.cfg.numpy_float_type(), device=self.cfg.device)
             clouds.append(cloud)
             tf = TransformStamped()
             tf.transform = msgify(Transform, pose)
@@ -221,9 +195,11 @@ class TrainingDemo(TrainCallbacks):
         self.gt_poses = [poses]
         # self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
         self.ds = [self.noisy_dataset(ds) for ds in self.ds]
+        self.val_ds = [self.noisy_dataset(ds) for ds in self.val_ds]
 
     def spin(self):
-        train(self.cfg, callbacks=self, train_datasets=self.ds, val_datasets=self.ds)
+        # train(self.cfg, callbacks=self, train_datasets=self.ds, val_datasets=self.ds)
+        train(self.cfg, callbacks=self, train_datasets=self.ds, val_datasets=self.val_ds)
 
     def iteration_started(self, iter):
         pass
@@ -274,7 +250,7 @@ class TrainingDemo(TrainCallbacks):
         # self.poses.append(poses[0].detach().cpu().numpy().copy())
         # print(pose_deltas[0])
         # print(pose_deltas[0].grad)
-        if len(pose_deltas) > 0:
+        if len(pose_deltas) > 0 and pose_deltas[0] is not None:
             self.pose_deltas.append(pose_deltas[0].detach().cpu().numpy().flatten().copy())
             if pose_deltas[0].grad is not None:
                 self.pose_delta_grads.append(pose_deltas[0].grad.detach().cpu().numpy().flatten().copy())

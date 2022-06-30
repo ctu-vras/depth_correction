@@ -8,6 +8,7 @@ from .model import load_model, model_by_name, Polynomial, ScaledPolynomial
 from .preproc import global_cloud
 from .segmentation import Planes
 from .utils import covs
+from .visualization import visualize_incidence_angles
 from data.newer_college import dataset_names as newer_college_datasets
 from datetime import datetime
 from itertools import product
@@ -147,6 +148,7 @@ def eval_loss_planes(cfg: Config, model=None, loss_fun=None, planes=None):
     print('Testing on %.3f = %i / %i points from %s.' % (n_used / cloud.size(), n_used, cloud.size(), name))
     # Update cloud incidence angles from normals and ray directions.
     # segmented = cloud.clone()
+    plane_clouds = []
     covs_all = []
     eigvals_all = []
     for i in range(planes.size()):
@@ -154,10 +156,13 @@ def eval_loss_planes(cfg: Config, model=None, loss_fun=None, planes=None):
         plane_cloud.normals = planes.params[i:i + 1, :-1].expand((len(planes.indices[i]), -1))
         plane_cloud.update_incidence_angles()
         plane_cloud = model(plane_cloud)
+        plane_clouds.append(plane_cloud)
         x = plane_cloud.to_points()
         cov = covs(x)
         covs_all.append(cov)
         eigvals_all.append(torch.linalg.eigh(cov)[0])
+    # if planes is None:
+    visualize_incidence_angles(plane_clouds)
     planes.cov = torch.stack(covs_all)
     planes.eigvals = torch.stack(eigvals_all)
     test_loss, _ = loss_fun(planes)
@@ -179,8 +184,8 @@ def loss_landscape_configs(cfg: Config):
         # [0.4, 0.8, 5],
         # planes NN
         # [0.1, 0.03, 1000],
-        [0.1, 0.02, 1000],
-        # [0.2, 0.03, 250],
+        # [0.1, 0.02, 1000],
+        [0.2, 0.03, 250],
         # [0.2, 0.02, 250],
     ]
     eigenvalue_ratio_bounds_all = [

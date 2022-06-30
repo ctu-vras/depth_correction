@@ -1,6 +1,5 @@
 """Segmentation of points into geometric primitives (planes, etc.)."""
 from .config import Config
-from .dataset import create_dataset
 from .depth_cloud import DepthCloud
 from .point_cloud import PointCloud
 from .utils import map_colors, transform
@@ -119,29 +118,24 @@ class Planes(Primitives):
         return fit_planes(*args, **kwargs)
 
 
-def fit_planes_open3d(x, distance_threshold, min_support=3, num_planes=int(1e9), eps=None,
-                      visualize_progress=False, visualize_final=False, verbose=0):
-    ransac_n = 3  # Number of points to use to construct model (does LS?).
-    num_iters = 2000
+def fit_planes_open3d(x, distance_threshold, ransac_model_size=3, min_model_support=3, num_ransac_iters=5000,
+                      max_num_models=int(1e9), eps=None, visualize_progress=False, visualize_final=False, verbose=0):
     n = x.shape[0]
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(x)
-    colors = np.zeros((n, 3), dtype=np.float32)
-    # pcd.colors = np.zeros((n, 3), dtype=np.float32)
     remaining_pcd = pcd
     indices = np.arange(n)  # Input point indices of remaining point cloud.
     planes = []
     labels = np.full(n, -1, dtype=int)
     label = 0
-    # for label in range(num_planes):
     while True:
-        plane, support_tmp = remaining_pcd.segment_plane(distance_threshold, ransac_n, num_iters)
+        plane, support_tmp = remaining_pcd.segment_plane(distance_threshold, ransac_model_size, num_ransac_iters)
         support_tmp = np.asarray(support_tmp)
         if verbose >= 2:
             print('Found plane %i, [%s] supported by %i points.'
                   % (label, ', '.join('%.3f' % x for x in plane), len(support_tmp)))
 
-        if len(support_tmp) < min_support:
+        if len(support_tmp) < min_model_support:
             if verbose >= 0:
                 print('Halt due to insufficient plane support.')
             break
@@ -155,7 +149,7 @@ def fit_planes_open3d(x, distance_threshold, min_support=3, num_planes=int(1e9),
             clustering = plane_pcd.cluster_dbscan(eps=eps, min_points=10, print_progress=False)
             clustering = np.asarray(clustering)
             clusters, counts = np.unique(clustering[clustering >= 0], return_counts=True)
-            if len(counts) == 0 or counts.max() < min_support:
+            if len(counts) == 0 or counts.max() < min_model_support:
                 # TODO: Remove all points if there is no cluster with sufficient support.
                 keep = np.ones(len(indices), dtype=bool)
                 keep[support_tmp] = 0
@@ -163,15 +157,15 @@ def fit_planes_open3d(x, distance_threshold, min_support=3, num_planes=int(1e9),
                 remaining_pcd = remaining_pcd.select_by_index(support_tmp, invert=True)
                 if verbose >= 2:
                     print('No cluster from plane %i has sufficient support (largest %i < %i).'
-                          % (label, counts.max() if len(counts) else 0, min_support))
-                if len(indices) < min_support:
+                          % (label, counts.max() if len(counts) else 0, min_model_support))
+                if len(indices) < min_model_support:
                     if verbose >= 1:
                         print('Not enough points to continue.')
                     break
                 continue
 
             i_max = counts.argmax()
-            assert counts[i_max] >= min_support
+            assert counts[i_max] >= min_model_support
             largest = clusters[i_max]
             support_tmp = support_tmp[clustering == largest]
             if verbose >= 1:
@@ -180,26 +174,15 @@ def fit_planes_open3d(x, distance_threshold, min_support=3, num_planes=int(1e9),
 
         support = indices[support_tmp]
         planes.append((plane, support))
-        # if isinstance(x, np.ndarray):
-        #     x = torch.as_tensor(x)
-        # plane = Plane(plane, x, support)
-        # planes.append(plane)
         labels[support] = label
 
         if visualize_progress:
-            # plane.visualize()
-
-            # segmented = labels >= 0
-            # colors[segmented] = map_colors(labels[segmented], min_value=0, max_value=label)
-            # pcd.colors = o3d.utility.Vector3dVector(colors)
-            # o3d.visualization.draw_geometries([pcd], window_name='Plane Segmentation')
-            # obj = Planes(torch.as_tensor(list(zip(planes))[0], len(planes) * [x], list(zip(planes))[1]))
             obj = Planes(torch.as_tensor([p for p, _ in planes]),
                          cloud=len(planes) * [x],
                          indices=[i for _, i in planes])
             obj.visualize()
 
-        if len(planes) == num_planes:
+        if len(planes) == max_num_models:
             if verbose >= 1:
                 print('Target number of planes found.')
             break
@@ -208,36 +191,23 @@ def fit_planes_open3d(x, distance_threshold, min_support=3, num_planes=int(1e9),
         keep[support_tmp] = 0
         indices = indices[keep]
         remaining_pcd = remaining_pcd.select_by_index(support_tmp, invert=True)
-        if len(indices) < min_support:
+        if len(indices) < min_model_support:
             if verbose >= 1:
                 print('Not enough points to continue.')
             break
         label += 1
 
     print('%i planes (highest label %i) with minimum support of %i points were found.'
-          % (len(planes), labels.max(), min_support))
+          % (len(planes), labels.max(), min_model_support))
 
     planes = Planes(torch.as_tensor(np.concatenate([p for p, _ in planes])),
-                    len(planes) * [x],
-                    [i for _, i in planes])
-
-    # if visualize_final:
-        # label = labels.max()
-        # segmented = labels >= 0
-        # colors[segmented] = map_colors(labels[segmented], min_value=0, max_value=label)
-        # pcd.colors = o3d.utility.Vector3dVector(colors)
-        # o3d.visualization.draw_geometries([pcd], window_name='Plane Segmentation')
-        # obj = Planes(torch.as_tensor([p for p, _ in planes]),
-        #              len(planes) * [x],
-        #              [i for _, i in planes])
-        # obj.visualize()
-        # planes.visualize()
+                    cloud=len(planes) * [x],
+                    indices=[i for _, i in planes])
 
     return planes
 
 
-def fit_planes(x, distance_threshold, min_support=3, num_planes=int(1e9), eps=None,
-               visualize_progress=False, visualize_final=False, verbose=0):
+def fit_planes(x, distance_threshold, visualize_final=False, **kwargs):
     """Segment points into planes."""
     # TODO: Move outer loop from implementation specific part here.
     if isinstance(x, DepthCloud):
@@ -246,8 +216,7 @@ def fit_planes(x, distance_threshold, min_support=3, num_planes=int(1e9), eps=No
     if x.dtype.names:
         x = structured_to_unstructured(x[['x', 'y', 'z']])
 
-    planes = fit_planes_open3d(x, distance_threshold, min_support=min_support, num_planes=num_planes, eps=eps,
-                               visualize_progress=visualize_progress, visualize_final=visualize_final, verbose=verbose)
+    planes = fit_planes_open3d(x, distance_threshold, visualize_final=False, **kwargs)
 
     if visualize_final:
         planes.visualize()
@@ -255,7 +224,8 @@ def fit_planes(x, distance_threshold, min_support=3, num_planes=int(1e9), eps=No
     return planes
 
 
-def main():
+def demo_fit_planes():
+    from .dataset import create_dataset
     cfg = Config()
     # cfg.train_names = ['asl_laser/apartment']
     # cfg.train_names = ['asl_laser/eth']
@@ -281,6 +251,10 @@ def main():
         cloud = np.concatenate([transform(pose, cloud) for cloud, pose in ds])
         planes = fit_planes(cloud, dist_thresh, min_support=1000, num_planes=10, eps=np.sqrt(3.0)*cfg.grid_res,
                             visualize_progress=False, visualize_final=True, verbose=1)
+
+
+def main():
+    demo_fit_planes()
 
 
 if __name__ == '__main__':

@@ -405,9 +405,9 @@ class TrainingDemo(TrainCallbacks):
             self.plot_cloud(ax, self.gt_clouds[0], 'bx', dims=(0, 2), mfc='none', markersize=5, label='Ground Truth')
             self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
             if self.gt_poses:
-                self.plot_poses(ax, self.gt_poses[0], 'b+', mfc='none', markersize=5, label='Ground-Truth Viewpoints')
+                self.plot_poses(ax, self.gt_poses[0], 'b+', dims=(0, 2), mfc='none', markersize=5, label='Ground-Truth Viewpoints')
             if poses:
-                self.plot_poses(ax, poses[0], 'rs', mfc='none', markersize=5, label='Corrected Viewpoints')
+                self.plot_poses(ax, poses[0], 'rs', dims=(0, 2), mfc='none', markersize=5, label='Corrected Viewpoints')
             ax.set_xlabel('x [m]')
             ax.set_ylabel('z [m]')
             # ax.set_aspect('equal')

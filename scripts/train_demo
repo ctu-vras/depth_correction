@@ -51,15 +51,15 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.train_poses_path = ['newer_college/start_14601_end_15301_step_12/ouster_lidar_poses.txt']
 
         from data.asl_laser import dataset_names
-        prefix = 'asl_laser'
-        dataset_names = ['apartment', 'eth', 'gazebo_winter', 'stairs']
-        # from data.newer_college import dataset_names, prefix
-        # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:4]]
-        # self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[4:6]]
+        # prefix = 'asl_laser'
+        # dataset_names = ['apartment', 'eth', 'gazebo_winter', 'stairs']
+        from data.newer_college import dataset_names, prefix
+        self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:4]]
+        self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[4:6]]
         # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:2]]
         # self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[2:4]]
-        self.cfg.train_names = ['%s/%s' % (prefix, name) for name in ['apartment', 'eth', 'stairs']]
-        self.cfg.val_names = ['%s/%s' % (prefix, name) for name in ['gazebo_winter']]
+        # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in ['apartment', 'eth', 'stairs']]
+        # self.cfg.val_names = ['%s/%s' % (prefix, name) for name in ['gazebo_winter']]
         self.cfg.data_step = 4
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
 

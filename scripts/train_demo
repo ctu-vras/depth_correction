@@ -118,6 +118,7 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.model_class = 'BaseModel'
         # self.cfg.model_state_dict = None
         self.gt_model = model_by_name(self.cfg.model_class)(**self.cfg.model_kwargs)
+        self.cfg.model_kwargs['w'] = [0.0]
 
         self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss

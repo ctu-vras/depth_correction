@@ -10,6 +10,7 @@ from depth_correction.dataset import (
 )
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import load_model, model_by_name
+from depth_correction.point_cloud import PointCloud
 from depth_correction.preproc import filtered_cloud, global_cloud, local_feature_cloud
 from depth_correction.train import train, TrainCallbacks
 from depth_correction.utils import delta_transform, rotation_angle, timing, translation_norm
@@ -44,18 +45,20 @@ class TrainingDemo(TrainCallbacks):
         # Visualization
         self.fig, self.ax = None, None
         self.setup_visualization()
-        self.corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
 
         self.cfg = Config()
-        # self.cfg.train_names = ['rendered_mesh/newer_college.ply']
-        # self.cfg.train_poses_path = ['newer_college/start_14601_end_15301_step_12/ouster_lidar_poses.txt']
+        self.cfg.train_names = ['rendered_mesh/newer_college.ply']
+        self.cfg.train_poses_path = ['newer_college/start_800_end_1600_step_12/ouster_lidar_poses.txt']
 
-        from data.asl_laser import dataset_names
+        self.cfg.val_names = ['rendered_mesh/newer_college.ply']
+        self.cfg.val_poses_path = ['newer_college/start_14601_end_15301_step_12/ouster_lidar_poses.txt']
+
+        # from data.asl_laser import dataset_names
         # prefix = 'asl_laser'
         # dataset_names = ['apartment', 'eth', 'gazebo_winter', 'stairs']
-        from data.newer_college import dataset_names, prefix
-        self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:4]]
-        self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[4:6]]
+        # from data.newer_college import dataset_names, prefix
+        # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:2]]
+        # self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[:2]]
         # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in dataset_names[:2]]
         # self.cfg.val_names = ['%s/%s' % (prefix, name) for name in dataset_names[2:4]]
         # self.cfg.train_names = ['%s/%s' % (prefix, name) for name in ['apartment', 'eth', 'stairs']]
@@ -72,17 +75,17 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.grid_res = 0.1
         # self.cfg.grid_res = 0.2
 
-        self.cfg.nn_type = NeighborhoodType.ball
-        self.cfg.nn_k = 0
-        self.cfg.nn_r = 0.25
-        # self.cfg.nn_r = 0.5
+        # self.cfg.nn_type = NeighborhoodType.ball
+        # self.cfg.nn_k = 0
+        # self.cfg.nn_r = 0.25
+        # # self.cfg.nn_r = 0.5
 
         self.cfg.nn_type = NeighborhoodType.plane
         self.cfg.ransac_model_size = 3
         self.cfg.ransac_dist_thresh = 0.03
         self.cfg.num_ransac_iters = 500
         self.cfg.min_valid_neighbors = 1000
-        self.cfg.max_neighborhoods = 5
+        self.cfg.max_neighborhoods = 10
 
         self.cfg.shadow_angle_bounds = []
         # self.cfg.eigenvalue_bounds = []
@@ -131,14 +134,14 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.to_yaml(os.path.join(self.cfg.log_dir, 'config.yaml'))
 
         self.ds = None
-        self.tfs = None
-        self.gt_clouds = None
-        self.gt_poses = None
+        self.tfs = []
+        self.gt_clouds = []
+        self.gt_poses = []
         self.create_ground_truth()
         # self.train_callbacks = DemoTrainCallbacks(gt_clouds=self.gt_clouds)
 
         self.gt_cloud_pub = rospy.Publisher('ground_truth_cloud', PointCloud2, queue_size=2)
-        self.initial_cloud_pub = rospy.Publisher('initial_cloud', PointCloud2, queue_size=2)
+        self.corrected_cloud_pub = rospy.Publisher('corrected_cloud', PointCloud2, queue_size=2)
 
         self.tf_static_pub = rospy.Publisher('/tf_static', TFMessage, latch=True, queue_size=2)
         self.tf_static_pub.publish(TFMessage(self.tfs))
@@ -170,29 +173,23 @@ class TrainingDemo(TrainCallbacks):
         # self.ds = create_dataset(self.cfg.train_names[0], self.cfg, **kwargs)
         self.ds = [create_dataset(name, self.cfg, **kwargs) for name in self.cfg.train_names]
         self.val_ds = [create_dataset(name, self.cfg, **kwargs) for name in self.cfg.val_names]
-        clouds = []
-        poses = []
-        self.tfs = []
-        # FIXME: Using ground truth from first cloud. Use all?
-        for i, (cloud, pose) in enumerate(self.ds[0]):
-            # cloud = local_feature_cloud(cloud, self.cfg)
-            # Keep normals, avoid recomputing dependent fields.
-            if isinstance(cloud, np.ndarray):
-                cloud = DepthCloud.from_structured_array(cloud, dtype=self.cfg.numpy_float_type(), device=self.cfg.device)
-            clouds.append(cloud)
-            tf = TransformStamped()
-            tf.transform = msgify(Transform, pose)
-            assert isinstance(tf, TransformStamped)
-            tf.header.stamp = rospy.Time.now()
-            tf.header.frame_id = 'map'
-            tf.child_frame_id = 'vp_%i' % i
-            self.tfs.append(tf)
-            pose = torch.as_tensor(pose)
-            poses.append(pose)
-        cloud = global_cloud(clouds, None, poses)
-        # print('Ground-truth cloud fields: %s' % cloud.dtype.names)
-        self.gt_clouds = [cloud]
-        self.gt_poses = [poses]
+        for ds in self.ds:
+            poses = []
+            for i, (cloud, pose) in enumerate(ds):
+                if i == 0:
+                    tf = TransformStamped()
+                    tf.transform = msgify(Transform, pose)
+                    assert isinstance(tf, TransformStamped)
+                    tf.header.stamp = rospy.Time.now()
+                    tf.header.frame_id = 'map'
+                    tf.child_frame_id = 'vp_%i' % i
+                    self.tfs.append(tf)
+                pose = torch.as_tensor(pose)
+                poses.append(pose)
+            cloud = global_cloud(dataset=ds)
+            # print('Ground-truth cloud fields: %s' % cloud.dtype.names)
+            self.gt_clouds.append(cloud)
+            self.gt_poses.append(poses)
         # self.ds = create_dataset(self.cfg.train_names[0], self.cfg)
         self.ds = [self.noisy_dataset(ds) for ds in self.ds]
         self.val_ds = [self.noisy_dataset(ds) for ds in self.val_ds]
@@ -243,6 +240,17 @@ class TrainingDemo(TrainCallbacks):
 
     # @timing
     def train_loss(self, iter, model, clouds, pose_deltas, poses, masks, loss):
+        for i in range(len(clouds)):
+            cloud = clouds[i]
+            if self.cfg.nn_type == NeighborhoodType.ball:
+                assert isinstance(cloud, DepthCloud)
+            else:
+                assert isinstance(cloud, PointCloud)
+                full_cloud = self.gt_clouds[i].clone()
+                for j in range(len(cloud)):
+                    full_cloud.depth[cloud.indices[j]] = cloud.plane_cloud[j].depth
+                cloud = full_cloud
+            clouds[i] = cloud
         # print('Mask: %.3f' % masks[0].float().mean() if masks and masks[0] is not None else float('nan'))
         # print('Cloud mask: %.3f' % clouds[0].mask.float().mean() if clouds[0].mask is not None else float('nan'))
         self.iterations.append(iter)
@@ -261,7 +269,7 @@ class TrainingDemo(TrainCallbacks):
         self.exponents.append(model.exponent.detach().cpu().numpy().flatten().tolist())
         self.train_losses.append(loss.detach().cpu().item())
         if iter % 5 == 0:
-            self.visualize(model, clouds, poses)
+            self.visualize(model, [clouds[0]], [poses[0]])
             self.publish_cloud(self.gt_cloud_pub, self.gt_clouds[0])
             self.publish_cloud(self.corrected_cloud_pub, clouds[0])
 

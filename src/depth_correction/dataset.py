@@ -684,7 +684,7 @@ class RenderedMeshDataset(object):
 
     def cloud_pose(self, id):
         # self.poses[id][:3, 3])
-        return self.poses[id]
+        return self.poses[self.ids.index(id)]
 
     def show_path(self, title=None):
         fig, axes = plt.subplots(1, 1, figsize=(8.0, 8.0), constrained_layout=True, squeeze=False)
@@ -699,7 +699,7 @@ class RenderedMeshDataset(object):
             ax.set_title(title)
         plt.show()
 
-    def show_global_cloud(self, data_step=5):
+    def show_global_cloud(self, data_step=1):
         clouds = []
         for id in self.ids[::data_step]:
             cloud, pose = self.local_cloud(id), self.cloud_pose(id)
@@ -1178,7 +1178,8 @@ def save_newer_college_poses():
         poses = [ds.cloud_pose(id) for id in ds.ids]
         path = os.path.join(Config().out_dir, 'rendered_mesh', 'newer_college', name, 'ouster_lidar_poses.txt')
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        ids = list(range(len(ds)))
+        # ids = list(range(len(ds)))
+        ids = [ds.id_to_pose_index[id] for id in ds.ids]
         write_poses(ids, poses, path)
 
 

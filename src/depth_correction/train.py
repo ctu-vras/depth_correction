@@ -230,7 +230,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             train_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
                            for cloud in train_feat_clouds]
         train_loss, _ = loss_fun(train_feat_clouds, mask=train_masks, offset=train_offsets)
-        callbacks.train_loss(it, model, clouds, train_pose_deltas, train_poses_upd, train_masks, train_loss)
+        callbacks.train_loss(it, model, train_feat_clouds, train_pose_deltas, train_poses_upd, train_masks, train_loss)
 
         # Validation
         val_offsets = [offset_cloud(c, model) for c in val_clouds] if cfg.loss_offset else None
@@ -248,7 +248,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
                          for cloud in val_feat_clouds]
         val_loss, _ = loss_fun(val_feat_clouds, mask=val_masks, offset=val_offsets)
-        callbacks.val_loss(it, model, clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
+        callbacks.val_loss(it, model, val_feat_clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:

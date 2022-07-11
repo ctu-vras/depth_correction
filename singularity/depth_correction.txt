@@ -20,6 +20,7 @@ From: ros:noetic-perception
     curl
     git
     python3-pip
+    python3-pcl
     python3-catkin-tools
     ros-noetic-ros-numpy
     ros-noetic-rviz

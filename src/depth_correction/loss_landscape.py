@@ -140,9 +140,10 @@ def eval_loss_planes(cfg: Config, model=None, loss_fun=None, planes=None):
     cloud = global_cloud(clouds, None, poses)
     print('Global cloud %s contains %i points.' % (name, len(cloud)))
     if planes is None:
-        planes = Planes.fit(cloud, cfg.nn_r, min_support=cfg.min_valid_neighbors, num_planes=10,
-                            eps=np.sqrt(3) * cfg.grid_res,
-                            visualize_progress=False, visualize_final=False, verbose=0)
+        planes = Planes.fit(cloud, cfg.ransac_dist_thresh, min_support=cfg.min_valid_neighbors,
+                            max_iterations=cfg.num_ransac_iters, max_models=cfg.max_neighborhoods,
+                            eps=2.0 * np.sqrt(3) * cfg.grid_res,
+                            visualize_progress=False, visualize_final=cfg.log_filters, verbose=0)
         # planes.visualize(cloud)
     n_used = sum(len(idx) for idx in planes.indices)
     print('Testing on %.3f = %i / %i points from %s.' % (n_used / cloud.size(), n_used, cloud.size(), name))

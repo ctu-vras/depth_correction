@@ -180,7 +180,6 @@ class Config(Configurable):
         self.nn_r = 0.25
         # self.nn_scale = self.nn_r / 2
         self.nn_scale = None
-        self.ransac_model_size = 3
         self.ransac_dist_thresh = 0.03
         self.num_ransac_iters = 1000
 

@@ -171,9 +171,9 @@ def establish_neighborhoods(dataset=None, clouds=None, poses=None, cloud=None, c
         cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, scale=cfg.nn_scale, keep_neighbors=False)
         return cloud.neighbors, cloud.weights
     elif cfg.nn_type == NeighborhoodType.plane:
-        planes = Planes.fit(cloud, cfg.ransac_dist_thresh, min_model_support=cfg.min_valid_neighbors,
-                            ransac_model_size=cfg.ransac_model_size, num_ransac_iters=cfg.num_ransac_iters,
-                            max_num_models=cfg.max_neighborhoods, eps=2.0 * np.sqrt(3) * cfg.grid_res,
+        planes = Planes.fit(cloud, cfg.ransac_dist_thresh, min_support=cfg.min_valid_neighbors,
+                            max_iterations=cfg.num_ransac_iters, max_models=cfg.max_neighborhoods,
+                            eps=2.0 * np.sqrt(3) * cfg.grid_res,
                             visualize_progress=False, visualize_final=cfg.log_filters, verbose=0)
         return planes
 

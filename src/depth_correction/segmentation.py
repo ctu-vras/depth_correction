@@ -184,8 +184,7 @@ def remove_mask(n, indices):
 
 @timing
 def fit_planes_iter(x, distance_threshold, min_support=3, max_iterations=1000, max_models=10, eps=None,
-                    visualize_progress=False, verbose=0,
-                    fit_impl=Impl.pcl, cluster_impl=Impl.open3d):
+                    visualize_progress=False, verbose=0, fit_impl=Impl.pcl, cluster_impl=Impl.open3d):
     assert isinstance(x, np.ndarray)
     assert x.shape[1] == 3
     assert distance_threshold >= 0.0

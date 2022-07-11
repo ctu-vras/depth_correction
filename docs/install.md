@@ -19,7 +19,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 3. Install [ROS](http://wiki.ros.org/ROS/Installation)
 4. Install ROS dependencies:
    ```bash
-   sudo apt-get install python3-catkin-tools ros-noetic-ros-numpy ros-noetic-rviz ros-noetic-tf-conversions
+   sudo apt-get install python3-catkin-tools python3-pcl ros-noetic-ros-numpy ros-noetic-rviz ros-noetic-tf-conversions
    ```
 
 6. Build ROS workspace:

@@ -282,7 +282,7 @@ def fit_planes(x, distance_threshold, visualize_final=False, **kwargs):
 
     planes = fit_planes_iter(x, distance_threshold, **kwargs)
 
-    if visualize_final or True:
+    if visualize_final:
         planes.visualize()
 
     return planes

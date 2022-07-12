@@ -257,6 +257,7 @@ class Config(Configurable):
 
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
+        self.test_pose_deltas = None
         self.loss_eval_csv = None
         self.slam_eval_csv = None
         self.slam_eval_bag = None

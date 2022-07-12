@@ -1,69 +1,125 @@
 from __future__ import absolute_import, division, print_function
-from .config import Config, loss_eval_csv, PoseCorrection, slam_eval_bag, slam_eval_csv, slam_poses_csv
+from .config import (
+    Config,
+    loss_eval_csv,
+    NeighborhoodType,
+    nonempty,
+    PoseCorrection,
+    slam_eval_csv,
+)
 from .dataset import create_dataset
 from .depth_cloud import DepthCloud
-from .filters import filter_eigenvalues
 from .io import append
 from .loss import create_loss
-from .model import BaseModel, load_model
-from .preproc import filtered_cloud, global_cloud, global_cloud_mask, local_feature_cloud
-from .ros import publish_data
-from .segmentation import Planes
-from .utils import covs
+from .model import load_model
+from .preproc import (
+    compute_neighborhood_features,
+    establish_neighborhoods,
+    global_cloud,
+    global_cloud_mask,
+    local_feature_cloud,
+    offset_cloud,
+)
+from .transform import xyz_axis_angle_to_matrix
 from argparse import ArgumentParser
 import numpy as np
 import os
 import torch
 
 
-def eval_loss_single(cfg: Config, dataset, model: BaseModel=None, loss_fun=None):
+def initialize_pose_corrections(datasets, cfg: Config):
+    """Initialize pose correction for given datasets (sequence lengths).
 
-    if model is None:
-        model = load_model(cfg=cfg, eval_mode=True)
+    Reusing pose correction from training in validation / test must be done
+    in caller.
 
-    if loss_fun is None:
-        loss_fun = create_loss(cfg)
-    assert callable(loss_fun)
+    :param datasets: Datasets (lengths are used).
+    :param cfg: Config with pose correction type, tensor data type and device.
+    :return: Pose corrections.
+    """
+    pose_deltas = []
+    kwargs = {
+        'dtype': cfg.torch_float_type(),
+        'device': cfg.device,
+        'requires_grad': True,
+    }
+    for ds in datasets:
+        if cfg.pose_correction == PoseCorrection.common:
+            # Use a common correction for all sequences and poses, broadcast to all poses.
+            if pose_deltas:
+                pose_delta = pose_deltas[0]
+            else:
+                pose_delta = torch.zeros((1, 6), **kwargs)
+        elif cfg.pose_correction == PoseCorrection.sequence:
+            # Single correction per sequence (sensor rig calibration), broadcast to all poses.
+            pose_delta = torch.zeros((1, 6), **kwargs)
+        elif cfg.pose_correction == PoseCorrection.pose:
+            # Correct every pose (e.g. from odometry or SLAM).
+            pose_delta = torch.zeros((len(ds), 6), **kwargs)
+        else:
+            pose_delta = None
 
-    name = str(dataset)
-    clouds = []
-    poses = []
-    # for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
-    for cloud, pose in dataset:
-        # cloud = filtered_cloud(cloud, cfg)
-        cloud = local_feature_cloud(cloud, cfg)
-        clouds.append(cloud)
-        poses.append(pose)
-    poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
-    poses = torch.as_tensor(poses, device=cfg.device)
-    cloud = global_cloud(clouds, model, poses)
-    cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-    mask = global_cloud_mask(cloud, None, cfg)
-    print('Testing on %.3f = %i / %i points from %s.'
-          % (mask.float().mean().item(), mask.sum().item(), mask.numel(),
-             name))
+        pose_deltas.append(pose_delta)
 
-    if cfg.enable_ros:
-        publish_data([cloud], [poses], [name], cfg=cfg)
-
-    test_loss, _ = loss_fun(cloud, mask=mask)
-    print('Test loss on %s: %.9f' % (name, test_loss.item()))
-    # if cfg.loss_eval_csv:
-    #     assert cfg.loss_eval_csv
-    #     append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
-    return test_loss
+    return pose_deltas
 
 
-def eval_loss(cfg: Config, test_datasets=None, model=None, loss_fun=None):
+def create_corrected_poses(poses, pose_deltas, cfg: Config):
+
+    if cfg.pose_correction == PoseCorrection.none:
+        poses_upd = poses
+    else:
+        assert len(poses) == len(pose_deltas)
+        # For common pose correction, there is a same correction for all sequences.
+        if cfg.pose_correction == PoseCorrection.common:
+            assert all(d is pose_deltas[0] for d in pose_deltas[1:])
+        poses_upd = []
+        for i in range(len(poses)):
+            pose_deltas_mat = xyz_axis_angle_to_matrix(pose_deltas[i])
+            poses_upd.append(torch.matmul(poses[i], pose_deltas_mat))
+
+    return poses_upd
+
+
+def eval_loss_clouds(clouds, poses, pose_deltas, masks, ns, model, loss_fun, cfg: Config):
+    """Evaluate loss on given clouds, poses, deltas, etc."""
+
+    offsets = [offset_cloud(c, model) for c in clouds] if cfg.loss_offset else None
+    poses_upd = create_corrected_poses(poses, pose_deltas, cfg)
+    global_clouds = [
+        global_cloud(clouds=c, model=model if cfg.nn_type == NeighborhoodType.ball else None, poses=p)
+        for c, p in zip(clouds, poses_upd)
+    ]
+    feat_clouds = [
+        compute_neighborhood_features(cloud=cloud, model=model if cfg.nn_type == NeighborhoodType.plane else None,
+                                      neighborhoods=nn, cfg=cfg)
+        for cloud, nn in zip(global_clouds, ns)
+    ]
+    if (not masks or masks[0] is None) and isinstance(feat_clouds[0], DepthCloud):
+        masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                 for cloud in feat_clouds]
+    loss, loss_cloud = loss_fun(feat_clouds, mask=masks, offset=offsets)
+
+    return loss, loss_cloud, poses_upd, feat_clouds
+
+
+def eval_loss(cfg: Config, test_datasets=None, test_ns=None, model=None, loss_fun=None,
+              return_neighborhood=False):
     """Evaluate loss on test sequences.
 
     :param cfg: Config.
     :param test_datasets: Test datasets, created from config if not provided.
+    :param test_ns: Test neighborhoods, created if needed.
+    :param model: Model to use, created from config if not provided.
+    :param loss_fun: Loss function, created from config if not provided.
+    :param return_neighborhood: Whether to return neighborhood test_ns.
     """
     if test_datasets:
-        print('Using provided test datasets: %s.' % ', '.join([str(ds) for ds in test_datasets]))
+        test_names = [str(ds) for ds in test_datasets]
+        print('Using provided test datasets: %s.' % ', '.join(test_names))
     else:
         print('Creating test datasets from config: %s.' % ', '.join(cfg.test_names))
+        test_names = cfg.test_names
         test_datasets = []
         for i, name in enumerate(cfg.test_names):
             poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
@@ -73,121 +129,61 @@ def eval_loss(cfg: Config, test_datasets=None, model=None, loss_fun=None):
     if model is None:
         model = load_model(cfg=cfg, eval_mode=True)
 
-    if cfg.pose_correction != PoseCorrection.none:
-        print('Pose deltas not used.')
-
     if loss_fun is None:
         loss_fun = create_loss(cfg)
     assert callable(loss_fun)
 
-    # TODO: Process individual sequences separately.
-    # for i, name in enumerate(cfg.test_names):
+    test_clouds = []
+    test_poses = []
+    test_masks = [None] * len(test_datasets)
     for i, ds in enumerate(test_datasets):
-        name = str(ds)
-        # Allow overriding poses paths, assume valid if non-empty.
-        # poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
         clouds = []
         poses = []
-        # for cloud, pose in Dataset(name, poses_path=poses_path)[::cfg.data_step]:
         for cloud, pose in ds:
-            # cloud = filtered_cloud(cloud, cfg)
-            cloud = local_feature_cloud(cloud, cfg)
+            if cfg.nn_type == NeighborhoodType.ball:
+                cloud = local_feature_cloud(cloud, cfg)
+            else:
+                cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type(), device=cfg.device)
             clouds.append(cloud)
             poses.append(pose)
+        test_clouds.append(clouds)
         poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
-        cloud = global_cloud(clouds, model, poses)
-        cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-        mask = global_cloud_mask(cloud, None, cfg)
-        # mask = filter_eigenvalues(cloud, bounds=cfg.eigenvalue_bounds,
-        #                           only_mask=True, log=cfg.log_filters)
-        print('Testing on %.3f = %i / %i points from %s.'
-              % (mask.float().mean().item(), mask.sum().item(), mask.numel(),
-                 name))
+        test_poses.append(poses)
 
-        if cfg.enable_ros:
-            publish_data([cloud], [poses], [name], cfg=cfg)
-
-        test_loss, _ = loss_fun(cloud, mask=mask)
-
-        print('Test loss on %s: %.9f' % (name, test_loss.item()))
-        if cfg.loss_eval_csv:
-            assert cfg.loss_eval_csv
-            append(cfg.loss_eval_csv, '%s %.9f\n' % (name, test_loss))
-
-    if len(test_datasets) == 1:
-        return test_loss
-
-
-def eval_loss_planes(cfg: Config, test_datasets=None, model=None, loss_fun=None):
-    """Evaluate loss on test sequences.
-
-    :param cfg: Config.
-    :param test_datasets: Test datasets, created from config if not provided.
-    """
-    if test_datasets:
-        print('Using provided test datasets: %s.' % ', '.join([str(ds) for ds in test_datasets]))
+    # Initialize pose deltas, possibly from file.
+    if cfg.test_poses_path and nonempty(cfg.test_poses_path):
+        assert cfg.pose_correction != PoseCorrection.none
+        test_pose_deltas = torch.load(cfg.test_pose_deltas, map_location=cfg.device)
     else:
-        print('Creating test datasets from config: %s.' % ', '.join(cfg.test_names))
-        test_datasets = []
-        for i, name in enumerate(cfg.test_names):
-            poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
-            ds = create_dataset(name, cfg, poses_path=poses_path)
-            test_datasets.append(ds)
+        test_pose_deltas = initialize_pose_corrections(test_datasets, cfg)
 
-    if model is None:
-        model = load_model(cfg=cfg, eval_mode=True)
+    # Create test neighborhoods.
+    if test_ns is None:
+        test_ns = [establish_neighborhoods(clouds=clouds, poses=poses, cfg=cfg)
+                   for clouds, poses in zip(test_clouds, test_poses)]
 
-    if cfg.pose_correction != PoseCorrection.none:
-        print('Pose deltas not used.')
+    # Compute loss.
+    test_loss, _, test_poses_upd, test_feat_clouds \
+            = eval_loss_clouds(test_clouds, test_poses, test_pose_deltas, test_masks, test_ns,
+                               model, loss_fun, cfg)
 
-    if loss_fun is None:
-        loss_fun = create_loss(cfg)
-    assert callable(loss_fun)
+    print('Test loss on %s: %.9f' % (', '.join(test_names), test_loss.item()))
 
-    # TODO: Process individual sequences separately.
-    # for i, name in enumerate(cfg.test_names):
-    for i, ds in enumerate(test_datasets):
-        name = str(ds)
-        # Allow overriding poses paths, assume valid if non-empty.
-        clouds = []
-        poses = []
-        for cloud, pose in ds:
-            cloud = DepthCloud.from_structured_array(cloud, cfg.numpy_float_type())
-            clouds.append(cloud)
-            poses.append(pose)
-        poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
-        poses = torch.as_tensor(poses, device=cfg.device)
-        cloud = global_cloud(clouds, None, poses)
-        planes = Planes.fit(cloud, cfg.nn_r, min_support=cfg.min_valid_neighbors, num_planes=10,
-                            eps=np.sqrt(3) * cfg.grid_res,
-                            visualize_progress=False, visualize_final=False, verbose=0)
-        planes.visualize()
-        n_used = sum(len(idx) for idx in planes.indices)
-        print('Testing on %.3f = %i / %i points from %s.' % (n_used / cloud.size(), n_used, cloud.size(), name))
+    if cfg.loss_eval_csv:
+        assert cfg.loss_eval_csv
+        append(cfg.loss_eval_csv, '%s %.9f\n' % (','.join(test_names), test_loss))
+        if len(test_names) > 1:
+            print('Test loss on %s written to %s.' % (', '.join(test_names), cfg.loss_eval_csv))
 
-        # Update cloud incidence angles from normals and ray directions.
-        covs_all = []
-        eigvals_all = []
-        for i in range(planes.size()):
-            plane_cloud = cloud[planes.indices[i]]
-            plane_cloud.normals = planes.params[i:i + 1, :-1].expand((len(planes.indices[i]), -1))
-            plane_cloud.update_incidence_angles()
-            plane_cloud = model(plane_cloud)
-            x = plane_cloud.to_points()
-            cov = covs(x)
-            covs_all.append(cov)
-            eigvals_all.append(torch.linalg.eigh(cov)[0])
-        planes.cov = torch.stack(covs_all)
-        planes.eigvals = torch.stack(eigvals_all)
-        test_loss, _ = loss_fun(planes)
-
-    if len(test_datasets) == 1:
+    if return_neighborhood:
+        return test_loss, test_ns
+    else:
         return test_loss
 
 
 def eval_loss_all(cfg: Config):
-    # Evaluate consistency loss and SLAM on all subsets.
+    # Evaluate consistency loss on all subsets.
     # Use ground-truth poses for evaluation.
     for names, suffix in zip([cfg.train_names, cfg.val_names, cfg.test_names],
                              ['train', 'val', 'test']):
@@ -204,6 +200,7 @@ def eval_loss_all(cfg: Config):
             eval_cfg.loss = loss
             eval_cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss, suffix)
             eval_loss(cfg=eval_cfg)
+
 
 
 def eval_slam(cfg: Config):
@@ -289,25 +286,51 @@ def eval_slam_all(cfg: Config):
 
 def demo():
     cfg = Config()
-    cfg.dataset = 'asl_laser'
-    cfg.test_names = ['stairs']
+    # cfg.dataset = 'asl_laser'
+    # cfg.test_names = ['stairs']
+    # cfg.model_class = 'ScaledPolynomial'
+    # cfg.model_state_dict = '/home/petrito1/workspace/depth_correction/gen/2022-02-21_16-31-34/088_8.85347e-05_state_dict.pth'
+    # cfg.pose_correction = PoseCorrection.sequence
+
+    cfg.dataset = 'newer_college'
+    cfg.test_names = [
+        'newer_college/01_short_experiment/start_0_end_800_step_12',
+        'newer_college/01_short_experiment/start_800_end_1600_step_12',
+    ]
+    cfg.test_poses_path = []
+    cfg.pose_correction = PoseCorrection.common
+    cfg.grid_res = 0.2
+    cfg.min_depth = 1.0
+    cfg.max_depth = 20.0
+    cfg.nn_type = NeighborhoodType.plane
+    cfg.ransac_dist_thresh = 0.03
+    cfg.min_valid_neighbors = 250
+    cfg.max_neighborhoods = 10
     cfg.model_class = 'ScaledPolynomial'
-    cfg.model_state_dict = '/home/petrito1/workspace/depth_correction/gen/2022-02-21_16-31-34/088_8.85347e-05_state_dict.pth'
-    cfg.pose_correction = PoseCorrection.sequence
+    cfg.log_filters = False
+
     eval_loss(cfg)
 
 
 def run_from_cmdline():
     parser = ArgumentParser()
-    parser.add_argument('--config', '-c', type=str, required=True)
+    # parser.add_argument('--config', '-c', type=str, required=True)
+    parser.add_argument('--config', '-c', type=str)
     parser.add_argument('arg', type=str)
     args = parser.parse_args()
     print('Arguments:')
     print(args)
+
+    if 'demo' == args.arg:
+        demo()
+        return
+
+    assert args.config
     cfg = Config()
     cfg.from_yaml(args.config)
     print('Config:')
     print(cfg.to_yaml())
+
     print('Evaluating...')
     if 'all' in args.arg:
         if 'loss' in args.arg:

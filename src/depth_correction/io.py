@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 import os
-from time import sleep
 from random import random
+from time import sleep
 
 
 def write(path, text, append=False, create_dirs=True):

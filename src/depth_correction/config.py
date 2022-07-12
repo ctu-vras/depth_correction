@@ -9,10 +9,17 @@ import yaml
 __all__ = [
     'Config',
     'fix_bounds',
+    'Loss',
+    'loss_eval_csv',
+    'Model',
+    'NeighborhoodType',
     'nonempty',
     'PoseCorrection',
     'PoseProvider',
     'SLAM',
+    'slam_eval_bag',
+    'slam_eval_csv',
+    'slam_poses_csv',
 ]
 
 

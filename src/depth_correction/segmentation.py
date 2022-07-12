@@ -154,6 +154,14 @@ def fit_plane_open3d(x, distance_threshold, max_iterations=1000):
     return model, indices
 
 
+def fit_plane(x, distance_threshold, max_iterations=1000, impl=Impl.pcl):
+    if impl == Impl.pcl:
+        plane, support = fit_plane_pcl(x, distance_threshold, max_iterations=max_iterations)
+    elif impl == Impl.open3d:
+        plane, support = fit_plane_open3d(x, distance_threshold, max_iterations=max_iterations)
+    return plane, support
+
+
 # @timing
 def cluster_open3d(x, eps, min_points=10):
     assert isinstance(x, np.ndarray)
@@ -196,10 +204,7 @@ def fit_planes_iter(x, distance_threshold, min_support=3, max_iterations=1000, m
     labels = np.full(len(remaining), -1, dtype=int)
     label = 0
     while True:
-        if fit_impl == Impl.pcl:
-            plane, support_tmp = fit_plane_pcl(remaining, distance_threshold, max_iterations=max_iterations)
-        elif fit_impl == Impl.open3d:
-            plane, support_tmp = fit_plane_open3d(remaining, distance_threshold, max_iterations=max_iterations)
+        plane, support_tmp = fit_plane(remaining, distance_threshold, max_iterations=max_iterations, impl=fit_impl)
 
         support_tmp = np.asarray(support_tmp)
         if verbose >= 2:

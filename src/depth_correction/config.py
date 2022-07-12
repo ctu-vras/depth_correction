@@ -34,7 +34,7 @@ def fix_bounds(bounds):
 
 
 def nonempty(iterable):
-    return filter(bool, iterable)
+    return list(filter(bool, iterable))
 
 
 class NeighborhoodType(metaclass=ValueEnum):

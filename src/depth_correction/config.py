@@ -9,10 +9,17 @@ import yaml
 __all__ = [
     'Config',
     'fix_bounds',
+    'Loss',
+    'loss_eval_csv',
+    'Model',
+    'NeighborhoodType',
     'nonempty',
     'PoseCorrection',
     'PoseProvider',
     'SLAM',
+    'slam_eval_bag',
+    'slam_eval_csv',
+    'slam_poses_csv',
 ]
 
 
@@ -34,7 +41,7 @@ def fix_bounds(bounds):
 
 
 def nonempty(iterable):
-    return filter(bool, iterable)
+    return list(filter(bool, iterable))
 
 
 class NeighborhoodType(metaclass=ValueEnum):
@@ -175,17 +182,22 @@ class Config(Configurable):
         self.max_depth = 20.0
         self.grid_res = 0.1
         # Neighborhood
-        self.nn_type = NeighborhoodType.ball
+        # self.nn_type = NeighborhoodType.ball
         self.nn_k = 0
         self.nn_r = 0.25
+        # self.min_valid_neighbors = 5
+        # self.max_neighborhoods = None
         # self.nn_scale = self.nn_r / 2
         self.nn_scale = None
+        self.nn_type = NeighborhoodType.plane
+        self.ransac_model_size = 3
         self.ransac_dist_thresh = 0.03
-        self.num_ransac_iters = 1000
+        self.num_ransac_iters = 500
+        # self.min_valid_neighbors = 1000
+        self.min_valid_neighbors = 250
+        self.max_neighborhoods = 10
 
         # Depth correction
-        self.min_valid_neighbors = 5
-        self.max_neighborhoods = None
         self.shadow_neighborhood_angle = 0.017453  # 1 deg
         # self.shadow_angle_bounds = [radians(5.), float('inf')]
         self.shadow_angle_bounds = []
@@ -250,6 +262,7 @@ class Config(Configurable):
 
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
+        self.test_pose_deltas = None
         self.loss_eval_csv = None
         self.slam_eval_csv = None
         self.slam_eval_bag = None

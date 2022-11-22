@@ -46,22 +46,23 @@ From: ros:noetic-perception
     setuptools==58.0.4
     tifffile==2021.11.2
     tqdm==4.62.3
+    scikit-image==0.19.3
     "
     pip install ${python_pkgs}
     pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
     ln -s /usr/bin/python3 /usr/bin/python
 
-    # Install ROS
-    ws=/opt/ros/depthcorr_ws
-    mkdir -p "${ws}/src/"
-    cd "${ws}/src"
-    git clone https://github.com/tpet/data.git
-    git clone https://github.com/RuslanAgishev/depth_correction.git
-    cd $ws && wstool init src ${ws}/src/depth_correction/dependencies.rosinstall
+    # Create ROS workspace
+    # ws=/opt/ros/depthcorr_ws
+    # mkdir -p "${ws}/src/"
+    # cd "${ws}/src"
+    # git clone https://github.com/tpet/data.git
+    # git clone https://github.com/RuslanAgishev/depth_correction.git
+    # cd $ws && wstool init src ${ws}/src/depth_correction/dependencies.rosinstall
 
     # Build ROS workspace
-    cd "${ws}"
-    njobs=`grep ^cpu\\\\scores /proc/cpuinfo | uniq | awk '{print $4}'`
-    catkin init
-    catkin config --extend /opt/ros/noetic
-    catkin build -c -j $njobs
+    # cd "${ws}"
+    # njobs=`grep ^cpu\\\\scores /proc/cpuinfo | uniq | awk '{print $4}'`
+    # catkin init
+    # catkin config --extend /opt/ros/noetic
+    # catkin build -c -j $njobs

@@ -118,7 +118,8 @@ def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.M
     return loss, loss_clouds
 
 
-def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=False, reduction=Reduction.MEAN):
+def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=False, reduction=Reduction.MEAN,
+                    inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -127,7 +128,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
 
     :param cloud:
     :param mask:
-    :param offset: Source cloud to offset point-wise loss values, optional.
+    :param offset: Offset point-wise loss values, optional.
     :param sqrt: Whether to use square root of eigenvalue.
     :param normalization: Whether to normalize minimum eigenvalue by total variance.
     :param reduction:
@@ -137,33 +138,50 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
         return batch_loss(min_eigval_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, normalization=normalization,
-                          reduction=reduction)
+                          reduction=reduction,
+                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult)
 
     assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.eigvals is not None
     assert offset is None or isinstance(offset, (DepthCloud, PointCloud))
 
-    eigvals = cloud.eigvals
     if mask is not None:
-        eigvals = eigvals[mask]
+        print('Using %.3f valid entries from input cloud.' % mask.float().mean())
+        cloud = cloud[mask]
+        mask = None
+
+    eigvals = cloud.eigvals
     loss = eigvals[:, 0]
 
     if normalization:
         loss = loss / eigvals.sum(dim=-1).clamp(min=1e-6)
 
+    if inlier_ratio < 1.0:
+        assert offset is None
+        # Sort loss values and select inlier_ratio of them.
+        loss_quantile = torch.quantile(loss, inlier_ratio, dim=0)
+        print('Loss %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_loss_mult != 1.0:
+            loss_quantile = inlier_loss_mult * loss_quantile
+        print('Multiplied %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_max_loss is None:
+            inlier_max_loss = loss_quantile
+        else:
+            inlier_max_loss = torch.min(inlier_max_loss, loss_quantile)
+
+    if inlier_max_loss is not None:
+        assert offset is None
+        mask = (loss <= inlier_max_loss)
+        print('Using %i (%.3g) inliers with loss <= %.3g.'
+              % (mask.sum().item(), mask.float().mean().item(), inlier_max_loss.item()))
+
+    if mask is not None:
+        cloud = cloud[mask]
+        loss = loss[mask]
+
+    # Offset the loss using loss computed on local clouds.
     if offset is not None:
-        # Offset the loss using loss computed on local clouds.
-        assert offset.eigvals is not None
-
-        offset_eigvals = offset.eigvals
-        if mask is not None:
-            offset_eigvals = offset_eigvals[mask]
-        offset_loss = offset_eigvals[:, 0]
-
-        if normalization:
-            offset_loss = offset_loss / offset_eigvals.sum(dim=-1)
-
-        loss = loss - offset_loss
+        loss = loss - offset
 
     # Ensure positive loss.
     loss = torch.relu(loss)
@@ -171,17 +189,16 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     if sqrt:
         loss = torch.sqrt(loss)
 
-    if mask is None:
-        cloud = cloud.copy()
-    else:
-        cloud = cloud[mask]
+    cloud = cloud.copy()
     cloud.loss = loss
 
     loss = reduce(loss, reduction=reduction)
     return loss, cloud
 
 
-def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN, **kwargs):
+def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN,
+               inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0,
+               **kwargs):
     """Map consistency loss based on the trace of covariance matrix.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -198,29 +215,47 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     # If a batch of clouds is (as a list), process them separately,
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        return batch_loss(trace_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, reduction=reduction)
+        return batch_loss(trace_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, reduction=reduction,
+                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult)
 
     assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.cov is not None
     assert offset is None or isinstance(offset, (DepthCloud, PointCloud))
 
-    cov = cloud.cov
     if mask is not None:
-        cov = cov[mask]
+        print('Using %.3f valid entries from input cloud.' % mask.float().mean())
+        cloud = cloud[mask]
+        mask = None
 
+    cov = cloud.cov
     loss = trace(cov)
 
+    if inlier_ratio < 1.0:
+        assert offset is None
+        # Sort loss values and select inlier_ratio of them.
+        loss_quantile = torch.quantile(loss, inlier_ratio, dim=0)
+        print('Loss %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_loss_mult != 1.0:
+            loss_quantile = inlier_loss_mult * loss_quantile
+        print('Multiplied %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_max_loss is None:
+            inlier_max_loss = loss_quantile
+        else:
+            inlier_max_loss = torch.min(inlier_max_loss, loss_quantile)
+
+    if inlier_max_loss is not None:
+        assert offset is None
+        mask = (loss <= inlier_max_loss)
+        print('Using %i (%.3g) inliers with loss <= %.3g.'
+              % (mask.sum().item(), mask.float().mean().item(), inlier_max_loss.item()))
+
+    if mask is not None:
+        cloud = cloud[mask]
+        loss = loss[mask]
+
+    # Offset the loss using loss computed on local clouds.
     if offset is not None:
-        # Offset the loss using loss computed on local clouds.
-        assert offset.cov is not None
-
-        offset_cov = offset.cov
-        if mask is not None:
-            offset_cov = offset_cov[mask]
-
-        offset_loss = trace(offset_cov)
-
-        loss = loss - offset_loss
+        loss = loss - offset
 
     # Ensure positive loss.
     loss = torch.relu(loss)
@@ -228,10 +263,7 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     if sqrt:
         loss = torch.sqrt(loss)
 
-    if mask is None:
-        cloud = cloud.copy()
-    else:
-        cloud = cloud[mask]
+    cloud = cloud.copy()
     cloud.loss = loss
 
     loss = reduce(loss, reduction=reduction)

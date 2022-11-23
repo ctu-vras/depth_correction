@@ -168,6 +168,7 @@ class Config(Configurable):
         self.pose_provider = PoseProvider.ground_truth
         self.slam = SLAM.norlab_icp_mapper
         self.model_class = Model.ScaledPolynomial
+        self.optimize_model = True  # Whether to optimize model parameters.
         self.model_args = []
         self.model_kwargs = {}
         # self.model_kwargs['w'] = [0.0]
@@ -247,6 +248,9 @@ class Config(Configurable):
         self.loss_kwargs = {}
         self.loss_kwargs['sqrt'] = False
         self.loss_kwargs['normalization'] = True
+        self.loss_kwargs['inlier_max_loss'] = None
+        self.loss_kwargs['inlier_ratio'] = 1.0
+        self.loss_kwargs['inlier_loss_mult'] = 1.0
         self.n_opt_iters = 100
 
         self.optimizer = 'Adam'
@@ -416,7 +420,7 @@ class Config(Configurable):
         dir = os.path.join(self.out_dir, self.get_preproc_desc())
         return dir
 
-    def get_exp_desc(self):
+    def get_exp_desc(self, sep='_'):
         parts = [self.pose_provider,
                  self.pose_correction,
                  self.model_class,
@@ -427,7 +431,7 @@ class Config(Configurable):
                  self.get_vp_dispersion_desc(),
                  self.get_vp_dispersion_to_depth2_desc(),
                  self.get_loss_desc()]
-        desc = '_'.join(nonempty(parts))
+        desc = sep.join(nonempty(parts))
         return desc
 
     def get_exp_dir(self):

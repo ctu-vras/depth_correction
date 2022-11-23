@@ -739,20 +739,21 @@ class TransformingDataset(Forwarding):
     def __init__(self, target):
         super().__init__(target)
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         return cloud
 
-    def transform_pose(self, pose):
+    def transform_pose(self, pose, **kwargs):
         return pose
 
     def __getitem__(self, item):
         assert isinstance(item, int), item
         cloud, pose = self.target[item]
-        return self.transform_cloud(cloud), self.transform_pose(pose)
+        return self.transform_cloud(cloud, item=item), self.transform_pose(pose, item=item)
 
     def __iter__(self):
-        for cloud, pose in self.target:
-            yield self.transform_cloud(cloud), self.transform_pose(pose)
+        for item, (cloud, pose) in enumerate(self.target):
+            yield self.transform_cloud(cloud, item=item), self.transform_pose(pose, item=item)
+            # yield self.target[item]
 
     def local_cloud(self, id):
         return self.transform_cloud(self.target.local_cloud(id))
@@ -767,7 +768,7 @@ class FilteredDataset(TransformingDataset):
         super().__init__(dataset)
         self.cfg = cfg
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         cloud = filtered_cloud(cloud, self.cfg)
         return cloud
 
@@ -778,7 +779,7 @@ class NoisyPoseDataset(TransformingDataset):
         pose = 'pose'
         common = 'common'
 
-    def __init__(self, dataset, noise=0.0, mode=None):
+    def __init__(self, dataset, noise=0.0, mode=None, first_noisy=False):
         """
         :param dataset:
         :param noise: Pose noise, standard deviations for euler angles and position.
@@ -791,6 +792,7 @@ class NoisyPoseDataset(TransformingDataset):
         super().__init__(dataset)
         self.noise = noise
         self.mode = mode
+        self.first_noisy = first_noisy
 
     def random_transform(self, seed):
         rng = np.random.default_rng(seed)
@@ -800,8 +802,11 @@ class NoisyPoseDataset(TransformingDataset):
         return noise
 
     # TODO: Cache
-    def transform_pose(self, pose):
+    def transform_pose(self, pose, item=None):
         if self.mode == NoisyPoseDataset.Mode.pose:
+            if not self.first_noisy and item == 0:
+                print('No noise for first pose')
+                return pose
             seed = abs(hash(hashable(pose)))
         elif self.mode == NoisyPoseDataset.Mode.common:
             seed = Config().random_seed
@@ -821,7 +826,7 @@ class NoisyDepthDataset(TransformingDataset):
         super().__init__(dataset)
         self.noise = noise
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         if self.noise:
             pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
             if 'vp_x' in cloud.dtype.names:
@@ -848,7 +853,7 @@ class DepthBiasDataset(TransformingDataset):
         self.model = model
         self.cfg = cfg
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         if self.model is not None:
             assert isinstance(self.model, BaseModel)
             dc = DepthCloud.from_structured_array(cloud)
@@ -924,11 +929,7 @@ def dataset_by_name(name):
     raise ValueError('Unknown dataset: %s.' % name)
 
 
-def create_dataset(name, cfg: Config, **kwargs):
-    Dataset = dataset_by_name(name)
-    ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
-    ds = FilteredDataset(ds, cfg)
-
+def noisy_dataset(ds, cfg):
     if cfg.depth_bias_model_class:
         from .model import model_by_name
         gt_model = model_by_name(cfg.depth_bias_model_class)(**cfg.depth_bias_model_kwargs)
@@ -937,12 +938,22 @@ def create_dataset(name, cfg: Config, **kwargs):
             ds = DepthBiasDataset(ds, gt_model, cfg=cfg)
 
     if cfg.depth_noise:
-        print('Adding depth noise %.3g.', cfg.depth_noise)
+        print('Adding depth noise %.3g.' % cfg.depth_noise)
         ds = NoisyDepthDataset(ds, noise=cfg.depth_noise)
 
     if cfg.pose_noise:
-        print('Adding pose noise %.3g, %s.', cfg.pose_noise, cfg.pose_noise_mode)
+        print('Adding pose noise %.3g, %s.' % (cfg.pose_noise, cfg.pose_noise_mode))
         ds = NoisyPoseDataset(ds, noise=cfg.pose_noise, mode=cfg.pose_noise_mode)
+    return ds
+
+
+def create_dataset(name, cfg: Config, noisy=True, **kwargs):
+    Dataset = dataset_by_name(name)
+    ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
+    ds = FilteredDataset(ds, cfg)
+
+    if noisy:
+        ds = noisy_dataset(ds, cfg)
 
     ds = Subscriptable(ds)[cfg.data_slice()]
     return ds

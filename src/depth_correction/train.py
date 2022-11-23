@@ -130,8 +130,11 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     print(model)
 
     # Optimizable parameters and optimizer for train sequences.
-    params = [{'params': model.parameters(), 'lr': cfg.lr}]
+    params = []
+    if cfg.optimize_model and len(list(model.parameters())) > 0:
+        params.append({'params': model.parameters(), 'lr': cfg.lr})
     if cfg.pose_correction != PoseCorrection.none:
+        # params.append({'params': train_pose_deltas, 'lr': cfg.lr, 'weight_decay': 0.0})
         params.append({'params': train_pose_deltas, 'lr': cfg.lr})
     # Initialize optimizer.
     args = cfg.optimizer_args[:] if cfg.optimizer_args else []
@@ -243,12 +246,20 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         # Optimization step
         optimizer.zero_grad()
         train_loss.backward()
+        # Keep the first pose fixed.
+        if cfg.pose_correction == PoseCorrection.pose:
+            for i in range(len(train_pose_deltas)):
+                train_pose_deltas[i].grad[0].zero_()
         optimizer.step()
 
         # Optimize validation pose updates.
         if val_optimizer is not None:
             val_optimizer.zero_grad()
             val_loss.backward()
+            # Keep the first pose fixed.
+            if cfg.pose_correction == PoseCorrection.pose:
+                for i in range(len(val_pose_deltas)):
+                    val_pose_deltas[i].grad[0].zero_()
             val_optimizer.step()
 
     writer.flush()

@@ -51,7 +51,7 @@ def create_splits(dataset='asl_laser', num_splits=4):
     n_dats = len(dataset_names)
     assert n_dats % 4 == 0
 
-    random.seed(135)
+    random.seed(Config().random_seed)
     random.shuffle(ds)
     ds_deque = deque(ds)
     for i in range(num_splits):

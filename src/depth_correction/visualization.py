@@ -3,6 +3,7 @@ import torch
 from .config import Config
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.lib.recfunctions import structured_to_unstructured
 
 
 def visualize_incidence_angles(clouds, titles=None, cfg: Config=None):
@@ -45,3 +46,29 @@ def visualize_incidence_angles(clouds, titles=None, cfg: Config=None):
     # print('Loss landscape written to %s.' % path)
     # os.makedirs(os.path.dirname(path), exist_ok=True)
     # fig.savefig(path, dpi=300)
+
+
+def visualize_dataset(ds, cfg: Config):
+    import open3d as o3d
+    from .preproc import filtered_cloud
+
+    pcd = o3d.geometry.PointCloud()
+    poses_pcd = o3d.geometry.PointCloud()
+    for k, (cloud, pose) in enumerate(ds):
+        cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        # filter cloud
+        cloud = filtered_cloud(cloud, cfg)
+
+        # transform cloud to common map coordinate frame
+        cloud_map = np.matmul(cloud[:, :3], pose[:3, :3].T) + pose[:3, 3:].T
+
+        pcd.points.extend(o3d.utility.Vector3dVector(cloud_map))
+
+    poses_pcd.points.extend(o3d.utility.Vector3dVector(ds.poses[:, :3, 3]))
+    green_color = np.zeros_like(ds.poses[:, :3, 3]) + np.array([0, 1, 0])
+    poses_pcd.colors = o3d.utility.Vector3dVector(green_color)
+
+    # blue_color = np.zeros_like(pcd.points) + np.array([0, 0, 1])
+    # pcd.colors = o3d.utility.Vector3dVector(blue_color)
+
+    o3d.visualization.draw_geometries([pcd, poses_pcd])

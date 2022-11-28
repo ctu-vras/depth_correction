@@ -1,0 +1,206 @@
+#!/usr/bin/env python
+"""Extract static lidar scans from a bag file.
+
+It checks when the sensor didn't move and extracts scans from these periods.
+
+Topics:
+- Position of a crystal mounted on the lidar, tracked by total station.
+  /total_station_driver/ts_points   [geometry_msgs/PointStamped]
+- Lidar scans.
+  /points                           [sensor_msgs/PointCloud2]
+- Dynamic and static transforms.
+  /tf                               [tf2_msgs/TFMessage]
+  /tf_static                        [tf2_msgs/TFMessage]
+- Lidar raw data.
+  /os_node/imu_packets              [ouster_ros/PacketMsg]
+  /os_node/lidar_packets            [ouster_ros/PacketMsg]
+  /os_node/sensor_info              [cras_ouster_msgs/SensorInfo]
+"""
+
+from __future__ import absolute_import, division, print_function
+from argparse import ArgumentParser
+from bisect import bisect_left, bisect_right
+import numpy as np
+from numpy.lib.recfunctions import structured_to_unstructured
+import os
+from rosbag import Bag, ROSBagException, Compression
+from ros_numpy import numpify
+import rospy
+from sensor_msgs.msg import PointCloud2
+from tf2_ros import BufferCore, TransformException
+from tqdm import tqdm
+
+
+def get_arg_parser():
+    parser = ArgumentParser(description='Convert a ROS bag to a KITTI dataset.')
+    parser.add_argument('bag_paths', nargs='+', help='Input bag file.')
+    parser.add_argument('--static-window', type=float, default=1.0, help='Window size for static check.')
+    parser.add_argument('--static-thresh', type=float, default=1e-3, help='Threshold for static check.')
+    parser.add_argument('--min-dist', type=float, default=0.1, help='Minimum distance between clouds.')
+    parser.add_argument('--static-bag-path', type=str, default='{dir}/{name}/static.bag', help='Output static bag path.')
+    parser.add_argument('--cloud-path-prefix', type=str, default='{dir}/{name}/{sec}_{nsec}',
+                        help='Output cloud path prefix, without extension.')
+    parser.add_argument('--fixed-frame', type=str, default='odom', help='Fixed frame.')
+    return parser
+
+
+def slots(msg):
+    return [getattr(msg, var) for var in msg.__slots__]
+
+
+def map_keys(dict, map):
+    return {map.get(k, k): dict[k] for k in dict}
+
+
+def in_bounds(seq, lo, hi):
+    i = bisect_left(seq, lo)
+    j = bisect_right(seq, hi)
+    return seq[i:j]
+
+
+def is_static(buffer, fixed_frame, child_frame, stamp, stamps, window=1.0, thresh=1e-3, **kwargs):
+
+    stamps_in_window = in_bounds(stamps, stamp - window / 2.0, stamp + window / 2.0)
+
+    for s in stamps_in_window:
+        try:
+            p = buffer.lookup_transform_full_core(child_frame, rospy.Time.from_seconds(s),
+                                                  child_frame, rospy.Time.from_seconds(stamp),
+                                                  fixed_frame)
+
+            angle = 2.0 * np.arccos(p.transform.rotation.w)
+            if np.abs(angle) > thresh:
+                print('Cloud not static. Angle %.3g > %.3g.' % (angle, thresh))
+                return False
+
+            translation = np.linalg.norm(slots(p.transform.translation))
+            if translation > thresh:
+                print('Cloud not static. Translation %.3g m > %.3g m.' % (angle, thresh))
+                return False
+
+        except TransformException as ex:
+            print('Could not find transform. Assuming transform is not static. %s.' % ex)
+            return False
+
+    return True
+
+
+def load_buffer(bag_paths):
+    tf_topics = ['/tf', '/tf_static']
+    buffer = BufferCore(rospy.Duration(24 * 60 * 60))
+    stamps = []
+
+    for path in bag_paths:
+        try:
+            with Bag(path, 'r') as bag:
+                # i = 0
+                n = bag.get_message_count(topic_filters=tf_topics)
+                for topic, msg, stamp in tqdm(bag.read_messages(topics=tf_topics),
+                                              desc='%s: reading transforms' % path.split('/')[-1],
+                                              total=n):
+                    # i += 1
+                    # if i / n > 0.05:
+                    #     print('Only reading first 5% of transforms.')
+                    #     break
+                    if topic == '/tf':
+                        for tf in msg.transforms:
+                            buffer.set_transform(tf, 'bag')
+                            stamps.append(tf.header.stamp.to_sec())
+                    elif topic == '/tf_static':
+                        for tf in msg.transforms:
+                            buffer.set_transform_static(tf, 'bag')
+                            stamps.append(tf.header.stamp.to_sec())
+        except ROSBagException as ex:
+            print('Could not read %s: %s' % (path, ex))
+
+    stamps = sorted(stamps)
+    return buffer, stamps
+
+
+def write_cloud(msg, path_prefix):
+    cloud = numpify(msg)
+    os.makedirs(os.path.dirname(path_prefix), exist_ok=True)
+
+    npz_path = path_prefix + '.npz'
+    np.savez_compressed(npz_path, cloud=cloud)
+    print('Wrote %s' % npz_path)
+
+    bin_path = path_prefix + '.bin'
+    xyz = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    xyz.tofile(bin_path)
+    print('Wrote %s' % bin_path)
+
+
+def extract_static_clouds(bag_path, buffer, stamps, min_dist=0.1, fixed_frame='map', cloud_topics=('/points',),
+                          **kwargs):
+
+    last_p = None
+    is_static_kwargs = map_keys(kwargs, {'static_window': 'window', 'static_thresh': 'thresh'})
+
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in tqdm(bag.read_messages(topics=cloud_topics),
+                                      desc='%s: extracting static clouds' % bag_path.split('/')[-1],
+                                      total=bag.get_message_count(topic_filters=cloud_topics)):
+            # Fix message type.
+            msg = PointCloud2(*slots(msg))
+
+            # Skip clouds which are not static.
+            if not is_static(buffer, fixed_frame, msg.header.frame_id, msg.header.stamp.to_sec(), stamps,
+                         **is_static_kwargs):
+                continue
+
+            # Get cloud pose in fixed frame to check mutual cloud distance.
+            try:
+                p = buffer.lookup_transform_core(fixed_frame, msg.header.frame_id, msg.header.stamp)
+            except TransformException as ex:
+                print('Could not find transform from %s to %s. Skipping. %s'
+                      % (msg.header.frame_id, fixed_frame, ex))
+                continue
+            p = np.array(slots(p.transform.translation))
+            # print(p)
+
+            # Skip clouds which are too close to the previous one.
+            if last_p is not None:
+                dist = np.linalg.norm(p - last_p)
+                if dist < min_dist:
+                    print('Distance to previous cloud %.3g m < %.3g m. Skipping.'
+                          % (dist, min_dist))
+                    continue
+            last_p = p
+
+            yield topic, msg, stamp
+
+
+def extract_data(bag_paths=(), static_bag_path='{dir}/{name}/static.bag', cloud_path_prefix='{dir}/{name}/{sec}_{nsec}',  **kwargs):
+    if not bag_paths:
+        return
+    buffer, stamps = load_buffer(bag_paths)
+    kwargs = kwargs.copy()
+    kwargs['dir'] = os.path.dirname(bag_paths[0])
+    file = os.path.basename(bag_paths[0])
+    kwargs['name'], _ = os.path.splitext(file)
+    static_bag_path = static_bag_path.format(**kwargs)
+    with Bag(static_bag_path, 'w', compression=Compression.LZ4) as static_bag:
+        for b in bag_paths:
+            for topic, msg, stamp in extract_static_clouds(b, buffer, stamps, **kwargs):
+                kwargs['topic'] = topic
+                kwargs['sec'] = msg.header.stamp.secs
+                kwargs['nsec'] = msg.header.stamp.nsecs
+                kwargs['stamp'] = stamp
+                path_prefix = cloud_path_prefix.format(**kwargs)
+                write_cloud(msg, path_prefix)
+                static_bag.write(topic, msg, stamp)
+
+
+def main():
+    args = get_arg_parser().parse_args()
+
+    kwargs = vars(args)
+    for k in sorted(kwargs):
+        print('%s: %s' % (k, kwargs[k]))
+
+    extract_data(**kwargs)
+
+
+if __name__ == '__main__':
+    main()

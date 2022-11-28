@@ -40,11 +40,13 @@
     </node>
 
     <node if="$(eval slam == 'norlab_icp_mapper')"
-          name="mapper_node" type="mapper_node" pkg="norlab_icp_mapper_ros" output="log">
+          name="mapper_node" type="mapper_node" pkg="norlab_icp_mapper_ros" output="screen">
         <rosparam subst_value="true">
             odom_frame: $(arg odom_frame)
             map_frame: $(arg map_frame)
             robot_frame: lidar
+<!--            initial_map_file_name: '$(dirname)/../data/22-11-24-kn_e2_corridor/vtk/map_2cm_alligned_normals.vtk'-->
+<!--            initial_map_file_name: '$(dirname)/../data/22-11-24-kn_e2_corridor/vtk/map_5cm_alligned_normals.vtk'-->
             initial_map_file_name: ''
             initial_robot_pose: ''
             final_map_file_name: $(dirname)/../map.vtk

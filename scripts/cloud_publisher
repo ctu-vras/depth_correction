@@ -1,0 +1,76 @@
+#!/usr/bin/env python
+from __future__ import absolute_import, division, print_function
+from ros_numpy import msgify
+import rospy
+from sensor_msgs.msg import PointCloud2
+import os
+import numpy as np
+from numpy.lib.recfunctions import unstructured_to_structured, structured_to_unstructured
+from scipy.spatial.transform import Rotation
+
+
+def transform_cloud(cloud, Tr):
+    cloud_transformed = np.matmul(cloud[:, :3], Tr[:3, :3].T) + Tr[:3, 3:].T
+    return cloud_transformed
+
+
+class CloudPublisher(object):
+
+    def __init__(self):
+        self.max_age = rospy.get_param('~max_age', 1.0)
+        self.rate = rospy.get_param('~rate', 1.0)
+        self.cloud_file = rospy.get_param('~cloud_file')
+        self.frame = rospy.get_param('~frame', 'map')
+        self.allignment = rospy.get_param('~allignment', False)
+
+        self.cloud = self.load_cloud()
+
+        self.pub = rospy.Publisher('cloud', PointCloud2, queue_size=2)
+        # evaluation runner
+        rospy.Timer(rospy.Duration(1. / self.rate), self.run)
+
+    def load_cloud(self):
+        assert os.path.exists(self.cloud_file), "Point cloud file %s does not exist" % self.cloud_file
+        cloud = np.load(self.cloud_file)['cloud']
+        if self.allignment:
+            cloud = self.allign_cloud(cloud)
+
+        return cloud
+
+    def allign_cloud(self, cloud):
+        points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        scan_0_pose = np.asarray([[0.999904, 0.013786, 0.001106, 0.000000],
+                                  [-0.013786, 0.999905, -0.000566, 0.000000],
+                                  [-0.001114, 0.000550, 0.999999, 0.000000],
+                                  [64.059486, 153.726520, 0.538550, 1.000000]]).T
+        Tr_leica_map = np.eye(4)
+        # rot = Rotation.from_rotvec(np.deg2rad(182) * np.array([0, 0, 1]))
+        rot = Rotation.from_euler('xyz', [0, -1, 182], degrees=True)
+        trans = np.asarray([-4.26, 0.77, 1.25])
+        Tr_leica_map[:3, :3] = rot.as_matrix()
+        Tr_leica_map[:3, 3] = trans
+
+        Tr = Tr_leica_map @ np.linalg.inv(scan_0_pose)
+        points = transform_cloud(points, Tr)
+        points = unstructured_to_structured(np.asarray(points[:, :3], dtype=np.float32), names=['x', 'y', 'z'])
+
+        cloud[['x', 'y', 'z']] = points
+        # np.savez(self.cloud_file.replace('.npz', '_alligned.npz'), cloud=cloud)
+        return cloud
+
+    def run(self, event):
+        output_msg = msgify(PointCloud2, self.cloud)
+        output_msg.header.frame_id = self.frame
+        output_msg.header.stamp = rospy.Time.now()
+        rospy.loginfo('Publishing cloud of shape: %s' % self.cloud.shape)
+        self.pub.publish(output_msg)
+
+
+def main():
+    rospy.init_node('cloud_publisher', log_level=rospy.INFO)
+    node = CloudPublisher()
+    rospy.spin()
+
+
+if __name__ == '__main__':
+    main()

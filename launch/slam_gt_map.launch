@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="rviz" default="true"/>
+    <arg name="bag" default="$(dirname)/../data/bags/depth_correction/2022-11-24-15-39-08.bag"/>
+    <arg name="params" default="$(eval bag.split()[0] + '.params')"/>
+    <arg name="filter" default="false"/>
+
+    <!-- Robot data: from bag file -->
+    <rosparam command="load" file="$(arg params)"/>
+    <param name="use_sim_time" value="true"/>
+    <node name="rosbag_play" pkg="rosbag" type="play" args="--clock --delay 3.0 --rate 1.0 --start 0 $(arg bag)"/>
+
+    <node pkg="tf" type="static_transform_publisher" name="subt_broadcaster"
+          args="0.41659998893737793 -0.08290000259876251 0
+                0 0 0.0784591 0.99691733
+                subt map 100" />
+<!--          args="0.41659998893737793 -0.08290000259876251 0.7368000149726868 0 0 0 1 subt map 100" />-->
+
+    <!-- Cloud filterring -->
+    <include if="$(arg filter)" file="$(dirname)/cloud_filter.launch">
+        <arg name="input" value="points"/>
+        <arg name="output" value="filtered_points"/>
+        <arg name="min_depth" value="1.0"/>
+        <arg name="max_depth" value="25.0"/>
+        <arg name="grid_res" value="0.1"/>
+    </include>
+
+    <!-- SLAM -->
+    <include file="$(dirname)/slam.launch">
+        <arg name="cloud" value="$(eval 'filtered_points' if filter else 'points')"/>
+        <arg name="odom_frame" value="odom"/>
+        <arg name="slam" value="norlab_icp_mapper"/>
+    </include>
+
+    <!-- estimate initial ground truth map position for ICP convergence (publish GT cloud in ROS and visualize it) -->
+    <node pkg="depth_correction" type="cloud_publisher" name="cloud_publisher">
+        <rosparam subst_value="true">
+<!--            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/ground_map_2cm.npz-->
+<!--            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/map_2cm_alligned.npz-->
+            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/map_5cm_alligned.npz
+            frame: map
+            rate: 5.0
+            allignment: false
+        </rosparam>
+        <remap from="cloud" to="ground_truth_map"/>
+    </node>
+
+    <!-- RVIZ -->
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+        <arg name="config" value="$(dirname)/../config/play.rviz"/>
+    </include>
+</launch>

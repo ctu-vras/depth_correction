@@ -27,6 +27,7 @@ from rosbag import Bag, ROSBagException, Compression
 from ros_numpy import numpify
 import rospy
 from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import PointStamped
 from tf2_ros import BufferCore, TransformException
 from tqdm import tqdm
 
@@ -132,7 +133,8 @@ def write_cloud(msg, path_prefix):
 
 
 def write_poses(poses, path):
-    poses = np.asarray(poses).reshape((-1, 16))[:, :12]
+    # poses = np.asarray(poses).reshape((-1, 16))[:, :12]
+    poses = np.asarray(poses)
     np.savetxt(path, poses)
     print('Wrote %s poses' % len(poses))
 
@@ -143,16 +145,16 @@ def write_ids(ids, path):
     print('Wrote %s ids' % len(ids))
 
 
-def extract_static_clouds(bag_path, buffer, stamps, min_dist=0.1, fixed_frame='map', cloud_topics=('/points',),
+def extract_static_clouds(bag_path, buffer, stamps, min_dist=0.1, fixed_frame='map', topics=['/points', ],
                           **kwargs):
 
     last_p = None
     is_static_kwargs = map_keys(kwargs, {'static_window': 'window', 'static_thresh': 'thresh'})
 
     with Bag(bag_path, 'r') as bag:
-        for topic, msg, stamp in tqdm(bag.read_messages(topics=cloud_topics),
+        for topic, msg, stamp in tqdm(bag.read_messages(topics=topics),
                                       desc='%s: extracting static clouds' % bag_path.split('/')[-1],
-                                      total=bag.get_message_count(topic_filters=cloud_topics)):
+                                      total=bag.get_message_count(topic_filters=topics)):
             # Fix message type.
             msg = PointCloud2(*slots(msg))
 
@@ -183,6 +185,37 @@ def extract_static_clouds(bag_path, buffer, stamps, min_dist=0.1, fixed_frame='m
             yield topic, msg, stamp, tf
 
 
+def extract_static_leica_poses(bag_path, stamps, min_time=0.1, topics='/total_station_driver/ts_points'):
+    poses = []
+    stamps = [s.to_sec() for s in stamps]
+
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in tqdm(bag.read_messages(topics=topics),
+                                      desc='%s: extracting static poses obtained with Leica scanner' % bag_path.split('/')[-1],
+                                      total=bag.get_message_count(topic_filters=topics)):
+            # Fix message type.
+            msg = PointStamped(*slots(msg))
+
+            if len(stamps) == 0:
+                print('Went through all of the time stamps')
+                break
+
+            # Choose poses closest to desired time moments.
+            t = stamp.to_sec()
+            dt = np.min(np.abs(np.asarray(stamps) - t))
+            if dt > min_time:
+                print('Time diff from previous pose %.3g sec > %.3g sec. Skipping.'
+                      % (dt, min_time))
+            else:
+                # otherwise remove time stamp from consideration and add position
+                min_id = np.argmin(np.abs(np.asarray(stamps) - t))
+                stamps.pop(int(min_id))
+
+                poses.append(np.asarray([msg.point.x, msg.point.y, msg.point.z]))
+                # print(msg.point)
+    return poses
+
+
 def extract_data(bag_paths=(), static_bag_path='{dir}/{name}/static.bag', cloud_path_prefix='{dir}/{name}/{sec}_{nsec}',  **kwargs):
     if not bag_paths:
         return
@@ -196,22 +229,29 @@ def extract_data(bag_paths=(), static_bag_path='{dir}/{name}/static.bag', cloud_
         for b in bag_paths:
             poses = []
             ids = []
-            for topic, msg, stamp, tf in extract_static_clouds(b, buffer, stamps, **kwargs):
+            static_stamps = []
+            for topic, msg, stamp, tf in extract_static_clouds(b, buffer, stamps, topics=['/points'], **kwargs):
                 kwargs['topic'] = topic
                 kwargs['sec'] = msg.header.stamp.secs
                 kwargs['nsec'] = msg.header.stamp.nsecs
                 kwargs['stamp'] = stamp
                 path_prefix = cloud_path_prefix.format(**kwargs)
-                pose = numpify(tf.transform)
+                pose = numpify(tf.transform)[:3, :].ravel()
                 ids.append('{sec}_{nsec}'.format(**kwargs))
+                static_stamps.append(stamp)
                 write_cloud(msg, path_prefix)
                 static_bag.write(topic, msg, stamp)
+                static_bag.write('/tf', tf, stamp)
 
                 poses.append(pose)
             assert len(poses) == len(ids), "Poses and their indices do not match: lengths: %s and %s"\
                                            % (len(poses), len(ids))
+
             write_poses(poses, path=static_bag_path.replace('static.bag', 'static_poses.txt'))
             write_ids(ids, path=static_bag_path.replace('static.bag', 'timestamps.txt'))
+
+            leica_poses = extract_static_leica_poses(b, min_time=1.5, stamps=static_stamps)
+            write_poses(leica_poses, path=static_bag_path.replace('static.bag', 'static_leica_poses.txt'))
 
 
 def main():

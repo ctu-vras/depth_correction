@@ -131,6 +131,18 @@ def write_cloud(msg, path_prefix):
     print('Wrote %s' % bin_path)
 
 
+def write_poses(poses, path):
+    poses = np.asarray(poses).reshape((-1, 16))[:, :12]
+    np.savetxt(path, poses)
+    print('Wrote %s poses' % len(poses))
+
+
+def write_ids(ids, path):
+    ids = np.asarray(ids, dtype=str).reshape((-1, 1))
+    np.savetxt(path, ids, fmt='%s')
+    print('Wrote %s ids' % len(ids))
+
+
 def extract_static_clouds(bag_path, buffer, stamps, min_dist=0.1, fixed_frame='map', cloud_topics=('/points',),
                           **kwargs):
 
@@ -151,12 +163,12 @@ def extract_static_clouds(bag_path, buffer, stamps, min_dist=0.1, fixed_frame='m
 
             # Get cloud pose in fixed frame to check mutual cloud distance.
             try:
-                p = buffer.lookup_transform_core(fixed_frame, msg.header.frame_id, msg.header.stamp)
+                tf = buffer.lookup_transform_core(fixed_frame, msg.header.frame_id, msg.header.stamp)
             except TransformException as ex:
                 print('Could not find transform from %s to %s. Skipping. %s'
                       % (msg.header.frame_id, fixed_frame, ex))
                 continue
-            p = np.array(slots(p.transform.translation))
+            p = np.array(slots(tf.transform.translation))
             # print(p)
 
             # Skip clouds which are too close to the previous one.
@@ -168,7 +180,7 @@ def extract_static_clouds(bag_path, buffer, stamps, min_dist=0.1, fixed_frame='m
                     continue
             last_p = p
 
-            yield topic, msg, stamp
+            yield topic, msg, stamp, tf
 
 
 def extract_data(bag_paths=(), static_bag_path='{dir}/{name}/static.bag', cloud_path_prefix='{dir}/{name}/{sec}_{nsec}',  **kwargs):
@@ -182,14 +194,24 @@ def extract_data(bag_paths=(), static_bag_path='{dir}/{name}/static.bag', cloud_
     static_bag_path = static_bag_path.format(**kwargs)
     with Bag(static_bag_path, 'w', compression=Compression.LZ4) as static_bag:
         for b in bag_paths:
-            for topic, msg, stamp in extract_static_clouds(b, buffer, stamps, **kwargs):
+            poses = []
+            ids = []
+            for topic, msg, stamp, tf in extract_static_clouds(b, buffer, stamps, **kwargs):
                 kwargs['topic'] = topic
                 kwargs['sec'] = msg.header.stamp.secs
                 kwargs['nsec'] = msg.header.stamp.nsecs
                 kwargs['stamp'] = stamp
                 path_prefix = cloud_path_prefix.format(**kwargs)
+                pose = numpify(tf.transform)
+                ids.append('{sec}_{nsec}'.format(**kwargs))
                 write_cloud(msg, path_prefix)
                 static_bag.write(topic, msg, stamp)
+
+                poses.append(pose)
+            assert len(poses) == len(ids), "Poses and their indices do not match: lengths: %s and %s"\
+                                           % (len(poses), len(ids))
+            write_poses(poses, path=static_bag_path.replace('static.bag', 'static_poses.txt'))
+            write_ids(ids, path=static_bag_path.replace('static.bag', 'timestamps.txt'))
 
 
 def main():

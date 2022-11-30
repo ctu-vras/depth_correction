@@ -1,0 +1,143 @@
+#!/usr/bin/env python
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neighbors import NearestNeighbors
+import math
+
+
+def point_based_matching(point_pairs):
+    """
+    This function is based on the paper "Robot Pose Estimation in Unknown Environments by Matching 2D Range Scans"
+    by F. Lu and E. Milios.
+    :param point_pairs: the matched point pairs [((x1, y1), (x1', y1')), ..., ((xi, yi), (xi', yi')), ...]
+    :return: the rotation angle and the 2D translation (x, y) to be applied for matching the given pairs of points
+    """
+
+    x_mean = 0
+    y_mean = 0
+    xp_mean = 0
+    yp_mean = 0
+    n = len(point_pairs)
+
+    if n == 0:
+        return None
+
+    for pair in point_pairs:
+
+        (x, y), (xp, yp) = pair
+
+        x_mean += x
+        y_mean += y
+        xp_mean += xp
+        yp_mean += yp
+
+    x_mean /= n
+    y_mean /= n
+    xp_mean /= n
+    yp_mean /= n
+
+    s_x_xp = 0
+    s_y_yp = 0
+    s_x_yp = 0
+    s_y_xp = 0
+    for pair in point_pairs:
+
+        (x, y), (xp, yp) = pair
+
+        s_x_xp += (x - x_mean)*(xp - xp_mean)
+        s_y_yp += (y - y_mean)*(yp - yp_mean)
+        s_x_yp += (x - x_mean)*(yp - yp_mean)
+        s_y_xp += (y - y_mean)*(xp - xp_mean)
+
+    rot_angle = math.atan2(s_x_yp - s_y_xp, s_x_xp + s_y_yp)
+    tran_x = xp_mean - (x_mean*np.cos(rot_angle) - y_mean*np.sin(rot_angle))
+    trans_y = yp_mean - (x_mean*np.sin(rot_angle) + y_mean*np.cos(rot_angle))
+
+    c, s = np.cos(rot_angle), np.sin(rot_angle)
+    T = np.array([[c, -s, tran_x],
+                  [s, c, trans_y],
+                  [0, 0, 1]])
+
+    return T
+
+
+def transform_cloud(cloud, Tr):
+    return cloud @ Tr[:2, :2].T + Tr[:2, 2:3].T
+
+
+np.random.seed(135)
+X = np.linspace(0, 50, 10) + np.random.uniform(0, 1, (10,))
+Y = np.random.uniform(0, 1, (10,))
+
+cloud = np.vstack([X, Y]).T
+cloud_orig = cloud.copy()
+
+
+angle = np.deg2rad(35)
+Tr = np.asarray([[np.cos(angle), -np.sin(angle), 3.0],
+                [np.sin(angle), np.cos(angle), -1.0],
+                [0, 0, 1]])
+print('Source transformation: \n%s\n' % Tr)
+
+cloud_target = transform_cloud(cloud, Tr)
+# add noise
+cloud_target = cloud_target + np.random.uniform(0, 0.5, cloud_target.shape)
+
+nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(cloud_target)
+def find_correspondencies(known_corresps=True, dist_th=0.5):
+    if known_corresps:
+        point_pairs = [(p, q) for p, q in zip(cloud, cloud_target)]
+    else:
+        point_pairs = []  # list of point correspondences for closest point rule
+        distances, indices = nbrs.kneighbors(cloud)
+        for nn_index in range(len(distances)):
+            if distances[nn_index][0] < dist_th:
+                point_pairs.append((cloud[nn_index], cloud_target[indices[nn_index][0]]))
+    return point_pairs
+
+
+# ICP
+dist_th = 10.0
+max_iters = 100
+
+plt.figure()
+plt.axis('equal')
+
+T_source_target = np.eye(3)
+for i in range(max_iters):
+    closest_point_pairs = find_correspondencies(known_corresps=True, dist_th=dist_th)
+
+    dist_th /= 2.
+
+    # compute translation and rotation using point correspondences
+    T_closest = point_based_matching(closest_point_pairs)
+
+    if T_closest is None:
+        print('No better solution can be found!')
+        break
+
+    T_source_target = T_closest @ T_source_target
+
+    dist = np.linalg.norm(T_closest[:2, 2])
+    print('Translated points by distance: %.3f' % dist)
+    if dist < 0.05:
+        print('Converged')
+        break
+
+    cloud_aligned = cloud @ T_closest[:2, :2].T + T_closest[:2, 2:3].T
+
+    cloud = cloud_aligned
+
+    plt.cla()
+    plt.plot(cloud_orig[:, 0], cloud_orig[:, 1], '.', label='source', color='b')
+    plt.plot(cloud_aligned[:, 0], cloud_aligned[:, 1], '+', label='aligned', color='g')
+    plt.plot(cloud_target[:, 0], cloud_target[:, 1], '*', label='target', color='r')
+    plt.grid()
+    plt.draw()
+    plt.pause(0.1)
+
+print('Resulting transformation: \n%s\n' % T_source_target)
+
+plt.legend()
+plt.show()

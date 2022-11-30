@@ -8,7 +8,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
    ```bash
    mkdir -p ~/catkin_ws/src/
    cd ~/catkin_ws/src/
-   git clone https://github.com/RuslanAgishev/depth_correction.git
+   git clone https://github.com/ctu-vras/depth_correction.git
    ```
 2. Install python dependencies:
    ```bash

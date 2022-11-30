@@ -923,7 +923,7 @@ def dataset_by_name(name):
         return RenderedMeshDataset
     elif '.obj' in name or '.ply' in name:
         return MeshDataset
-    elif name in ['asl_laser', 'semantic_kitti', 'newer_college', 'kitti360']:
+    elif name in ['asl_laser', 'semantic_kitti', 'newer_college', 'kitti360', 'depth_correction']:
         imported_module = importlib.import_module("data.%s" % name)
         return getattr(imported_module, "Dataset")
     raise ValueError('Unknown dataset: %s.' % name)

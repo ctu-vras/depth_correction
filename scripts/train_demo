@@ -19,6 +19,7 @@ import rospy
 from sensor_msgs.msg import PointCloud2
 from tf2_msgs.msg import TFMessage
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 
 class TrainingDemo(TrainCallbacks):
@@ -45,18 +46,25 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.val_poses_path = []
 
         # 4 clouds
-        self.cfg.train_names = ['kitti360/03_start_223_end_243_step_1']
+        # self.cfg.train_names = ['kitti360/03_start_223_end_243_step_1']
+        # self.cfg.train_names = ['kitti360/07_start_52_end_102_step_1']
+        self.cfg.train_names = ['depth_correction/slam_2022-11-24-15-39-08']
         self.cfg.train_poses_path = []
-        self.cfg.val_names = ['kitti360/03_start_223_end_243_step_1']
+        # self.cfg.val_names = ['kitti360/03_start_223_end_243_step_1']
+        # self.cfg.val_names = ['kitti360/07_start_52_end_102_step_1']
+        self.cfg.val_names = ['depth_correction/slam_2022-11-24-15-28-59']
         self.cfg.val_poses_path = []
 
-        self.cfg.data_step = 5
+        # self.cfg.data_step = 4
+        self.cfg.data_step = 1
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
 
         # Depth and grid filters prevent computing L2 loss since the points don't match.
         self.cfg.min_depth = 1.0
-        self.cfg.max_depth = 20.0
-        # self.cfg.grid_res = 0.2
+        # self.cfg.min_depth = 0.1
+        # self.cfg.max_depth = 20.0
+        self.cfg.max_depth = 10.0
+        # self.cfg.grid_res = 0.4
         self.cfg.grid_res = 0.25
 
         self.cfg.nn_type = NeighborhoodType.ball
@@ -90,19 +98,20 @@ class TrainingDemo(TrainCallbacks):
         # Add noise to the dataset.
         self.cfg.depth_noise = 0.0
         self.pose_noise_mode = None
-        self.cfg.pose_noise = 0.0
+        # self.cfg.pose_noise = 0.0
         # self.pose_noise_mode = NoisyPoseDataset.Mode.common
         # self.cfg.pose_noise_mode = NoisyPoseDataset.Mode.pose
-        # self.cfg.pose_noise = 0.01
+        self.cfg.pose_noise = 0.01
         # self.cfg.pose_correction = PoseCorrection.common
-        self.cfg.pose_correction = PoseCorrection.none
-        # self.cfg.pose_correction = PoseCorrection.pose
+        # self.cfg.pose_correction = PoseCorrection.none
+        self.cfg.pose_correction = PoseCorrection.pose
 
         # self.cfg.model_class = Model.Passthrough
         self.cfg.depth_bias_model_class = Model.ScaledPolynomial
         # self.cfg.depth_bias_model_args = []
         self.cfg.depth_bias_model_kwargs = {}
         self.cfg.depth_bias_model_kwargs['w'] = [-0.002]
+        # self.cfg.depth_bias_model_kwargs['w'] = [0.0]
         self.cfg.depth_bias_model_kwargs['exponent'] = [6.0]
         self.cfg.depth_bias_model_kwargs['learnable_exponents'] = False
         self.gt_model = load_model(self.cfg.depth_bias_model_class, model_kwargs=self.cfg.depth_bias_model_kwargs)
@@ -133,8 +142,8 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         # Weight decay for the depth correction model parameters (not poses).
         self.cfg.optimizer_kwargs['weight_decay'] = 0.1
-        self.cfg.lr = 0.0002
-        # self.cfg.lr = 0.001
+        # self.cfg.lr = 0.0002
+        self.cfg.lr = 0.0001
         self.cfg.n_opt_iters = 1000
 
         self.cfg.from_rosparam()
@@ -156,6 +165,8 @@ class TrainingDemo(TrainCallbacks):
 
         self.tf_static_pub = rospy.Publisher('/tf_static', TFMessage, latch=True, queue_size=2)
         self.tf_static_pub.publish(TFMessage(self.tfs))
+
+        self.tb_logger = SummaryWriter(log_dir=self.cfg.log_dir)
 
     def create_ground_truth(self):
         kwargs = {}
@@ -413,6 +424,7 @@ class TrainingDemo(TrainCallbacks):
         print(self.cfg.log_dir)
         path = os.path.join(self.cfg.log_dir, 'train_demo.png')
         self.fig.savefig(path, dpi=300)
+        self.tb_logger.add_figure('Train demo figure', self.fig)
 
 
 def main():

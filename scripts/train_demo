@@ -167,14 +167,14 @@ class TrainingDemo(TrainCallbacks):
         for ds in self.ds:
             poses = []
             for i, (cloud, pose) in enumerate(ds):
-                if i == 0:
-                    tf = TransformStamped()
-                    tf.transform = msgify(Transform, pose)
-                    assert isinstance(tf, TransformStamped)
-                    tf.header.stamp = rospy.Time.now()
-                    tf.header.frame_id = 'map'
-                    tf.child_frame_id = 'vp_%i' % i
-                    self.tfs.append(tf)
+                tf = TransformStamped()
+                tf.transform = msgify(Transform, pose)
+                assert isinstance(tf, TransformStamped)
+                tf.header.stamp = rospy.Time.now()
+                tf.header.frame_id = 'map'
+                tf.child_frame_id = 'vp_%i' % i
+                self.tfs.append(tf)
+
                 pose = torch.as_tensor(pose)
                 poses.append(pose)
             cloud = global_cloud(dataset=ds)

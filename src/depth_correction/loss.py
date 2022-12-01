@@ -28,6 +28,92 @@ class Reduction(Enum):
     SUM = 'sum'
 
 
+def eigh3_deledalle(mat, normalize=True, sort=True):
+    # https://hal.archives-ouvertes.fr/hal-01501221/document
+    # (a, d, f), (_, b, e), (_, _, c) = mat
+    # a, b, ..., f are N-dimensional tensors.
+    a = mat[..., 0, 0]
+    b = mat[..., 1, 1]
+    c = mat[..., 2, 2]
+    d = mat[..., 0, 1]
+    e = mat[..., 1, 2]
+    f = mat[..., 0, 2]
+
+    # (8)
+    # N-dimensional tensors
+    x1 = a**2 + b**2 + c**2 - a * b - a * c - b * c + 3 * (d**2 + f**2 + e**2)
+    x2 = -(2 * a - b - c) * (2 * b - a - c) * (2 * c - a - b) \
+            + 9 * ((2 * c - a - b) * d**2 + (2 * b - a - c) * f**2 + (2 * a - b - c) * e**2) \
+            - 54 * (d * e * f)
+    
+    # (9)
+    # TODO: Convert to mask for individual indices.
+    # if x2 > 0:
+    #     phi = torch.atan(torch.sqrt(4 * x1**3 - x2**2) / x2)
+    # elif x2 == 0:
+    #     phi = torch.pi / 2
+    # elif x2 < 0:
+    #     phi = torch.atan(torch.sqrt(4 * x1**3 - x2**2) / x2) + torch.pi
+    # # Use 4-quadrant arctan2 to avoid switch.
+    # N-dimensional tensor
+    phi = torch.atan2(torch.sqrt(4 * x1**3 - x2**2), x2)
+    
+    # (7) Eigenvalues
+    # N-dimensional tensors
+    eigval1 = (a + b + c - 2 * torch.sqrt(x1) * torch.cos(phi / 3)) / 3
+    eigval2 = (a + b + c + 2 * torch.sqrt(x1) * torch.cos((phi - torch.pi) / 3)) / 3
+    eigval3 = (a + b + c + 2 * torch.sqrt(x1) * torch.cos((phi + torch.pi) / 3)) / 3
+    
+    # (11)
+    # TODO: Handle zero denominators.
+    # N-dimensional tensors
+    m1 = (d * (c - eigval1) - e * f) / (f * (b - eigval1) - d * e)
+    m2 = (d * (c - eigval2) - e * f) / (f * (b - eigval2) - d * e)
+    m3 = (d * (c - eigval3) - e * f) / (f * (b - eigval3) - d * e)
+
+    # (10) Eigenvectors
+    # N-by-3 tensors
+    eigvec1 = torch.stack([(eigval1 - c - e * m1) / f, m1, torch.ones_like(m1)], dim=-1)
+    eigvec2 = torch.stack([(eigval2 - c - e * m2) / f, m2, torch.ones_like(m2)], dim=-1)
+    eigvec3 = torch.stack([(eigval3 - c - e * m3) / f, m3, torch.ones_like(m3)], dim=-1)
+    
+    # Stack eigenvalues and vectors to tensors.
+    # N-by-3
+    eigvals = torch.stack([eigval1, eigval2, eigval3], dim=-1)
+     # N-by-3-by-3
+    eigvecs = torch.stack([eigvec1, eigvec2, eigvec3], dim=-1)
+
+    # Normalize eigenvectors.
+    if normalize:
+        eigvecs = eigvecs / torch.linalg.norm(eigvecs, dim=1, keepdim=True)
+
+    # Sort eigenvalues and eigenvectors.
+    if sort:
+        eigvals, ind = torch.sort(eigvals, dim=-1)
+        eigvecs = torch.gather(eigvecs, 2, ind.unsqueeze(1).expand(eigvecs.shape))
+    
+    return eigvals, eigvecs
+
+
+def eigh3(mat):
+    """Analytic eigenvalue decomposition of 3-by-3 symmetric matrices.
+
+    Symmetric matrices have real eigenvalues and orthogonal eigenvectors.
+    For real symmetric matrices, the eigenvectors are also real.
+
+    Matrix A = U * diag(L) * U.T,
+    where U is the matrix of eigenvectors and L is the vector of eigenvalues.
+
+    :param mat: ...-by-3-by-3 3D covariance matrices.
+    :return: Eigenvalues and eigenvectors.
+    """
+    assert isinstance(mat, torch.Tensor)
+    assert mat.shape[-2] == mat.shape[-1]
+    assert mat.shape[-1] == 3
+
+    return eigh3_deledalle(mat)
+
+
 def reduce(x, reduction=Reduction.MEAN, weights=None, only_finite=False, skip_nans=False):
     # assert reduction in ('none', 'mean', 'sum')
     assert reduction in Reduction
@@ -416,7 +502,36 @@ def demo():
     loss_dc.visualize(colors='loss')
 
 
+def test_eigh3():
+    
+    def rand_C3():
+        x = torch.randn(3, 3)
+        return x @ x.t()
+    
+    n = 2
+    C = torch.stack([rand_C3() for _ in range(n)])
+
+    eigvals_torch, eigvecs_torch = torch.linalg.eigh(C)
+    # print('eigvals_torch:\n', eigvals_torch)
+    # print('eigvecs_torch:\n', eigvecs_torch)
+        
+    eigvals, eigvecs = eigh3(C)
+    # print('eigvals:\n', eigvals)
+    # print('eigvecs:\n', eigvecs)
+
+    assert torch.allclose(eigvals, eigvals_torch, atol=1e-6), \
+            (eigvals, eigvals_torch, eigvals - eigvals_torch)
+    assert torch.all(torch.isclose(eigvecs, eigvecs_torch, atol=1e-5)
+                     | torch.isclose(-eigvecs, eigvecs_torch, atol=1e-5)), \
+            (eigvecs, eigvecs_torch, eigvecs - eigvecs_torch)
+        
+
+def test():
+    test_eigh3()
+
+
 def main():
+    # test()
     demo()
 
 

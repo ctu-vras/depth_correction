@@ -16,6 +16,12 @@ scene surfaces with high incidence angle.
 - **reduction of the localization drift** in SLAM scenarios.
 
 
+## Installation
+
+Please, follow the installation instructions, provided in
+[docs/install.md](https://github.com/RuslanAgishev/depth_correction/blob/main/docs/install.md)
+
+
 ## Datasets
 
 For models evauation we utilize and provide training pipeline on
@@ -72,8 +78,3 @@ To explore the data, simply run (assuming the [data](https://github.com/tpet/dat
 ```bash
 python -m data.depth_correction
 ```
-
-## Installation
-
-Please, follow the installation instructions, provided in
-[docs/install.md](https://github.com/RuslanAgishev/depth_correction/blob/main/docs/install.md)

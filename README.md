@@ -52,6 +52,8 @@ depth_correction
             ├── ouster_points
             └── poses
 ```
+![](./docs/imgs/depth_correction_data.png)
+
 There the `map` folder containes ground truth scans captured with
 the [Leica BLK360](https://leica-geosystems.com/products/laser-scanners/scanners/blk360) scanner.
 Two "stop-and-go" data sqeuences are provided of a robot with mounter

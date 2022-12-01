@@ -38,7 +38,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 
    ```bash
    cd ../singularity
-   sudo singularity build depth_correction.simg depth_correction.txt
+   sudo singularity build depth_correction.simg recepie.def
    ```
 
 3. Run demo (optionally).

@@ -6,7 +6,11 @@
     <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
     <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
     <arg name="odom" default="true" doc="Publish possibly perturbed odometry."/>
+    <!--
     <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"
+         doc="Odometry covariance diagonal, Euler angles and translation variances."/>
+    -->
+    <arg name="odom_cov" default="[0.0001, 0.0001, 0.0001, 0.0025, 0.0025, 0.0025]"
          doc="Odometry covariance diagonal, Euler angles and translation variances."/>
     <arg name="step" default="1"/>
     <arg name="rviz" default="true"/>

@@ -6,6 +6,8 @@
     <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
     <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
     <arg name="odom" default="true" doc="Publish possibly perturbed odometry."/>
+    <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"
+         doc="Odometry covariance diagonal, Euler angles and translation variances."/>
     <arg name="step" default="1"/>
     <arg name="rviz" default="true"/>
     <arg name="record" default="false"/>
@@ -54,6 +56,7 @@
             <arg name="delay_end" value="3.0"/>
             <arg name="lidar_frame" value="lidar"/>
             <arg name="odom_frame" value="$(eval 'odom' if odom else '')"/>
+            <arg name="odom_cov" value="$(arg odom_cov)"/>
             <arg name="rviz" value="false"/>
             <arg name="slam_eval_csv" value="$(arg slam_eval_csv)"/>
             <arg name="slam_poses_csv" value="$(arg slam_poses_csv)"/>

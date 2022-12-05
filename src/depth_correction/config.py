@@ -272,6 +272,8 @@ class Config(Configurable):
         self.slam_eval_bag = None
         self.slam_poses_csv = None
         # Testing
+        self.odom_cov = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # self.odom_cov = [0.0001, 0.0001, 0.0001, 0.0025, 0.0025, 0.0025]
         self.eval_losses = list(Loss)
         self.eval_slams = list(SLAM)
 

@@ -232,9 +232,9 @@ def compute_neighborhood_features(dataset=None, clouds=None, poses=None, model=N
 
 
 def demo_neighborhood_features():
-    from data.asl_laser import Dataset, dataset_names
-    prefix = 'asl_laser'
+    # from data.asl_laser import Dataset, dataset_names, prefix
     # from data.newer_college import Dataset, dataset_names, prefix
+    from data.depth_correction import dataset_names, prefix
     from .dataset import create_dataset
     from .loss import create_loss
     cfg = Config()
@@ -269,13 +269,16 @@ def demo_neighborhood_features():
 
 def demo_point_to_plane():
     from data.depth_correction import dataset_names, prefix
+    # from data.asl_laser import dataset_names, prefix
     from .dataset import create_dataset
+    from .loss import point_to_plane_loss
     from numpy.lib.recfunctions import structured_to_unstructured
     import open3d as o3d
-    from scipy.spatial import cKDTree
+    from time import time
 
     cfg = Config()
-    cfg.grid_res = 0.1
+    cfg.data_step = 1
+    cfg.grid_res = 0.2
     cfg.min_depth = 0.5
     cfg.max_depth = 25.0
 
@@ -283,90 +286,35 @@ def demo_point_to_plane():
     cfg.nn_r = 0.5
     cfg.min_valid_neighbors = 5
 
-    def process(cloud, pose, cfg):
-        cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
-        cloud = filtered_cloud(cloud, cfg)
-        cloud = local_feature_cloud(cloud, cfg)
-        cloud = cloud.transform(pose)
-        return cloud
-
     for name in dataset_names:
         print('Creating dataset: %s\n' % name)
         if not name.startswith(prefix):
             name = '%s/%s' % (prefix, name)
         ds = create_dataset(name, cfg=cfg)
 
-        losses = []
-        for id1, id2 in zip(ds.ids[:-1], ds.ids[1:]):
-            cloud1 = ds.local_cloud(id1)
-            pose1 = torch.as_tensor(ds.cloud_pose(id1))
-            cloud1 = process(cloud1, pose1, cfg)
-
-            cloud2 = ds.local_cloud(id2)
-            pose2 = torch.as_tensor(ds.cloud_pose(id2))
-            cloud2 = process(cloud2, pose2, cfg)
-
-            points1 = cloud1.to_points()
-            points2 = cloud2.to_points()
-            vps_dists = torch.linalg.norm(pose1[:3, 3] - pose2[:3, 3])
-
-            # find intersections between neighboring point clouds (1 and 2)
-            dist_th = 0.1
-
-            tree = cKDTree(points2)
-            dists, idxs = tree.query(points1, k=1)
-            common_pts_mask = dists <= dist_th
-            assert len(dists) == points1.shape[0]
-            assert len(idxs) == points1.shape[0]
-            pts1_inters = points1[common_pts_mask]
-            normals1_inters = cloud1.normals[common_pts_mask]
-
-            tree = cKDTree(points1)
-            dists, idxs = tree.query(points2, k=1)
-            common_pts_mask = dists <= dist_th
-            # assert len(dists) == points2.shape[0]
-            # assert len(idxs) == points2.shape[0]
-            pts2_inters = points2[common_pts_mask]
-
-            # find corresponding closest points for intersecting parts of clouds
-            tree = cKDTree(pts2_inters)
-            dists, idxs = tree.query(pts1_inters, k=1)
-            # assert len(dists) == pts1_inters.shape[0]
-            # assert len(idxs) == pts1_inters.shape[0]
-            pts2_inters = torch.index_select(pts2_inters, 0, torch.as_tensor(idxs))
-            # assert pts1_inters.shape == pts2_inters.shape
-            # assert normals1_inters.shape == pts1_inters.shape
-            # assert np.allclose(np.linalg.norm(normals1_inters, axis=1), np.ones(len(normals1_inters)))
-
-            # point to plane distance
-            vectors = pts2_inters - pts1_inters
-            normals = normals1_inters
-            dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
-            loss12 = dists_to_plane.mean()
-            losses.append(loss12.item())
-
-            print('Mean point to plane distance: %.3f [m] for 2 scans located %.3f [m] apart (sequence: %s)' %
-                  (loss12.item(), vps_dists.item(), name))
+        clouds = []
+        for id in ds.ids[::cfg.data_step]:
+            points = ds.local_cloud(id)
+            pose = torch.as_tensor(ds.cloud_pose(id))
+            points = structured_to_unstructured(points[['x', 'y', 'z']])
+            points = filtered_cloud(points, cfg)
+            # cloud = DepthCloud.from_points(points, dtype=cfg.torch_float_type(), device=cfg.device)
+            # cloud.update_all(r=cfg.nn_r)
+            cloud = local_feature_cloud(points, cfg)
+            cloud = cloud.transform(pose)
+            clouds.append(cloud)
 
             # # visualization
-            # pcd1 = o3d.geometry.PointCloud()
-            # # pcd1.points = o3d.utility.Vector3dVector(points1)
-            # # pcd1.colors = o3d.utility.Vector3dVector(np.zeros_like(points1) + np.array([0, 1, 0]))
-            # # pcd1.normals = o3d.utility.Vector3dVector(cloud1.normals)
-            # pcd1.points = o3d.utility.Vector3dVector(pts1_inters)
-            # pcd1.colors = o3d.utility.Vector3dVector(np.zeros_like(pts1_inters) + np.array([0, 1, 0]))
-            #
-            # pcd2 = o3d.geometry.PointCloud()
-            # # pcd2.points = o3d.utility.Vector3dVector(points2)
-            # # pcd2.colors = o3d.utility.Vector3dVector(np.zeros_like(points2) + np.array([1, 0, 0]))
-            # # pcd2.normals = o3d.utility.Vector3dVector(cloud2.normals)
-            # pcd2.points = o3d.utility.Vector3dVector(pts2_inters)
-            # pcd2.colors = o3d.utility.Vector3dVector(np.zeros_like(pts2_inters) + np.array([1, 0, 0]))
-            #
-            # o3d.visualization.draw_geometries([pcd1, pcd2])
-            # # o3d.visualization.draw_geometries([pcd1], point_show_normal=True)
+            # pcd = o3d.geometry.PointCloud()
+            # pcd.points = o3d.utility.Vector3dVector(points)
+            # pcd.colors = o3d.utility.Vector3dVector(np.zeros_like(points) + np.array([0, 1, 0]))
+            # pcd.normals = o3d.utility.Vector3dVector(cloud.normals)
+            # o3d.visualization.draw_geometries([pcd], point_show_normal=True)
 
-        print('\nPoint to plane loss for data sequence %s is : %.3f\n' % (name, np.mean(losses)))
+        t0 = time()
+        loss = point_to_plane_loss(clouds, cfg, dist_th=0.1)
+        print('Point to plane loss for data sequence %s is : %.3f [m] (took %.3f [sec] to compute).\n'
+              % (name, loss.item(), time() - t0))
 
 
 def main():

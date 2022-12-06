@@ -9,6 +9,9 @@ from enum import Enum
 import numpy as np
 from numpy.polynomial import Polynomial
 import torch
+from time import time
+from scipy.spatial import cKDTree
+
 
 __all__ = [
     'batch_loss',
@@ -354,6 +357,63 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
 
     loss = reduce(loss, reduction=reduction)
     return loss, cloud
+
+
+def point_to_plane_loss(clouds, cfg: Config = None, dist_th=0.1, verbose=False):
+    loss = 0.0
+    for i in range(len(clouds) - 1):
+        cloud1 = clouds[i]
+        assert cloud1.normals is not None, "Cloud must have normals computed to estimate point to plane distance"
+        points1 = cloud1.to_points()
+
+        cloud2 = clouds[i + 1]
+        points2 = cloud2.to_points()
+
+        t1 = time()
+        # find intersections between neighboring point clouds (1 and 2)
+        tree = cKDTree(points2)
+        dists, idxs = tree.query(points1, k=1)
+        common_pts_mask1 = dists <= dist_th
+        # assert len(dists) == points1.shape[0]
+        # assert len(idxs) == points1.shape[0]
+        pts1_inters = points1[common_pts_mask1]
+
+        tree = cKDTree(points1)
+        dists, idxs = tree.query(points2, k=1)
+        common_pts_mask2 = dists <= dist_th
+        # assert len(dists) == points2.shape[0]
+        # assert len(idxs) == points2.shape[0]
+        pts2_inters = points2[common_pts_mask2]
+
+        # find corresponding closest points for intersecting parts of clouds
+        tree = cKDTree(pts2_inters)
+        dists, idxs = tree.query(pts1_inters, k=1)
+        # assert len(dists) == pts1_inters.shape[0]
+        # assert len(idxs) == pts1_inters.shape[0]
+        pts2_inters = torch.index_select(pts2_inters, 0, torch.as_tensor(idxs))
+        # assert pts1_inters.shape == pts2_inters.shape
+
+        if verbose:
+            t2 = time()
+            print('Finding intersections took %.3f [sec]' % (t2 - t1))  # ~20 ms
+
+        # point to plane distance
+        normals1_inters = cloud1.normals[common_pts_mask1]
+        # assert normals1_inters.shape == pts1_inters.shape
+        # assert np.allclose(np.linalg.norm(normals1_inters, axis=1), np.ones(len(normals1_inters)))
+        vectors = pts2_inters - pts1_inters
+        normals = normals1_inters
+        dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
+        loss12 = dists_to_plane.mean()
+        loss += loss12
+
+        if verbose:
+            t3 = time()
+            print('ICP distance computation took %.3f [sec]' % (t3 - t2))  # ~0 ms
+
+            print('Mean point to plane distance: %.3f [m] for 2 scans' % loss12.item())
+
+    return loss / len(clouds)
 
 
 def loss_by_name(name):

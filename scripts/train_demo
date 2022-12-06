@@ -126,8 +126,9 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.model_kwargs['learnable_exponents'] = False
         self.cfg.model_state_dict = None
 
-        self.cfg.loss = Loss.min_eigval_loss
+        # self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
+        self.cfg.loss = Loss.point_to_plane_loss
         self.cfg.loss_offset = False
         self.cfg.loss_kwargs['sqrt'] = False
         # self.cfg.loss_kwargs['sqrt'] = True

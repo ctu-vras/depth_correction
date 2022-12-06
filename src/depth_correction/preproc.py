@@ -271,7 +271,7 @@ def demo_point_to_plane():
     from data.depth_correction import dataset_names, prefix
     # from data.asl_laser import dataset_names, prefix
     from .dataset import create_dataset
-    from .loss import point_to_plane_loss
+    from .loss import point_to_plane_dist
     from numpy.lib.recfunctions import structured_to_unstructured
     import open3d as o3d
     from time import time
@@ -287,11 +287,12 @@ def demo_point_to_plane():
     cfg.min_valid_neighbors = 5
 
     for name in dataset_names:
-        print('Creating dataset: %s\n' % name)
+        print('Creating dataset: %s' % name)
         if not name.startswith(prefix):
             name = '%s/%s' % (prefix, name)
         ds = create_dataset(name, cfg=cfg)
 
+        print('Creating featured clouds from dataset sequence: %s...' % name)
         clouds = []
         for id in ds.ids[::cfg.data_step]:
             points = ds.local_cloud(id)
@@ -312,7 +313,7 @@ def demo_point_to_plane():
             # o3d.visualization.draw_geometries([pcd], point_show_normal=True)
 
         t0 = time()
-        loss = point_to_plane_loss(clouds, cfg, dist_th=0.1)
+        loss = point_to_plane_dist(clouds, dist_th=0.1)
         print('Point to plane loss for data sequence %s is : %.3f [m] (took %.3f [sec] to compute).\n'
               % (name, loss.item(), time() - t0))
 

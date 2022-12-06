@@ -98,7 +98,10 @@ def eval_loss_clouds(clouds, poses, pose_deltas, masks, ns, model, loss_fun, cfg
     if (not masks or masks[0] is None) and isinstance(feat_clouds[0], DepthCloud):
         masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
                  for cloud in feat_clouds]
-    loss, loss_cloud = loss_fun(feat_clouds, mask=masks, offset=offsets)
+    if cfg.loss == 'point_to_plane_loss':
+        loss, loss_cloud = loss_fun(clouds, poses_upd, model)
+    else:
+        loss, loss_cloud = loss_fun(feat_clouds, mask=masks, offset=offsets)
 
     return loss, loss_cloud, poses_upd, feat_clouds
 

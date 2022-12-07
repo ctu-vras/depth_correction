@@ -179,7 +179,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
                  for cloud in val_global_clouds]
 
-    min_loss = np.inf
+    min_train_loss = np.inf
+    min_val_loss = np.inf
     best_cfg = None
     for it in range(cfg.n_opt_iters):
         if rospy.is_shutdown():
@@ -205,16 +206,16 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         #         dc.visualize(colors='inc_angles')
         #         dc.visualize(colors='min_eigval')
 
-        if val_loss.item() < min_loss:
+        if train_loss.item() < min_train_loss and val_loss.item() < min_val_loss:
             saved = True
-            min_loss = val_loss.item()
-            state_dict_path = '%s/%03i_%.6g_state_dict.pth' % (cfg.log_dir, it, min_loss)
+            min_val_loss = val_loss.item()
+            state_dict_path = '%s/%03i_%.6g_state_dict.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(model.state_dict(), state_dict_path)
             pose_deltas = [p.detach().clone() for p in train_pose_deltas if p is not None]
-            pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_loss)
+            pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(pose_deltas, pose_deltas_path)
             poses_upd = [p.detach().clone() for p in train_poses_upd if p is not None]
-            poses_upd_path = '%s/%03i_%.6g_poses_upd.pth' % (cfg.log_dir, it, min_loss)
+            poses_upd_path = '%s/%03i_%.6g_poses_upd.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(poses_upd, poses_upd_path)
 
             best_cfg = cfg.copy()

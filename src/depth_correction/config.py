@@ -252,6 +252,7 @@ class Config(Configurable):
         self.loss_kwargs['inlier_max_loss'] = None
         self.loss_kwargs['inlier_ratio'] = 1.0
         self.loss_kwargs['inlier_loss_mult'] = 1.0
+        self.loss_kwargs['dist_th'] = 0.1
         self.n_opt_iters = 100
 
         self.optimizer = 'Adam'

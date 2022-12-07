@@ -275,6 +275,7 @@ def demo_point_to_plane():
     from numpy.lib.recfunctions import structured_to_unstructured
     import open3d as o3d
     from time import time
+    from scipy.spatial import cKDTree
 
     cfg = Config()
     cfg.data_step = 1
@@ -294,6 +295,7 @@ def demo_point_to_plane():
 
         print('Creating featured clouds from dataset sequence: %s...' % name)
         clouds = []
+        masks = []
         for id in ds.ids[::cfg.data_step]:
             points = ds.local_cloud(id)
             pose = torch.as_tensor(ds.cloud_pose(id))
@@ -305,6 +307,22 @@ def demo_point_to_plane():
             cloud = cloud.transform(pose)
             clouds.append(cloud)
 
+            if len(clouds) < 2:
+                continue
+            cloud1 = clouds[-2]
+            assert cloud1.normals is not None, "Cloud must have normals computed to estimate point to plane distance"
+            cloud2 = clouds[-1]
+
+            points1 = torch.as_tensor(cloud1.to_points(), dtype=torch.float)
+            points2 = torch.as_tensor(cloud2.to_points(), dtype=torch.float)
+
+            # find intersections between neighboring point clouds (1 and 2)
+            tree = cKDTree(points2)
+            dists, ids = tree.query(points1, k=1)
+            mask1 = dists <= cfg.loss_kwargs['dist_th']
+            mask2 = ids[mask1]
+            masks.append((mask1, mask2))
+
             # # visualization
             # pcd = o3d.geometry.PointCloud()
             # pcd.points = o3d.utility.Vector3dVector(points)
@@ -313,7 +331,8 @@ def demo_point_to_plane():
             # o3d.visualization.draw_geometries([pcd], point_show_normal=True)
 
         t0 = time()
-        loss = point_to_plane_dist(clouds, dist_th=0.1)
+        loss = point_to_plane_dist(clouds, masks=masks, verbose=True)
+        # loss = point_to_plane_dist(clouds, masks=None, differentiable=True, verbose=True)
         print('Point to plane loss for data sequence %s is : %.3f [m] (took %.3f [sec] to compute).\n'
               % (name, loss.item(), time() - t0))
 

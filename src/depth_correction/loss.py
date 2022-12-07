@@ -362,20 +362,20 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
 def point_to_plane_loss(clouds, poses, model=None, **kwargs):
     """ICP-like point to plane loss.
 
-    :param clouds:
-    :param poses:
-    :param model
+    :param clouds: List of lists of clouds :) Individual scans from different data sequences.
+    :param poses: List od lists of poses for each point cloud scan.
+    :param model: Depth correction model.
     :return:
     """
     transformed_clouds = [[model(c).transform(p) if model else c.transform(p) for c, p in zip(seq_clouds, seq_poses)]
                           for seq_clouds, seq_poses in zip(clouds, poses)]
     loss = 0.
     loss_cloud = []
-    for seq_trans_cs in transformed_clouds:
-        loss_seq = point_to_plane_dist(seq_trans_cs)
+    for seq_trans_clouds in transformed_clouds:
+        loss_seq = point_to_plane_dist(seq_trans_clouds, dist_th=kwargs['dist_th'])
         loss = loss + loss_seq
 
-        cloud = DepthCloud.concatenate(seq_trans_cs)
+        cloud = DepthCloud.concatenate(seq_trans_clouds)
         cloud.loss = loss
         loss_cloud.append(cloud)
 
@@ -384,7 +384,23 @@ def point_to_plane_loss(clouds, poses, model=None, **kwargs):
     return loss, loss_cloud
 
 
-def point_to_plane_dist(clouds, dist_th=0.1, verbose=False):
+def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=True, verbose=False):
+    """ICP-like point to plane distance.
+
+    Computes point to plane distances for consecutive pairs of point cloud scans, and returns the average value.
+
+    :param clouds: List of clouds. Individual scans from a data sequences.
+    :param masks: List of tuples masks[i] = (mask1, mask2) where mask1 defines indices of points from 1st point cloud
+                  in a pair that intersect (close enough) with points from 2nd cloud in the pair,
+                  mask2 is list of indices of intersection points from the 2nd point cloud in a pair.
+    :param dist_th: Distance threshold to determine intersection regions between a pair of point clouds.
+    :param differentiable: Whether to use differentiable method of finding neighboring points (from Pytorch3d: slow on CPU)
+                           or from scipy (faster but not differentiable).
+    :param verbose:
+    :return:
+    """
+    if masks is not None:
+        assert len(clouds) == len(masks) + 1
     point2plane_dist = 0.0
     for i in range(len(clouds) - 1):
         cloud1 = clouds[i]
@@ -395,30 +411,21 @@ def point_to_plane_dist(clouds, dist_th=0.1, verbose=False):
         points2 = torch.as_tensor(cloud2.to_points(), dtype=torch.float)
 
         # find intersections between neighboring point clouds (1 and 2)
-        # tree = cKDTree(points2)
-        # dists, _ = tree.query(points1, k=1)
-        dists, _, _ = knn_points(points1[None], points2[None], K=1)
-        dists = torch.sqrt(dists).squeeze()
-        mask1 = dists <= dist_th
+        if masks is None:
+            if not differentiable:
+                tree = cKDTree(points2)
+                dists, ids = tree.query(points1, k=1)
+            else:
+                dists, ids, _ = knn_points(points1[None], points2[None], K=1)
+                dists = torch.sqrt(dists).squeeze()
+                ids = ids.squeeze()
+            mask1 = dists <= dist_th
+            mask2 = ids[mask1]
+        else:
+            mask1, mask2 = masks[i]
         points1_inters = points1[mask1]
         assert len(points1_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
-
-        # tree = cKDTree(points1)
-        # dists, _ = tree.query(points2, k=1)
-        dists, _, _ = knn_points(points2[None], points1[None], K=1)
-        dists = torch.sqrt(dists).squeeze()
-        mask2 = dists <= dist_th
         points2_inters = points2[mask2]
-        assert len(points2_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
-
-        # find corresponding closest points for intersecting parts of clouds
-        # tree = cKDTree(points2_inters)
-        # idxs = torch.tensor(tree.query(points1_inters, k=1)[1])
-        _, idxs, _ = knn_points(points1_inters[None], points2_inters[None], K=1)
-        idxs = idxs.squeeze()
-        points2_inters = torch.index_select(points2_inters, 0, idxs)
-        assert points1_inters.shape == points2_inters.shape
-        assert len(points2_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
 
         # point to plane distance
         normals1_inters = cloud1.normals[mask1]
@@ -431,7 +438,7 @@ def point_to_plane_dist(clouds, dist_th=0.1, verbose=False):
         point2plane_dist += dist12
 
         if verbose:
-            print('Mean point to plane distance: %.3f [m] for 2 scans' % dist12.item())
+            print('Mean point to plane distance: %.3f [m] for scans: (%d, %d)' % (dist12.item(), i, i+1))
 
     return point2plane_dist / len(clouds)
 

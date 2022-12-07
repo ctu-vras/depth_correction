@@ -123,7 +123,7 @@ def reduce(x, reduction=Reduction.MEAN, weights=None, only_finite=False, skip_na
 
     keep = None
     if only_finite:
-        keep = ~x.isfinite()
+        keep = x.isfinite()
     elif skip_nans:
         keep = ~x.isnan()
     if keep is not None:
@@ -173,7 +173,9 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.MEAN, **kwargs):
+def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.MEAN,
+               only_finite=False, skip_nans=False,
+               **kwargs):
     """General batch loss of a sequence of clouds.
 
     :param loss_fun: Loss function.
@@ -200,15 +202,15 @@ def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.M
         loss, loss_cloud = loss_fun(cloud, mask=mask, offset=offset, reduction=Reduction.NONE, **kwargs)
         losses.append(loss)
         loss_clouds.append(loss_cloud)
-    # Double reduction (average of averages)
-    # loss = reduce(torch.cat(losses), reduction=reduction)
-    # Single point-wise reduction (average)
-    loss = reduce(torch.cat(losses), reduction=reduction)
+
+    loss = reduce(torch.cat(losses), reduction=reduction,
+                  only_finite=only_finite, skip_nans=skip_nans)
     return loss, loss_clouds
 
 
 def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=False, reduction=Reduction.MEAN,
-                    inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0):
+                    inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0,
+                    only_finite=False, skip_nans=False):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -228,7 +230,8 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     if isinstance(cloud, (list, tuple)):
         return batch_loss(min_eigval_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, normalization=normalization,
                           reduction=reduction,
-                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult)
+                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult,
+                          only_finite=only_finite, skip_nans=skip_nans)
 
     assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.eigvals is not None
@@ -281,12 +284,14 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     cloud = cloud.copy()
     cloud.loss = loss
 
-    loss = reduce(loss, reduction=reduction)
+    loss = reduce(loss, reduction=reduction,
+                  only_finite=only_finite, skip_nans=skip_nans)
     return loss, cloud
 
 
 def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN,
                inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0,
+               only_finite=False, skip_nans=False,
                **kwargs):
     """Map consistency loss based on the trace of covariance matrix.
 
@@ -305,7 +310,8 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
         return batch_loss(trace_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, reduction=reduction,
-                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult)
+                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult,
+                          only_finite=only_finite, skip_nans=skip_nans)
 
     assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.cov is not None
@@ -355,7 +361,7 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     cloud = cloud.copy()
     cloud.loss = loss
 
-    loss = reduce(loss, reduction=reduction)
+    loss = reduce(loss, reduction=reduction, only_finite=only_finite, skip_nans=skip_nans)
     return loss, cloud
 
 

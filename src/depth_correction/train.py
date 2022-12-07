@@ -5,7 +5,12 @@ from .depth_cloud import DepthCloud
 from .eval import eval_loss_clouds, initialize_pose_corrections
 from .loss import create_loss
 from .model import load_model
-from .preproc import establish_neighborhoods, local_feature_cloud
+from .preproc import (
+    establish_neighborhoods,
+    global_cloud,
+    global_cloud_mask,
+    local_feature_cloud
+)
 from .ros import publish_data
 from argparse import ArgumentParser
 import numpy as np
@@ -156,13 +161,26 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
     writer = SummaryWriter(cfg.log_dir)
 
-    # Create training and validation neighborhoods.
-    train_ns = [establish_neighborhoods(clouds=clouds, poses=poses, cfg=cfg)
-                for clouds, poses in zip(train_clouds, train_poses)]
-    val_ns = [establish_neighborhoods(clouds=clouds, poses=poses, cfg=cfg)
-              for clouds, poses in zip(val_clouds, val_poses)]
+    # Create global clouds for establishing neighborhoods and masks.
+    train_global_clouds = [global_cloud(clouds=clouds, poses=poses)
+                           for clouds, poses in zip(train_clouds, train_poses)]
+    val_global_clouds = [global_cloud(clouds=clouds, poses=poses)
+                         for clouds, poses in zip(val_clouds, val_poses)]
 
-    min_loss = np.inf
+    # Create neighborhoods used in optimization.
+    train_ns = [establish_neighborhoods(cloud=cloud, cfg=cfg)
+                for cloud in train_global_clouds]
+    val_ns = [establish_neighborhoods(cloud=cloud, cfg=cfg)
+              for cloud in val_global_clouds]
+
+    # Create masks used in optimization.
+    train_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                   for cloud in train_global_clouds]
+    val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                 for cloud in val_global_clouds]
+
+    min_train_loss = np.inf
+    min_val_loss = np.inf
     best_cfg = None
     for it in range(cfg.n_opt_iters):
         if rospy.is_shutdown():
@@ -188,16 +206,16 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         #         dc.visualize(colors='inc_angles')
         #         dc.visualize(colors='min_eigval')
 
-        if val_loss.item() < min_loss:
+        if train_loss.item() < min_train_loss and val_loss.item() < min_val_loss:
             saved = True
-            min_loss = val_loss.item()
-            state_dict_path = '%s/%03i_%.6g_state_dict.pth' % (cfg.log_dir, it, min_loss)
+            min_val_loss = val_loss.item()
+            state_dict_path = '%s/%03i_%.6g_state_dict.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(model.state_dict(), state_dict_path)
             pose_deltas = [p.detach().clone() for p in train_pose_deltas if p is not None]
-            pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_loss)
+            pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(pose_deltas, pose_deltas_path)
             poses_upd = [p.detach().clone() for p in train_poses_upd if p is not None]
-            poses_upd_path = '%s/%03i_%.6g_poses_upd.pth' % (cfg.log_dir, it, min_loss)
+            poses_upd_path = '%s/%03i_%.6g_poses_upd.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(poses_upd, poses_upd_path)
 
             best_cfg = cfg.copy()

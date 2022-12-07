@@ -363,7 +363,7 @@ class AngleDataset(PlaneDataset):
                  n_pts: int = 10_000,
                  n_poses: int = 5,
                  size: tuple = ([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0]),
-                 degrees: float = 0.0):
+                 degrees: float = 60.0):
         """AngleDataset composed of multiple point cloud measurements of two intersecting planes forming an angle.
 
         :param name: Name of the dataset

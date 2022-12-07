@@ -245,6 +245,7 @@ class Config(Configurable):
         # Training
         self.loss = Loss.min_eigval_loss
         # self.loss = Loss.trace_loss
+        # self.loss = Loss.point_to_plane_loss
         self.loss_offset = False
         self.loss_kwargs = {}
         self.loss_kwargs['sqrt'] = False

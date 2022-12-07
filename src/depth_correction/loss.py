@@ -210,7 +210,7 @@ def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.M
 
 def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=False, reduction=Reduction.MEAN,
                     inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0,
-                    only_finite=False, skip_nans=False):
+                    only_finite=False, skip_nans=False, **kwargs):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in

@@ -95,12 +95,17 @@ def eval_loss_clouds(clouds, poses, pose_deltas, masks, ns, model, loss_fun, cfg
                                       neighborhoods=nn, cfg=cfg)
         for cloud, nn in zip(global_clouds, ns)
     ]
-    if (not masks or masks[0] is None) and isinstance(feat_clouds[0], DepthCloud):
-        masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
-                 for cloud in feat_clouds]
+
     if cfg.loss == 'point_to_plane_loss':
-        loss, loss_cloud = loss_fun(clouds, poses_upd, model)
+        if clouds[0][0].normals is None:
+            clouds = [[local_feature_cloud(cloud, cfg) for cloud in seq_clouds] for seq_clouds in clouds]
+
+        loss, loss_cloud = loss_fun(clouds, poses_upd, model, masks=masks)
     else:
+        if (not masks or masks[0] is None) and isinstance(feat_clouds[0], DepthCloud):
+            masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                     for cloud in feat_clouds]
+
         loss, loss_cloud = loss_fun(feat_clouds, mask=masks, offset=offsets)
 
     return loss, loss_cloud, poses_upd, feat_clouds
@@ -203,7 +208,6 @@ def eval_loss_all(cfg: Config):
             eval_cfg.loss = loss
             eval_cfg.loss_eval_csv = loss_eval_csv(cfg.log_dir, loss, suffix)
             eval_loss(cfg=eval_cfg)
-
 
 
 def eval_slam(cfg: Config):

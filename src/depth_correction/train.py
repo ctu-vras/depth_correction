@@ -5,7 +5,12 @@ from .depth_cloud import DepthCloud
 from .eval import eval_loss_clouds, initialize_pose_corrections
 from .loss import create_loss
 from .model import load_model
-from .preproc import establish_neighborhoods, local_feature_cloud
+from .preproc import (
+    establish_neighborhoods,
+    global_cloud,
+    global_cloud_mask,
+    local_feature_cloud
+)
 from .ros import publish_data
 from argparse import ArgumentParser
 import numpy as np
@@ -156,11 +161,23 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
     writer = SummaryWriter(cfg.log_dir)
 
-    # Create training and validation neighborhoods.
-    train_ns = [establish_neighborhoods(clouds=clouds, poses=poses, cfg=cfg)
-                for clouds, poses in zip(train_clouds, train_poses)]
-    val_ns = [establish_neighborhoods(clouds=clouds, poses=poses, cfg=cfg)
-              for clouds, poses in zip(val_clouds, val_poses)]
+    # Create global clouds for establishing neighborhoods and masks.
+    train_global_clouds = [global_cloud(clouds=clouds, poses=poses)
+                           for clouds, poses in zip(train_clouds, train_poses)]
+    val_global_clouds = [global_cloud(clouds=clouds, poses=poses)
+                         for clouds, poses in zip(val_clouds, val_poses)]
+
+    # Create neighborhoods used in optimization.
+    train_ns = [establish_neighborhoods(cloud=cloud, cfg=cfg)
+                for cloud in train_global_clouds]
+    val_ns = [establish_neighborhoods(cloud=cloud, cfg=cfg)
+              for cloud in val_global_clouds]
+
+    # Create masks used in optimization.
+    train_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                   for cloud in train_global_clouds]
+    val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                 for cloud in val_global_clouds]
 
     min_loss = np.inf
     best_cfg = None

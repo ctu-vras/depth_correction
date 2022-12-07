@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from depth_correction.config import Config, Loss, Model, NeighborhoodType, PoseCorrection
-from depth_correction.dataset import create_dataset, noisy_dataset
+from depth_correction.dataset import create_dataset, noisy_dataset, NoisyPoseDataset
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import load_model, model_by_name
 from depth_correction.point_cloud import PointCloud
@@ -90,18 +90,18 @@ class TrainingDemo(TrainCallbacks):
         #                               [1, (self.cfg.nn_r / 4)**2, float('inf')]]
         # self.cfg.eigenvalue_ratio_bounds = []
         # self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1]]
-        self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.01], [1, 2, 0.25, 1.0]]
+        self.cfg.eigenvalue_ratio_bounds = [[0, 1, 0, 0.01], [1, 2, 0.25, 1.0]]
         # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
         # self.cfg.log_filters = True
 
         # Add noise to the dataset.
         self.cfg.depth_noise = 0.0
-        self.pose_noise_mode = None
-        # self.cfg.pose_noise = 0.0
+        self.cfg.pose_noise_mode = None
+        self.cfg.pose_noise = 0.0
         # self.pose_noise_mode = NoisyPoseDataset.Mode.common
         # self.cfg.pose_noise_mode = NoisyPoseDataset.Mode.pose
-        self.cfg.pose_noise = 0.01
+        # self.cfg.pose_noise = 0.01
         # self.cfg.pose_correction = PoseCorrection.common
         # self.cfg.pose_correction = PoseCorrection.none
         self.cfg.pose_correction = PoseCorrection.pose
@@ -110,8 +110,8 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.depth_bias_model_class = Model.ScaledPolynomial
         # self.cfg.depth_bias_model_args = []
         self.cfg.depth_bias_model_kwargs = {}
-        self.cfg.depth_bias_model_kwargs['w'] = [-0.002]
-        # self.cfg.depth_bias_model_kwargs['w'] = [0.0]
+        # self.cfg.depth_bias_model_kwargs['w'] = [-0.002]
+        self.cfg.depth_bias_model_kwargs['w'] = [0.0]
         self.cfg.depth_bias_model_kwargs['exponent'] = [6.0]
         self.cfg.depth_bias_model_kwargs['learnable_exponents'] = False
         self.gt_model = load_model(self.cfg.depth_bias_model_class, model_kwargs=self.cfg.depth_bias_model_kwargs)

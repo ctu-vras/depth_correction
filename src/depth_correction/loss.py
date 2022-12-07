@@ -437,7 +437,7 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
         assert len(points1_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
         points2_inters = points2[mask2]
 
-        # point to plane distance
+        # point to plane distance 1 -> 2
         normals1_inters = cloud1.normals[mask1]
         # assert np.allclose(np.linalg.norm(normals1_inters, axis=1), np.ones(len(normals1_inters)))
         vectors = points2_inters - points1_inters
@@ -445,7 +445,15 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
         dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
         dist12 = dists_to_plane.mean()
 
-        point2plane_dist += dist12
+        # point to plane distance 2 -> 1
+        normals2_inters = cloud2.normals[mask2]
+        # assert np.allclose(np.linalg.norm(normals2_inters, axis=1), np.ones(len(normals2_inters)))
+        vectors = points1_inters - points2_inters
+        normals = normals2_inters
+        dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
+        dist21 = dists_to_plane.mean()
+
+        point2plane_dist += 0.5 * (dist12 + dist21)
 
         if verbose:
             print('Mean point to plane distance: %.3f [m] for scans: (%d, %d)' % (dist12.item(), i, i+1))

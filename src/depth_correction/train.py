@@ -19,6 +19,7 @@ import rospy
 import torch
 from torch.optim import Adam, SGD  # Needed for eval
 from torch.utils.tensorboard import SummaryWriter
+from scipy.spatial import cKDTree
 
 
 class TrainCallbacks(object):
@@ -174,10 +175,42 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
               for cloud in val_global_clouds]
 
     # Create masks used in optimization.
-    train_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
-                   for cloud in train_global_clouds]
-    val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
-                 for cloud in val_global_clouds]
+    if cfg.loss == 'point_to_plane_loss':
+        train_masks, val_masks = [], []
+        for i in range(len(train_clouds)):
+            train_masks_seq = []
+            for j in range(len(train_clouds[i]) - 1):
+                # find intersections between neighboring point clouds (j and j+1)
+                pose1 = train_poses[i][j]
+                pose2 = train_poses[i][j + 1]
+                points1 = train_clouds[i][j].transform(pose1).to_points()
+                points2 = train_clouds[i][j + 1].transform(pose2).to_points()
+                tree = cKDTree(points2)
+                dists, ids = tree.query(points1, k=1)
+                mask1 = dists <= cfg.loss_kwargs['dist_th']
+                mask2 = ids[mask1]
+                train_masks_seq.append((mask1, mask2))
+            train_masks.append(train_masks_seq)
+
+        for i in range(len(val_clouds)):
+            val_masks_seq = []
+            for j in range(len(val_clouds[i]) - 1):
+                # find intersections between neighboring point clouds (i and i+1)
+                pose1 = train_poses[i][j]
+                pose2 = train_poses[i][j + 1]
+                points1 = val_clouds[i][j].transform(pose1).to_points()
+                points2 = val_clouds[i][j + 1].transform(pose2).to_points()
+                tree = cKDTree(points2)
+                dists, ids = tree.query(points1, k=1)
+                mask1 = dists <= cfg.loss_kwargs['dist_th']
+                mask2 = ids[mask1]
+                val_masks_seq.append((mask1, mask2))
+            val_masks.append(val_masks_seq)
+    else:
+        train_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                       for cloud in train_global_clouds]
+        val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                     for cloud in val_global_clouds]
 
     min_train_loss = np.inf
     min_val_loss = np.inf

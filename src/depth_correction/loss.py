@@ -365,20 +365,23 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     return loss, cloud
 
 
-def point_to_plane_loss(clouds, poses, model=None, **kwargs):
+def point_to_plane_loss(clouds, poses, model=None, masks=None, **kwargs):
     """ICP-like point to plane loss.
 
     :param clouds: List of lists of clouds :) Individual scans from different data sequences.
     :param poses: List od lists of poses for each point cloud scan.
     :param model: Depth correction model.
+    :param masks:
     :return:
     """
     transformed_clouds = [[model(c).transform(p) if model else c.transform(p) for c, p in zip(seq_clouds, seq_poses)]
                           for seq_clouds, seq_poses in zip(clouds, poses)]
     loss = 0.
     loss_cloud = []
-    for seq_trans_clouds in transformed_clouds:
-        loss_seq = point_to_plane_dist(seq_trans_clouds, dist_th=kwargs['dist_th'])
+    for i in range(len(transformed_clouds)):
+        seq_trans_clouds = transformed_clouds[i]
+        seq_masks = None if masks is None else masks[i]
+        loss_seq = point_to_plane_dist(seq_trans_clouds, masks=seq_masks, dist_th=kwargs['dist_th'])
         loss = loss + loss_seq
 
         cloud = DepthCloud.concatenate(seq_trans_clouds)
@@ -407,6 +410,7 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
     """
     if masks is not None:
         assert len(clouds) == len(masks) + 1
+        # print('Using precomputed intersection masks for point to plane loss')
     point2plane_dist = 0.0
     for i in range(len(clouds) - 1):
         cloud1 = clouds[i]

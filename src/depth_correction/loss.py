@@ -123,7 +123,7 @@ def reduce(x, reduction=Reduction.MEAN, weights=None, only_finite=False, skip_na
 
     keep = None
     if only_finite:
-        keep = ~x.isfinite()
+        keep = x.isfinite()
     elif skip_nans:
         keep = ~x.isnan()
     if keep is not None:

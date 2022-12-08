@@ -196,8 +196,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
             val_masks_seq = []
             for j in range(len(val_clouds[i]) - 1):
                 # find intersections between neighboring point clouds (i and i+1)
-                pose1 = train_poses[i][j]
-                pose2 = train_poses[i][j + 1]
+                pose1 = val_poses[i][j]
+                pose2 = val_poses[i][j + 1]
                 points1 = val_clouds[i][j].transform(pose1).to_points()
                 points2 = val_clouds[i][j + 1].transform(pose2).to_points()
                 tree = cKDTree(points2)

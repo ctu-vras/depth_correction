@@ -3,11 +3,14 @@ from .config import Config, NeighborhoodType
 from .depth_cloud import DepthCloud
 from .filters import *
 from .model import *
+from .point_cloud import PointCloud
 from .segmentation import Planes
 from .transform import xyz_axis_angle_to_matrix
-from .utils import covs, timing
+from .utils import covs, map_colors, timing
 from .visualization import visualize_incidence_angles
+from matplotlib import cm
 import numpy as np
+import open3d as o3d
 import torch
 from typing import Tuple
 
@@ -20,6 +23,40 @@ __all__ = [
     'local_feature_cloud',
     'offset_cloud',
 ]
+
+
+class Neighborhoods(PointCloud):
+
+    def __init__(self, cloud, indices, weights):
+        # Assume cloud is a list of same clouds.
+        assert isinstance(cloud, list)
+        assert not cloud or all(c is cloud[0] for c in cloud)
+        # indices = torch.as_tensor(indices)
+        assert isinstance(indices, torch.Tensor)
+        # assert isinstance(indices, list)
+        assert isinstance(weights, torch.Tensor)
+        super(Neighborhoods, self).__init__(cloud=cloud, indices=indices, weights=weights)
+    
+    def visualize(self, x=None):
+        """Visualize neighborhoods using referenced cloud and indices."""
+        if x is None:
+            x = self.cloud[0]
+        pcd = o3d.geometry.PointCloud()
+        if isinstance(x, DepthCloud):
+            x = x.to_points()
+        pcd.points = o3d.utility.Vector3dVector(x)
+        num_primitives = self.size()
+        num_points = len(x)
+        labels = np.full(num_points, -1, dtype=int)
+        for i in range(num_primitives):
+            labels[self.indices[i]] = i
+        max_label = num_primitives - 1
+        colors = np.zeros((num_points, 3), dtype=np.float32)
+        segmented = labels >= 0
+        # colors[segmented] = map_colors(labels[segmented], colormap=cm.viridis, min_value=0.0, max_value=max_label)
+        colors[segmented] = map_colors(labels[segmented], colormap=cm.gist_rainbow, min_value=0.0, max_value=max_label)
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+        o3d.visualization.draw_geometries([pcd])
 
 
 def filtered_cloud(cloud, cfg: Config):
@@ -166,11 +203,33 @@ def establish_neighborhoods(dataset=None, clouds=None, poses=None, cloud=None, c
 
     if cloud is None:
         cloud = global_cloud(clouds=clouds, poses=poses, dataset=dataset)
-
     assert cloud is not None
+
     if cfg.nn_type == NeighborhoodType.ball:
         cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, scale=cfg.nn_scale, keep_neighbors=False)
-        return cloud.neighbors, cloud.weights
+        # return cloud.neighbors, cloud.weights
+
+        # Computed weights are neglected, so we don't allow nn scale.
+        assert cfg.nn_scale is None
+        # TODO: Filter neighborhoods based on given filters.
+        ind = global_cloud_mask(cloud, None, cfg=cfg).nonzero().ravel()
+        # Mask to indices.
+        # ind = torch.nonzero(mask_1)
+        # TODO: Select subset in a grid.
+        with torch.no_grad():
+            x = cloud.to_points()
+        x = x[ind]
+        mask = filter_grid(x, cfg.nn_grid_res, only_mask=True)
+        ind = ind[mask]
+
+        indices = cloud.neighbors[ind]
+        weights = cloud.weights[ind]
+        cloud = len(indices) * [cloud]
+        nn = Neighborhoods(cloud, indices, weights)
+        # nn.visualize()
+
+        return nn
+
     elif cfg.nn_type == NeighborhoodType.plane:
         planes = Planes.fit(cloud, cfg.ransac_dist_thresh, min_support=cfg.min_valid_neighbors,
                             max_iterations=cfg.num_ransac_iters, max_models=cfg.max_neighborhoods,
@@ -201,9 +260,28 @@ def compute_neighborhood_features(dataset=None, clouds=None, poses=None, model=N
                              dataset=dataset)
     assert neighborhoods is not None
     if cfg.nn_type == NeighborhoodType.ball:
-        cloud.neighbors, cloud.weights = neighborhoods
-        cloud.update_all(scale=cfg.nn_scale, keep_neighbors=True)
-        return cloud
+        # cloud.neighbors, cloud.weights = neighborhoods
+        # cloud.update_all(scale=cfg.nn_scale, keep_neighbors=True)
+        # return cloud
+
+        assert isinstance(neighborhoods, Neighborhoods)
+        # TODO: Compute normals and update incidence angles (where?).
+        # Incidence angles from source cloud are used,
+        # each point has its own corresponding to its neighborhood.
+
+        # TODO: Compute covs and eigvals for all neighborhoods.
+        # output.eigvals is used in loss.
+        cloud = neighborhoods.cloud[0]
+        neighbor_points = cloud.get_points()[neighborhoods.indices]
+        cov = covs(neighbor_points, weights=neighborhoods.weights)
+        neighborhoods.covs = cov
+        # get_neighbor_points()
+        eigvals, eigvecs = torch.linalg.eigh(cov)
+        neighborhoods.eigvals = eigvals
+        neighborhoods.eigvecs = eigvecs
+        return neighborhoods
+
+
     elif cfg.nn_type == NeighborhoodType.plane:
         planes = neighborhoods.copy()
         plane_clouds = []

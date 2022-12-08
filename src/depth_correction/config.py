@@ -187,6 +187,7 @@ class Config(Configurable):
         # self.nn_type = NeighborhoodType.ball
         self.nn_k = 0
         self.nn_r = 0.25
+        self.nn_grid_res = 0.5
         # self.min_valid_neighbors = 5
         # self.max_neighborhoods = None
         # self.nn_scale = self.nn_r / 2
@@ -409,7 +410,23 @@ class Config(Configurable):
             if k == 'sqrt':
                 desc += '_sqrt%i' % v
                 continue
-            desc += '%s_%s' % (k, v)
+            if k == 'inlier_max_loss':
+                if v:
+                    desc += '_iml%.3g' % v
+                else:
+                    continue
+            if k == 'inlier_ratio':
+                if v != 1.0:
+                    desc += '_ir%.3g' % v
+                else:
+                    continue
+            if k == 'inlier_loss_mult':
+                if v != 1.0:
+                    desc += '_ilm%.3g' % v
+                else:
+                    continue
+            desc += '_%s_%s' % (k, v)
+        desc += '_lr%.3g' % self.lr
         return desc
 
     def get_preproc_desc(self):

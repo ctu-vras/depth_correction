@@ -786,6 +786,7 @@ class NoisyPoseDataset(TransformingDataset):
         :param mode:
         """
         assert isinstance(noise, float) or len(noise) == 6
+        assert mode is not None
         noise = np.asarray(noise)
         mode = mode or NoisyPoseDataset.Mode.common
         assert mode in NoisyPoseDataset.Mode
@@ -930,6 +931,8 @@ def dataset_by_name(name):
 
 
 def noisy_dataset(ds, cfg):
+    assert isinstance(cfg, Config)
+
     if cfg.depth_bias_model_class:
         from .model import model_by_name
         gt_model = model_by_name(cfg.depth_bias_model_class)(**cfg.depth_bias_model_kwargs)
@@ -941,8 +944,8 @@ def noisy_dataset(ds, cfg):
         print('Adding depth noise %.3g.' % cfg.depth_noise)
         ds = NoisyDepthDataset(ds, noise=cfg.depth_noise)
 
-    if cfg.pose_noise:
-        print('Adding pose noise %.3g, %s.' % (cfg.pose_noise, cfg.pose_noise_mode))
+    if cfg.pose_noise_mode is not None and cfg.pose_noise:
+        print('Adding pose noise %s, %s.' % (cfg.pose_noise, cfg.pose_noise_mode))
         ds = NoisyPoseDataset(ds, noise=cfg.pose_noise, mode=cfg.pose_noise_mode)
     return ds
 

@@ -9,6 +9,7 @@ from .utils import covs, timing
 from .visualization import visualize_incidence_angles
 import numpy as np
 import torch
+from typing import Tuple
 
 __all__ = [
     'compute_neighborhood_features',
@@ -63,7 +64,7 @@ def local_feature_cloud(cloud, cfg: Config):
     return cloud
 
 
-def offset_cloud(clouds: (list, tuple),
+def offset_cloud(clouds: Tuple[list, tuple],
                  model: BaseModel):
     corrected_clouds = []
     for i, cloud in enumerate(clouds):
@@ -76,7 +77,7 @@ def offset_cloud(clouds: (list, tuple),
     return cloud
 
 
-def global_cloud(clouds: (list, tuple)=None,
+def global_cloud(clouds: Tuple[list, tuple]=None,
                  model: BaseModel=None,
                  poses: torch.Tensor=None,
                  pose_corrections: torch.Tensor=None,

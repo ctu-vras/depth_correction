@@ -9,10 +9,17 @@ import yaml
 __all__ = [
     'Config',
     'fix_bounds',
+    'Loss',
+    'loss_eval_csv',
+    'Model',
+    'NeighborhoodType',
     'nonempty',
     'PoseCorrection',
     'PoseProvider',
     'SLAM',
+    'slam_eval_bag',
+    'slam_eval_csv',
+    'slam_poses_csv',
 ]
 
 
@@ -34,7 +41,7 @@ def fix_bounds(bounds):
 
 
 def nonempty(iterable):
-    return filter(bool, iterable)
+    return list(filter(bool, iterable))
 
 
 class NeighborhoodType(metaclass=ValueEnum):
@@ -45,6 +52,7 @@ class NeighborhoodType(metaclass=ValueEnum):
 class Loss(metaclass=ValueEnum):
     min_eigval_loss = 'min_eigval_loss'
     trace_loss = 'trace_loss'
+    point_to_plane_loss = 'point_to_plane_loss'
 
 
 class Model(metaclass=ValueEnum):
@@ -161,6 +169,7 @@ class Config(Configurable):
         self.pose_provider = PoseProvider.ground_truth
         self.slam = SLAM.norlab_icp_mapper
         self.model_class = Model.ScaledPolynomial
+        self.optimize_model = True  # Whether to optimize model parameters.
         self.model_args = []
         self.model_kwargs = {}
         # self.model_kwargs['w'] = [0.0]
@@ -175,14 +184,23 @@ class Config(Configurable):
         self.max_depth = 20.0
         self.grid_res = 0.1
         # Neighborhood
-        self.nn_type = NeighborhoodType.ball
+        # self.nn_type = NeighborhoodType.ball
         self.nn_k = 0
         self.nn_r = 0.25
+        self.nn_grid_res = 0.5
+        # self.min_valid_neighbors = 5
+        # self.max_neighborhoods = None
         # self.nn_scale = self.nn_r / 2
         self.nn_scale = None
+        self.nn_type = NeighborhoodType.plane
+        self.ransac_model_size = 3
+        self.ransac_dist_thresh = 0.03
+        self.num_ransac_iters = 500
+        # self.min_valid_neighbors = 1000
+        self.min_valid_neighbors = 250
+        self.max_neighborhoods = 10
 
         # Depth correction
-        self.min_valid_neighbors = 5
         self.shadow_neighborhood_angle = 0.017453  # 1 deg
         # self.shadow_angle_bounds = [radians(5.), float('inf')]
         self.shadow_angle_bounds = []
@@ -228,17 +246,22 @@ class Config(Configurable):
         # Training
         self.loss = Loss.min_eigval_loss
         # self.loss = Loss.trace_loss
+        # self.loss = Loss.point_to_plane_loss
         self.loss_offset = False
         self.loss_kwargs = {}
         self.loss_kwargs['sqrt'] = False
         self.loss_kwargs['normalization'] = True
+        self.loss_kwargs['inlier_max_loss'] = None
+        self.loss_kwargs['inlier_ratio'] = 1.0
+        self.loss_kwargs['inlier_loss_mult'] = 1.0
+        self.loss_kwargs['dist_th'] = 0.1
         self.n_opt_iters = 100
 
         self.optimizer = 'Adam'
         self.optimizer_args = []
         self.optimizer_kwargs = {}
-        self.optimizer_kwargs['betas'] = (0.5, 0.9)
-        self.optimizer_kwargs['weight_decay'] = 0.1
+        # self.optimizer_kwargs['betas'] = (0.5, 0.9)
+        # self.optimizer_kwargs['weight_decay'] = 0.1
         self.lr = 2e-4
         # self.optimizer = 'SGD'
         # self.optimizer_args = []
@@ -247,11 +270,14 @@ class Config(Configurable):
 
         self.pose_correction = PoseCorrection.none
         self.train_pose_deltas = None
+        self.test_pose_deltas = None
         self.loss_eval_csv = None
         self.slam_eval_csv = None
         self.slam_eval_bag = None
         self.slam_poses_csv = None
         # Testing
+        self.odom_cov = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # self.odom_cov = [0.0001, 0.0001, 0.0001, 0.0025, 0.0025, 0.0025]
         self.eval_losses = list(Loss)
         self.eval_slams = list(SLAM)
 
@@ -384,7 +410,23 @@ class Config(Configurable):
             if k == 'sqrt':
                 desc += '_sqrt%i' % v
                 continue
-            desc += '%s_%s' % (k, v)
+            if k == 'inlier_max_loss':
+                if v:
+                    desc += '_iml%.3g' % v
+                else:
+                    continue
+            if k == 'inlier_ratio':
+                if v != 1.0:
+                    desc += '_ir%.3g' % v
+                else:
+                    continue
+            if k == 'inlier_loss_mult':
+                if v != 1.0:
+                    desc += '_ilm%.3g' % v
+                else:
+                    continue
+            desc += '_%s_%s' % (k, v)
+        desc += '_lr%.3g' % self.lr
         return desc
 
     def get_preproc_desc(self):
@@ -400,7 +442,7 @@ class Config(Configurable):
         dir = os.path.join(self.out_dir, self.get_preproc_desc())
         return dir
 
-    def get_exp_desc(self):
+    def get_exp_desc(self, sep='_'):
         parts = [self.pose_provider,
                  self.pose_correction,
                  self.model_class,
@@ -411,7 +453,7 @@ class Config(Configurable):
                  self.get_vp_dispersion_desc(),
                  self.get_vp_dispersion_to_depth2_desc(),
                  self.get_loss_desc()]
-        desc = '_'.join(nonempty(parts))
+        desc = sep.join(nonempty(parts))
         return desc
 
     def get_exp_dir(self):

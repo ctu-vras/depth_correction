@@ -23,6 +23,8 @@ class CloudFilter(object):
     def filter_cloud(self, input_msg):
         assert isinstance(input_msg, PointCloud2)
         cloud = numpify(input_msg)
+        if cloud.ndim == 2:
+            cloud = cloud.reshape((-1,))
         cloud = filtered_cloud(cloud, self.cfg)
         output_msg = msgify(PointCloud2, cloud)
         output_msg.header = input_msg.header

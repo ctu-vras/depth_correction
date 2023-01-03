@@ -45,10 +45,10 @@ def nearest_neighbors(points, query, k=None, r=None, n_jobs=-1):
     invalid_index = -1
     index = cKDTree(points)
     if k:
-        dist, ind = index.query(query, k, n_jobs=n_jobs, **({'distance_upper_bound': r} if r else {}))
+        dist, ind = index.query(query, k, workers=n_jobs, **({'distance_upper_bound': r} if r else {}))
         ind[ind == index.n] = invalid_index
     elif r:
-        dist, ind = None, index.query_ball_point(query, r, n_jobs=n_jobs)
+        dist, ind = None, index.query_ball_point(query, r, workers=n_jobs)
     else:
         raise ValueError('Invalid neighborhood definition.')
 

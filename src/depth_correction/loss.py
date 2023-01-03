@@ -9,6 +9,9 @@ from enum import Enum
 import numpy as np
 from numpy.polynomial import Polynomial
 import torch
+from scipy.spatial import cKDTree
+from pytorch3d.ops.knn import knn_points
+
 
 __all__ = [
     'batch_loss',
@@ -28,13 +31,99 @@ class Reduction(Enum):
     SUM = 'sum'
 
 
+def eigh3_deledalle(mat, normalize=True, sort=True):
+    # https://hal.archives-ouvertes.fr/hal-01501221/document
+    # (a, d, f), (_, b, e), (_, _, c) = mat
+    # a, b, ..., f are N-dimensional tensors.
+    a = mat[..., 0, 0]
+    b = mat[..., 1, 1]
+    c = mat[..., 2, 2]
+    d = mat[..., 0, 1]
+    e = mat[..., 1, 2]
+    f = mat[..., 0, 2]
+
+    # (8)
+    # N-dimensional tensors
+    x1 = a**2 + b**2 + c**2 - a * b - a * c - b * c + 3 * (d**2 + f**2 + e**2)
+    x2 = -(2 * a - b - c) * (2 * b - a - c) * (2 * c - a - b) \
+            + 9 * ((2 * c - a - b) * d**2 + (2 * b - a - c) * f**2 + (2 * a - b - c) * e**2) \
+            - 54 * (d * e * f)
+    
+    # (9)
+    # TODO: Convert to mask for individual indices.
+    # if x2 > 0:
+    #     phi = torch.atan(torch.sqrt(4 * x1**3 - x2**2) / x2)
+    # elif x2 == 0:
+    #     phi = torch.pi / 2
+    # elif x2 < 0:
+    #     phi = torch.atan(torch.sqrt(4 * x1**3 - x2**2) / x2) + torch.pi
+    # # Use 4-quadrant arctan2 to avoid switch.
+    # N-dimensional tensor
+    phi = torch.atan2(torch.sqrt(4 * x1**3 - x2**2), x2)
+    
+    # (7) Eigenvalues
+    # N-dimensional tensors
+    eigval1 = (a + b + c - 2 * torch.sqrt(x1) * torch.cos(phi / 3)) / 3
+    eigval2 = (a + b + c + 2 * torch.sqrt(x1) * torch.cos((phi - torch.pi) / 3)) / 3
+    eigval3 = (a + b + c + 2 * torch.sqrt(x1) * torch.cos((phi + torch.pi) / 3)) / 3
+    
+    # (11)
+    # TODO: Handle zero denominators.
+    # N-dimensional tensors
+    m1 = (d * (c - eigval1) - e * f) / (f * (b - eigval1) - d * e)
+    m2 = (d * (c - eigval2) - e * f) / (f * (b - eigval2) - d * e)
+    m3 = (d * (c - eigval3) - e * f) / (f * (b - eigval3) - d * e)
+
+    # (10) Eigenvectors
+    # N-by-3 tensors
+    eigvec1 = torch.stack([(eigval1 - c - e * m1) / f, m1, torch.ones_like(m1)], dim=-1)
+    eigvec2 = torch.stack([(eigval2 - c - e * m2) / f, m2, torch.ones_like(m2)], dim=-1)
+    eigvec3 = torch.stack([(eigval3 - c - e * m3) / f, m3, torch.ones_like(m3)], dim=-1)
+    
+    # Stack eigenvalues and vectors to tensors.
+    # N-by-3
+    eigvals = torch.stack([eigval1, eigval2, eigval3], dim=-1)
+     # N-by-3-by-3
+    eigvecs = torch.stack([eigvec1, eigvec2, eigvec3], dim=-1)
+
+    # Normalize eigenvectors.
+    if normalize:
+        eigvecs = eigvecs / torch.linalg.norm(eigvecs, dim=1, keepdim=True)
+
+    # Sort eigenvalues and eigenvectors.
+    if sort:
+        eigvals, ind = torch.sort(eigvals, dim=-1)
+        eigvecs = torch.gather(eigvecs, 2, ind.unsqueeze(1).expand(eigvecs.shape))
+    
+    return eigvals, eigvecs
+
+
+def eigh3(mat):
+    """Analytic eigenvalue decomposition of 3-by-3 symmetric matrices.
+
+    Symmetric matrices have real eigenvalues and orthogonal eigenvectors.
+    For real symmetric matrices, the eigenvectors are also real.
+
+    Matrix A = U * diag(L) * U.T,
+    where U is the matrix of eigenvectors and L is the vector of eigenvalues.
+
+    :param mat: ...-by-3-by-3 3D covariance matrices.
+    :return: Eigenvalues and eigenvectors.
+    """
+    assert isinstance(mat, torch.Tensor)
+    assert mat.shape[-2] == mat.shape[-1]
+    assert mat.shape[-1] == 3
+
+    return eigh3_deledalle(mat)
+
+
 def reduce(x, reduction=Reduction.MEAN, weights=None, only_finite=False, skip_nans=False):
     # assert reduction in ('none', 'mean', 'sum')
     assert reduction in Reduction
 
     keep = None
     if only_finite:
-        keep = ~x.isfinite()
+        keep = x.isfinite()
     elif skip_nans:
         keep = ~x.isnan()
     if keep is not None:
@@ -84,7 +173,9 @@ def neighbor_cov(points, query=None, k=None, r=None, correction=1):
     return cov
 
 
-def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.MEAN, **kwargs):
+def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.MEAN,
+               only_finite=False, skip_nans=False,
+               **kwargs):
     """General batch loss of a sequence of clouds.
 
     :param loss_fun: Loss function.
@@ -111,14 +202,15 @@ def batch_loss(loss_fun, clouds, masks=None, offsets=None, reduction=Reduction.M
         loss, loss_cloud = loss_fun(cloud, mask=mask, offset=offset, reduction=Reduction.NONE, **kwargs)
         losses.append(loss)
         loss_clouds.append(loss_cloud)
-    # Double reduction (average of averages)
-    # loss = reduce(torch.cat(losses), reduction=reduction)
-    # Single point-wise reduction (average)
-    loss = reduce(torch.cat(losses), reduction=reduction)
+
+    loss = reduce(torch.cat(losses), reduction=reduction,
+                  only_finite=only_finite, skip_nans=skip_nans)
     return loss, loss_clouds
 
 
-def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=False, reduction=Reduction.MEAN):
+def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=False, reduction=Reduction.MEAN,
+                    inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0,
+                    only_finite=False, skip_nans=False, **kwargs):
     """Map consistency loss based on the smallest eigenvalue.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -127,7 +219,7 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
 
     :param cloud:
     :param mask:
-    :param offset: Source cloud to offset point-wise loss values, optional.
+    :param offset: Offset point-wise loss values, optional.
     :param sqrt: Whether to use square root of eigenvalue.
     :param normalization: Whether to normalize minimum eigenvalue by total variance.
     :param reduction:
@@ -137,33 +229,51 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
         return batch_loss(min_eigval_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, normalization=normalization,
-                          reduction=reduction)
+                          reduction=reduction,
+                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult,
+                          only_finite=only_finite, skip_nans=skip_nans)
 
     assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.eigvals is not None
     assert offset is None or isinstance(offset, (DepthCloud, PointCloud))
 
-    eigvals = cloud.eigvals
     if mask is not None:
-        eigvals = eigvals[mask]
+        print('Using %.3f valid entries from input cloud.' % mask.float().mean())
+        cloud = cloud[mask]
+        mask = None
+
+    eigvals = cloud.eigvals
     loss = eigvals[:, 0]
 
     if normalization:
-        loss = loss / eigvals.sum(dim=-1)
+        loss = loss / eigvals.sum(dim=-1).clamp(min=1e-6)
 
+    if inlier_ratio < 1.0:
+        assert offset is None
+        # Sort loss values and select inlier_ratio of them.
+        loss_quantile = torch.quantile(loss, inlier_ratio, dim=0)
+        print('Loss %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_loss_mult != 1.0:
+            loss_quantile = inlier_loss_mult * loss_quantile
+        print('Multiplied %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_max_loss is None:
+            inlier_max_loss = loss_quantile
+        else:
+            inlier_max_loss = torch.min(inlier_max_loss, loss_quantile)
+
+    if inlier_max_loss is not None:
+        assert offset is None
+        mask = (loss <= inlier_max_loss)
+        print('Using %i (%.3g) inliers with loss <= %.3g.'
+              % (mask.sum().item(), mask.float().mean().item(), inlier_max_loss.item()))
+
+    if mask is not None:
+        cloud = cloud[mask]
+        loss = loss[mask]
+
+    # Offset the loss using loss computed on local clouds.
     if offset is not None:
-        # Offset the loss using loss computed on local clouds.
-        assert offset.eigvals is not None
-
-        offset_eigvals = offset.eigvals
-        if mask is not None:
-            offset_eigvals = offset_eigvals[mask]
-        offset_loss = offset_eigvals[:, 0]
-
-        if normalization:
-            offset_loss = offset_loss / offset_eigvals.sum(dim=-1)
-
-        loss = loss - offset_loss
+        loss = loss - offset
 
     # Ensure positive loss.
     loss = torch.relu(loss)
@@ -171,17 +281,18 @@ def min_eigval_loss(cloud, mask=None, offset=None, sqrt=False, normalization=Fal
     if sqrt:
         loss = torch.sqrt(loss)
 
-    if mask is None:
-        cloud = cloud.copy()
-    else:
-        cloud = cloud[mask]
+    cloud = cloud.copy()
     cloud.loss = loss
 
-    loss = reduce(loss, reduction=reduction)
+    loss = reduce(loss, reduction=reduction,
+                  only_finite=only_finite, skip_nans=skip_nans)
     return loss, cloud
 
 
-def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN, **kwargs):
+def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEAN,
+               inlier_max_loss=None, inlier_ratio=1.0, inlier_loss_mult=1.0,
+               only_finite=False, skip_nans=False,
+               **kwargs):
     """Map consistency loss based on the trace of covariance matrix.
 
     Pre-filter cloud before, or set the mask to select points to be used in
@@ -198,29 +309,48 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     # If a batch of clouds is (as a list), process them separately,
     # and reduce point-wise loss in the end by delegating to batch_loss.
     if isinstance(cloud, (list, tuple)):
-        return batch_loss(trace_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, reduction=reduction)
+        return batch_loss(trace_loss, cloud, masks=mask, offsets=offset, sqrt=sqrt, reduction=reduction,
+                          inlier_max_loss=inlier_max_loss, inlier_ratio=inlier_ratio, inlier_loss_mult=inlier_loss_mult,
+                          only_finite=only_finite, skip_nans=skip_nans)
 
     assert isinstance(cloud, (DepthCloud, PointCloud))
     assert cloud.cov is not None
     assert offset is None or isinstance(offset, (DepthCloud, PointCloud))
 
-    cov = cloud.cov
     if mask is not None:
-        cov = cov[mask]
+        print('Using %.3f valid entries from input cloud.' % mask.float().mean())
+        cloud = cloud[mask]
+        mask = None
 
+    cov = cloud.cov
     loss = trace(cov)
 
+    if inlier_ratio < 1.0:
+        assert offset is None
+        # Sort loss values and select inlier_ratio of them.
+        loss_quantile = torch.quantile(loss, inlier_ratio, dim=0)
+        print('Loss %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_loss_mult != 1.0:
+            loss_quantile = inlier_loss_mult * loss_quantile
+        print('Multiplied %.3g-quantile: %.3g.' % (inlier_ratio, loss_quantile.item()))
+        if inlier_max_loss is None:
+            inlier_max_loss = loss_quantile
+        else:
+            inlier_max_loss = torch.min(inlier_max_loss, loss_quantile)
+
+    if inlier_max_loss is not None:
+        assert offset is None
+        mask = (loss <= inlier_max_loss)
+        print('Using %i (%.3g) inliers with loss <= %.3g.'
+              % (mask.sum().item(), mask.float().mean().item(), inlier_max_loss.item()))
+
+    if mask is not None:
+        cloud = cloud[mask]
+        loss = loss[mask]
+
+    # Offset the loss using loss computed on local clouds.
     if offset is not None:
-        # Offset the loss using loss computed on local clouds.
-        assert offset.cov is not None
-
-        offset_cov = offset.cov
-        if mask is not None:
-            offset_cov = offset_cov[mask]
-
-        offset_loss = trace(offset_cov)
-
-        loss = loss - offset_loss
+        loss = loss - offset
 
     # Ensure positive loss.
     loss = torch.relu(loss)
@@ -228,18 +358,111 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     if sqrt:
         loss = torch.sqrt(loss)
 
-    if mask is None:
-        cloud = cloud.copy()
-    else:
-        cloud = cloud[mask]
+    cloud = cloud.copy()
     cloud.loss = loss
 
-    loss = reduce(loss, reduction=reduction)
+    loss = reduce(loss, reduction=reduction, only_finite=only_finite, skip_nans=skip_nans)
     return loss, cloud
 
 
+def point_to_plane_loss(clouds, poses, model=None, masks=None, **kwargs):
+    """ICP-like point to plane loss.
+
+    :param clouds: List of lists of clouds :) Individual scans from different data sequences.
+    :param poses: List od lists of poses for each point cloud scan.
+    :param model: Depth correction model.
+    :param masks:
+    :return:
+    """
+    transformed_clouds = [[model(c).transform(p) if model else c.transform(p) for c, p in zip(seq_clouds, seq_poses)]
+                          for seq_clouds, seq_poses in zip(clouds, poses)]
+    loss = 0.
+    loss_cloud = []
+    for i in range(len(transformed_clouds)):
+        seq_trans_clouds = transformed_clouds[i]
+        seq_masks = None if masks is None else masks[i]
+        loss_seq = point_to_plane_dist(seq_trans_clouds, masks=seq_masks, dist_th=kwargs['dist_th'])
+        loss = loss + loss_seq
+
+        cloud = DepthCloud.concatenate(seq_trans_clouds)
+        cloud.loss = loss
+        loss_cloud.append(cloud)
+
+    loss = loss / len(transformed_clouds)
+
+    return loss, loss_cloud
+
+
+def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=True, verbose=False):
+    """ICP-like point to plane distance.
+
+    Computes point to plane distances for consecutive pairs of point cloud scans, and returns the average value.
+
+    :param clouds: List of clouds. Individual scans from a data sequences.
+    :param masks: List of tuples masks[i] = (mask1, mask2) where mask1 defines indices of points from 1st point cloud
+                  in a pair that intersect (close enough) with points from 2nd cloud in the pair,
+                  mask2 is list of indices of intersection points from the 2nd point cloud in a pair.
+    :param dist_th: Distance threshold to determine intersection regions between a pair of point clouds.
+    :param differentiable: Whether to use differentiable method of finding neighboring points (from Pytorch3d: slow on CPU)
+                           or from scipy (faster but not differentiable).
+    :param verbose:
+    :return:
+    """
+    if masks is not None:
+        assert len(clouds) == len(masks) + 1
+        # print('Using precomputed intersection masks for point to plane loss')
+    point2plane_dist = 0.0
+    for i in range(len(clouds) - 1):
+        cloud1 = clouds[i]
+        assert cloud1.normals is not None, "Cloud must have normals computed to estimate point to plane distance"
+        cloud2 = clouds[i + 1]
+
+        points1 = torch.as_tensor(cloud1.to_points(), dtype=torch.float)
+        points2 = torch.as_tensor(cloud2.to_points(), dtype=torch.float)
+
+        # find intersections between neighboring point clouds (1 and 2)
+        if masks is None:
+            if not differentiable:
+                tree = cKDTree(points2)
+                dists, ids = tree.query(points1, k=1)
+            else:
+                dists, ids, _ = knn_points(points1[None], points2[None], K=1)
+                dists = torch.sqrt(dists).squeeze()
+                ids = ids.squeeze()
+            mask1 = dists <= dist_th
+            mask2 = ids[mask1]
+        else:
+            mask1, mask2 = masks[i]
+        points1_inters = points1[mask1]
+        assert len(points1_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
+        points2_inters = points2[mask2]
+
+        # point to plane distance 1 -> 2
+        normals1_inters = cloud1.normals[mask1]
+        # assert np.allclose(np.linalg.norm(normals1_inters, axis=1), np.ones(len(normals1_inters)))
+        vectors = points2_inters - points1_inters
+        normals = normals1_inters
+        dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
+        dist12 = dists_to_plane.mean()
+
+        # point to plane distance 2 -> 1
+        normals2_inters = cloud2.normals[mask2]
+        # assert np.allclose(np.linalg.norm(normals2_inters, axis=1), np.ones(len(normals2_inters)))
+        vectors = points1_inters - points2_inters
+        normals = normals2_inters
+        dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
+        dist21 = dists_to_plane.mean()
+
+        point2plane_dist += 0.5 * (dist12 + dist21)
+
+        if verbose:
+            print('Mean point to plane distance: %.3f [m] for scans: (%d, %d)' % (dist12.item(), i, i+1))
+
+    return point2plane_dist / len(clouds)
+
+
 def loss_by_name(name):
-    assert name in ('min_eigval_loss', 'trace_loss')
+    assert name in ('min_eigval_loss', 'trace_loss', 'point_to_plane_loss')
     return globals()[name]
 
 
@@ -384,7 +607,36 @@ def demo():
     loss_dc.visualize(colors='loss')
 
 
+def test_eigh3():
+    
+    def rand_C3():
+        x = torch.randn(3, 3)
+        return x @ x.t()
+    
+    n = 2
+    C = torch.stack([rand_C3() for _ in range(n)])
+
+    eigvals_torch, eigvecs_torch = torch.linalg.eigh(C)
+    # print('eigvals_torch:\n', eigvals_torch)
+    # print('eigvecs_torch:\n', eigvecs_torch)
+        
+    eigvals, eigvecs = eigh3(C)
+    # print('eigvals:\n', eigvals)
+    # print('eigvecs:\n', eigvecs)
+
+    assert torch.allclose(eigvals, eigvals_torch, atol=1e-6), \
+            (eigvals, eigvals_torch, eigvals - eigvals_torch)
+    assert torch.all(torch.isclose(eigvecs, eigvecs_torch, atol=1e-5)
+                     | torch.isclose(-eigvecs, eigvecs_torch, atol=1e-5)), \
+            (eigvecs, eigvecs_torch, eigvecs - eigvecs_torch)
+        
+
+def test():
+    test_eigh3()
+
+
 def main():
+    # test()
     demo()
 
 

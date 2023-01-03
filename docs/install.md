@@ -8,7 +8,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
    ```bash
    mkdir -p ~/catkin_ws/src/
    cd ~/catkin_ws/src/
-   git clone https://github.com/RuslanAgishev/depth_correction.git
+   git clone https://github.com/ctu-vras/depth_correction.git
    ```
 2. Install python dependencies:
    ```bash
@@ -19,7 +19,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 3. Install [ROS](http://wiki.ros.org/ROS/Installation)
 4. Install ROS dependencies:
    ```bash
-   sudo apt-get install python3-catkin-tools ros-noetic-ros-numpy ros-noetic-rviz ros-noetic-tf-conversions
+   sudo apt-get install python3-catkin-tools python3-pcl ros-noetic-ros-numpy ros-noetic-rviz ros-noetic-tf-conversions
    ```
 
 6. Build ROS workspace:
@@ -38,7 +38,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 
    ```bash
    cd ../singularity
-   sudo singularity build depth_correction.simg depth_correction.txt
+   sudo singularity build depth_correction.simg recepie.def
    ```
 
 3. Run demo (optionally).

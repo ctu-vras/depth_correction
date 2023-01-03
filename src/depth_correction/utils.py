@@ -6,7 +6,7 @@ from timeit import default_timer as timer
 import torch
 from pytorch3d.io import load_ply, load_obj
 from pytorch3d.structures import Meshes
-
+import textwrap
 
 __all__ = [
     'covs',
@@ -14,6 +14,7 @@ __all__ = [
     'timer',
     'timing',
     'trace',
+    'wrap_text',
 ]
 
 
@@ -71,6 +72,11 @@ def hashable(obj):
     elif isinstance(obj, np.ndarray):
         obj = hashable(obj.tolist())
     return obj
+
+
+def wrap_text(text, width):
+    text = text.replace('_', ' ')
+    return textwrap.fill(text, width=width)
 
 
 cache = {}

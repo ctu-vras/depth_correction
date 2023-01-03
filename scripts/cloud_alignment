@@ -1,0 +1,263 @@
+#!/usr/bin/env python
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neighbors import NearestNeighbors
+import math
+from scipy.spatial.transform import Rotation
+import os
+
+
+def point_based_matching(point_pairs):
+    """
+    This function is based on the paper "Robot Pose Estimation in Unknown Environments by Matching 2D Range Scans"
+    by F. Lu and E. Milios.
+    :param point_pairs: the matched point pairs [((x1, y1), (x1', y1')), ..., ((xi, yi), (xi', yi')), ...]
+    :return: the rotation angle and the 2D translation (x, y) to be applied for matching the given pairs of points
+    """
+
+    x_mean = 0
+    y_mean = 0
+    xp_mean = 0
+    yp_mean = 0
+    n = len(point_pairs)
+
+    if n == 0:
+        return None
+
+    for pair in point_pairs:
+
+        (x, y), (xp, yp) = pair
+
+        x_mean += x
+        y_mean += y
+        xp_mean += xp
+        yp_mean += yp
+
+    x_mean /= n
+    y_mean /= n
+    xp_mean /= n
+    yp_mean /= n
+
+    s_x_xp = 0
+    s_y_yp = 0
+    s_x_yp = 0
+    s_y_xp = 0
+    for pair in point_pairs:
+
+        (x, y), (xp, yp) = pair
+
+        s_x_xp += (x - x_mean)*(xp - xp_mean)
+        s_y_yp += (y - y_mean)*(yp - yp_mean)
+        s_x_yp += (x - x_mean)*(yp - yp_mean)
+        s_y_xp += (y - y_mean)*(xp - xp_mean)
+
+    rot_angle = math.atan2(s_x_yp - s_y_xp, s_x_xp + s_y_yp)
+    tran_x = xp_mean - (x_mean*np.cos(rot_angle) - y_mean*np.sin(rot_angle))
+    trans_y = yp_mean - (x_mean*np.sin(rot_angle) + y_mean*np.cos(rot_angle))
+
+    c, s = np.cos(rot_angle), np.sin(rot_angle)
+    T = np.array([[c, -s, tran_x],
+                  [s, c, trans_y],
+                  [0, 0, 1]])
+
+    return T
+
+
+def transform_cloud(cloud, Tr):
+    d = cloud.shape[1]
+    return cloud @ Tr[:d, :d].T + Tr[:d, d:(d+1)].T
+
+
+def alignment_2d():
+    # np.random.seed(135)
+    # X = np.linspace(0, 50, 10) + np.random.uniform(0, 1, (10,))
+    # Y = np.random.uniform(0, 1, (10,))
+    # points = np.vstack([X, Y]).T
+
+    # seq = 'slam_2022-11-24-15-28-59'
+    seq = 'slam_2022-11-24-15-39-08'
+    path = '/home/ruslan/data/datasets/depth_correction/22-11-24-kn_e2_corridor/bags/'
+    points = np.genfromtxt(os.path.join(path, seq, 'static_poses.txt'))
+    points = points.reshape((-1, 3, 4))[:, :2, 3]
+    points_orig = points.copy()
+
+    # angle = np.deg2rad(35)
+    # Tr = np.asarray([[np.cos(angle), -np.sin(angle), 3.0],
+    #                 [np.sin(angle), np.cos(angle), -1.0],
+    #                 [0, 0, 1]])
+    # print('Source transformation: \n%s\n' % Tr)
+    # cloud_target = transform_cloud(cloud, Tr)
+    # # add noise
+    # cloud_target = cloud_target + np.random.uniform(0, 0.5, cloud_target.shape)
+    points_target = np.genfromtxt(os.path.join(path, seq, 'static_leica_poses.txt'))
+    points_target = points_target[:, :2]
+
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(points_target)
+
+    def find_correspondencies(known_corresps=True, dist_th=0.5):
+        if known_corresps:
+            point_pairs = [(p, q) for p, q in zip(points, points_target)]
+        else:
+            point_pairs = []  # list of point correspondences for closest point rule
+            distances, indices = nbrs.kneighbors(points)
+            for nn_index in range(len(distances)):
+                if distances[nn_index][0] < dist_th:
+                    point_pairs.append((points[nn_index], points_target[indices[nn_index][0]]))
+        return point_pairs
+
+    # 2D alignment (ICP)
+    dist_th = 10.0
+    max_iters = 100
+
+    plt.figure()
+    plt.axis('equal')
+
+    T_source_target = np.eye(3)
+    for i in range(max_iters):
+        closest_point_pairs = find_correspondencies(known_corresps=True, dist_th=dist_th)
+
+        dist_th /= 2.
+
+        # compute translation and rotation using point correspondences
+        T_closest = point_based_matching(closest_point_pairs)
+
+        if T_closest is None:
+            print('No better solution can be found!')
+            break
+
+        T_source_target = T_closest @ T_source_target
+
+        dist = np.linalg.norm(T_closest[:2, 2])
+        print('Translated points by distance: %.3f' % dist)
+        if dist < 0.05:
+            print('Converged')
+            break
+
+        points_aligned = points @ T_closest[:2, :2].T + T_closest[:2, 2:3].T
+
+        points = points_aligned
+
+        plt.cla()
+        plt.plot(points_orig[:, 0], points_orig[:, 1], '.', label='source', color='b')
+        plt.plot(points_aligned[:, 0], points_aligned[:, 1], 'o', label='aligned', color='g')
+        plt.plot(points_target[:, 0], points_target[:, 1], '*', label='target', color='r')
+        plt.grid()
+        plt.draw()
+        plt.pause(0.1)
+
+    print('Resulting transformation: \n%s\n' % T_source_target)
+    R = np.eye(3)
+    R[:2, :2] = T_source_target[:2, :2]
+    quat = Rotation.from_matrix(R).as_quat()
+    print('Translation (x, y): %s' % T_source_target[:2, 2])
+    print('Quaternion: %s' % quat)
+
+    # Translation (x, y): [ 2.03499517 -0.05962867]
+    # Quaternion: [0.         0.         0.08595789 0.99629877]
+
+    # Translation (x, y): [ 2.0395672 -0.0593375]
+    # Quaternion: [0.         0.         0.08594801 0.99629962]
+
+    plt.legend()
+    plt.show()
+
+
+def nearest_orthonormal(M):
+    assert M.ndim == 2
+    assert M.shape[0] == M.shape[1]
+    U, s, V = np.linalg.svd(M, full_matrices=False)
+    # NB: Numpy returns H = U * diag(s) * V, not U * diag(s) * V'.
+    # assert np.allclose(M, U @ np.diag(s) @ V)
+    # assert np.allclose(M, np.matmul(np.matmul(U, np.diag(s)), V))
+    R = np.matmul(U, V)
+    return R
+
+
+def absolute_orientation(x, y):
+    """Find transform R, t between x and y, such that the sum of squared
+    distances ||R * x[:, i] + t - y[:, i]|| is minimum.
+
+    :param x: Points to align, D-by-M array.
+    :param y: Reference points to align to, D-by-M array.
+
+    :return: Optimized transform from SE(D) as (D+1)-by-(D+1) array,
+        T = [R t; 0... 1].
+    """
+    assert x.shape == y.shape, 'Inputs must be same size.'
+    assert x.shape[1] > 0
+    assert y.shape[1] > 0
+    d = x.shape[0]
+    T = np.eye(d + 1)
+
+    # Center points.
+    x_mean = x.mean(axis=1, keepdims=True)
+    y_mean = y.mean(axis=1, keepdims=True)
+    x_centered = x - x_mean
+    y_centered = y - y_mean
+
+    # Avoid loop through individual vectors.
+    # M = x_centered @ y_centered.T
+    M = np.matmul(x_centered, y_centered.T)
+    R = nearest_orthonormal(M).T
+
+    # assert np.allclose(R @ R.T, np.eye(k))
+    # assert np.allclose(np.matmul(R, R.T), np.eye(d))
+    if d == 3 and not np.isclose(np.linalg.det(R), 1.0):
+        raise ValueError("Rotation R, R'*R = I, det(R) = 1, could not be found.")
+
+    # t = y_mean - R @ x_mean
+    t = y_mean - np.matmul(R, x_mean)
+    # return np.block([[R, t], [np.zeros((1, k)), 1]])
+    # T = np.zeros((d + 1, d + 1))
+    # T[-1, -1] = 1.
+    T[:-1, :-1] = R
+    T[:-1, -1:] = t
+
+    return T
+
+
+def demo():
+    import open3d as o3d
+
+    # seq = 'slam_2022-11-24-15-28-59'
+    seq = 'slam_2022-11-24-15-39-08'
+    path = '/home/ruslan/data/datasets/depth_correction/22-11-24-kn_e2_corridor/sequences/'
+    points = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_leica_poses_raw.txt'))
+    points = points - np.array([0, 0, 0.1])  # crystal is 10 cm above lidar
+
+    points_target = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_poses.txt')).reshape((-1, 3, 4))[:, :, 3]
+
+    T_source_target = absolute_orientation(points.T, points_target.T)
+
+    print('Resulting transformation: \n%s\n' % T_source_target)
+    R = np.eye(3)
+    R[:3, :3] = T_source_target[:3, :3]
+    quat = Rotation.from_matrix(R).as_quat()
+    print('Translation (x, y): %s' % T_source_target[:3, 3])
+    print('Quaternion: %s' % quat)
+
+    points_aligned = transform_cloud(points, T_source_target)
+    print('Alignment MSE [m]: %f' % np.mean(np.linalg.norm(points_aligned - points_target, axis=1)))
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    pcd.colors = o3d.utility.Vector3dVector(np.zeros_like(points) + np.array([1, 0, 0]))
+
+    pcd_aligned = o3d.geometry.PointCloud()
+    pcd_aligned.points = o3d.utility.Vector3dVector(points_aligned)
+    pcd_aligned.colors = o3d.utility.Vector3dVector(np.zeros_like(points_aligned) + np.array([0, 1, 0]))
+
+    pcd_target = o3d.geometry.PointCloud()
+    pcd_target.points = o3d.utility.Vector3dVector(points_target)
+    pcd_target.colors = o3d.utility.Vector3dVector(np.zeros_like(points_target) + np.array([0, 0, 1]))
+
+    o3d.visualization.draw_geometries([pcd, pcd_aligned, pcd_target])
+
+def main():
+    # alignment_2d()
+    demo()
+
+
+if __name__ == '__main__':
+    main()

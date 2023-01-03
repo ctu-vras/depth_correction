@@ -193,7 +193,8 @@ class PointCloud(object):
         return self.type(torch.float64)
 
     def detach(self):
-        kwargs = {k: v.detach() for k, v in self.fields().items()}
+        kwargs = {k: (v.detach() if isinstance(v, torch.Tensor) else v)
+                  for k, v in self.fields().items()}
         return PointCloud(**kwargs)
 
 

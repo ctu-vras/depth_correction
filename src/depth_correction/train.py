@@ -1,18 +1,25 @@
 from __future__ import absolute_import, division, print_function
-from .config import Config, PoseCorrection
+from .config import Config, NeighborhoodType, PoseCorrection
 from .dataset import create_dataset
+from .depth_cloud import DepthCloud
+from .eval import eval_loss_clouds, initialize_pose_corrections
 from .loss import create_loss
 from .model import load_model
-from .preproc import *
-from .ros import *
-from .transform import *
+from .preproc import (
+    establish_neighborhoods,
+    global_cloud,
+    global_cloud_mask,
+    local_feature_cloud
+)
+from .ros import publish_data
 from argparse import ArgumentParser
 import numpy as np
 import os
 import rospy
 import torch
-from torch.optim import Adam, SGD  # Needed for eval
+from torch.optim import Adam, SGD, LBFGS  # Needed for eval
 from torch.utils.tensorboard import SummaryWriter
+from scipy.spatial import cKDTree
 
 
 class TrainCallbacks(object):
@@ -34,50 +41,6 @@ class TrainCallbacks(object):
 
     def val_loss(self, iter, model, clouds, pose_deltas, poses, masks, loss):
         pass
-
-
-def initialize_pose_corrections(datasets, cfg: Config):
-    pose_deltas = []
-    kwargs = {
-        'dtype': cfg.torch_float_type(),
-        'device': cfg.device,
-        'requires_grad': True,
-    }
-    for ds in datasets:
-        if cfg.pose_correction == PoseCorrection.common:
-            # Use a common correction for all sequences and poses.
-            if pose_deltas:
-                pose_delta = pose_deltas[0]
-            else:
-                pose_delta = torch.zeros((1, 6), **kwargs)
-        elif cfg.pose_correction == PoseCorrection.sequence:
-            # Single correction per sequence (sensor rig calibration).
-            pose_delta = torch.zeros((1, 6), **kwargs)
-        elif cfg.pose_correction == PoseCorrection.pose:
-            # Correct every pose (e.g. from odometry or SLAM).
-            pose_delta = torch.zeros((len(ds), 6), **kwargs)
-        else:
-            pose_delta = None
-        if pose_delta is not None:
-            pose_deltas.append(pose_delta)
-
-    return pose_deltas
-
-
-def create_corrected_poses(poses, pose_deltas, cfg: Config):
-    if cfg.pose_correction == PoseCorrection.none:
-        poses_upd = poses
-    else:
-        assert len(poses) == len(pose_deltas)
-        # For common pose correction, there is a same correction for all sequences.
-        if cfg.pose_correction == PoseCorrection.common:
-            assert all(d is pose_deltas[0] for d in pose_deltas[1:])
-        poses_upd = []
-        for i in range(len(poses)):
-            pose_deltas_mat = xyz_axis_angle_to_matrix(pose_deltas[i])
-            poses_upd.append(torch.matmul(poses[i], pose_deltas_mat))
-
-    return poses_upd
 
 
 def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
@@ -127,22 +90,18 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     train_clouds = []
     train_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    train_neighbors = [None] * len(train_datasets)
     train_masks = [None] * len(train_datasets)
     for i, ds in enumerate(train_datasets):
-        # Allow overriding poses paths, assume valid if non-empty.
         clouds = []
         poses = []
         for cloud, pose in ds:
-            cloud = local_feature_cloud(cloud, cfg)
-            # If poses are not optimized, depth can be corrected on global
-            # feature clouds.
-            # If poses are to be optimized, depth can be corrected on local
-            # clouds and these can then be transformed to global cloud.
+            if cfg.nn_type == NeighborhoodType.ball:
+                cloud = local_feature_cloud(cloud, cfg)
+            else:
+                cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type(), device=cfg.device)
             clouds.append(cloud)
             poses.append(pose)
         train_clouds.append(clouds)
-        # poses = np.stack(poses).astype(dtype=cfg.dtype)
         poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
         poses = torch.as_tensor(poses, device=cfg.device)
         train_poses.append(poses)
@@ -151,13 +110,15 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     val_clouds = []
     val_poses = []
     # Pose corrections 3 translation, 3 elements axis-angle,.
-    val_neighbors = [None] * len(val_datasets)
     val_masks = [None] * len(val_datasets)
     for i, ds in enumerate(val_datasets):
         clouds = []
         poses = []
         for cloud, pose in ds:
-            cloud = local_feature_cloud(cloud, cfg)
+            if cfg.nn_type == NeighborhoodType.ball:
+                cloud = local_feature_cloud(cloud, cfg)
+            else:
+                cloud = DepthCloud.from_structured_array(cloud, dtype=cfg.numpy_float_type(), device=cfg.device)
             clouds.append(cloud)
             poses.append(pose)
         val_clouds.append(clouds)
@@ -175,8 +136,11 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
     print(model)
 
     # Optimizable parameters and optimizer for train sequences.
-    params = [{'params': model.parameters(), 'lr': cfg.lr}]
+    params = []
+    if cfg.optimize_model and len(list(model.parameters())) > 0:
+        params.append({'params': model.parameters(), 'lr': cfg.lr})
     if cfg.pose_correction != PoseCorrection.none:
+        # params.append({'params': train_pose_deltas, 'lr': cfg.lr, 'weight_decay': 0.0})
         params.append({'params': train_pose_deltas, 'lr': cfg.lr})
     # Initialize optimizer.
     args = cfg.optimizer_args[:] if cfg.optimizer_args else []
@@ -198,74 +162,93 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
 
     writer = SummaryWriter(cfg.log_dir)
 
-    min_loss = np.inf
+    # Create global clouds for establishing neighborhoods and masks.
+    train_global_clouds = [global_cloud(clouds=clouds, poses=poses)
+                           for clouds, poses in zip(train_clouds, train_poses)]
+    val_global_clouds = [global_cloud(clouds=clouds, poses=poses)
+                         for clouds, poses in zip(val_clouds, val_poses)]
+
+    # Create neighborhoods used in optimization.
+    train_ns = [establish_neighborhoods(cloud=cloud, cfg=cfg)
+                for cloud in train_global_clouds]
+    val_ns = [establish_neighborhoods(cloud=cloud, cfg=cfg)
+              for cloud in val_global_clouds]
+
+    # Create masks used in optimization.
+    if cfg.loss == 'point_to_plane_loss':
+        train_masks, val_masks = [], []
+        for i in range(len(train_clouds)):
+            train_masks_seq = []
+            for j in range(len(train_clouds[i]) - 1):
+                # find intersections between neighboring point clouds (j and j+1)
+                pose1 = train_poses[i][j]
+                pose2 = train_poses[i][j + 1]
+                points1 = train_clouds[i][j].transform(pose1).to_points()
+                points2 = train_clouds[i][j + 1].transform(pose2).to_points()
+                tree = cKDTree(points2)
+                dists, ids = tree.query(points1, k=1)
+                mask1 = dists <= cfg.loss_kwargs['dist_th']
+                mask2 = ids[mask1]
+                train_masks_seq.append((mask1, mask2))
+            train_masks.append(train_masks_seq)
+
+        for i in range(len(val_clouds)):
+            val_masks_seq = []
+            for j in range(len(val_clouds[i]) - 1):
+                # find intersections between neighboring point clouds (i and i+1)
+                pose1 = val_poses[i][j]
+                pose2 = val_poses[i][j + 1]
+                points1 = val_clouds[i][j].transform(pose1).to_points()
+                points2 = val_clouds[i][j + 1].transform(pose2).to_points()
+                tree = cKDTree(points2)
+                dists, ids = tree.query(points1, k=1)
+                mask1 = dists <= cfg.loss_kwargs['dist_th']
+                mask2 = ids[mask1]
+                val_masks_seq.append((mask1, mask2))
+            val_masks.append(val_masks_seq)
+    else:
+        train_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                       for cloud in train_global_clouds]
+        val_masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                     for cloud in val_global_clouds]
+
+    min_train_loss = np.inf
+    min_val_loss = np.inf
     best_cfg = None
     for it in range(cfg.n_opt_iters):
         if rospy.is_shutdown():
             break
 
         # Training
-        # Allow optimizing pose deltas.
-        train_poses_upd = create_corrected_poses(train_poses, train_pose_deltas, cfg)
-
-        clouds = [global_cloud(c, model, p) for c, p in zip(train_clouds, train_poses_upd)]
-        offsets = [offset_cloud(c, model) for c in train_clouds] if cfg.loss_offset else None
-
-        for i in range(len(clouds)):
-            cloud = clouds[i]
-            if train_neighbors[i] is None:
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-                train_neighbors[i] = cloud.neighbors, cloud.weights
-                train_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
-                print('Training on %.3f = %i / %i points.'
-                      % (train_masks[i].float().mean().item(),
-                         train_masks[i].sum().item(), train_masks[i].numel()))
-            else:
-                cloud.neighbors, cloud.weights = train_neighbors[i]
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
-            clouds[i] = cloud
-
-        train_loss, _ = loss_fun(clouds, mask=train_masks, offset=offsets)
-        callbacks.train_loss(it, model, clouds, train_pose_deltas, train_poses_upd, train_masks, train_loss)
+        train_loss, _, train_poses_upd, train_feat_clouds \
+                = eval_loss_clouds(train_clouds, train_poses, train_pose_deltas, train_masks, train_ns,
+                                   model, loss_fun, cfg)
+        callbacks.train_loss(it, model, train_feat_clouds, train_pose_deltas, train_poses_upd, train_masks, train_loss)
 
         # Validation
-        val_poses_upd = create_corrected_poses(val_poses, val_pose_deltas, cfg)
+        val_loss, _, val_poses_upd, val_feat_clouds \
+                = eval_loss_clouds(val_clouds, val_poses, val_pose_deltas, val_masks, val_ns,
+                               model, loss_fun, cfg)
+        callbacks.val_loss(it, model, val_feat_clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
 
-        clouds = [global_cloud(c, model, p) for c, p in zip(val_clouds, val_poses_upd)]
-        offsets = [offset_cloud(c, model) for c in val_clouds] if cfg.loss_offset else None
-
-        for i in range(len(clouds)):
-            cloud = clouds[i]
-            if val_neighbors[i] is None:
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
-                val_neighbors[i] = cloud.neighbors, cloud.weights
-                val_masks[i] = global_cloud_mask(cloud, cloud.mask, cfg)
-                print('Validating on %.3f = %i / %i points.'
-                      % (val_masks[i].float().mean().item(),
-                         val_masks[i].sum().item(), val_masks[i].numel()))
-            else:
-                cloud.neighbors, cloud.weights = val_neighbors[i]
-                cloud.update_all(k=cfg.nn_k, r=cfg.nn_r, keep_neighbors=True)
-            clouds[i] = cloud
-
-        val_loss, _ = loss_fun(clouds, mask=val_masks, offset=offsets)
-        callbacks.val_loss(it, model, clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
+        if cfg.enable_ros and cfg.val_names:
+            publish_data(clouds, poses_upd, cfg.val_names, cfg=cfg)
 
         # if cfg.show_results and it % cfg.plot_period == 0:
         #     for dc in clouds:
         #         dc.visualize(colors='inc_angles')
         #         dc.visualize(colors='min_eigval')
 
-        if val_loss.item() < min_loss:
+        if train_loss.item() < min_train_loss and val_loss.item() < min_val_loss:
             saved = True
-            min_loss = val_loss.item()
-            state_dict_path = '%s/%03i_%.6g_state_dict.pth' % (cfg.log_dir, it, min_loss)
+            min_val_loss = val_loss.item()
+            state_dict_path = '%s/%03i_%.6g_state_dict.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(model.state_dict(), state_dict_path)
             pose_deltas = [p.detach().clone() for p in train_pose_deltas if p is not None]
-            pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_loss)
+            pose_deltas_path = '%s/%03i_%.6g_pose_deltas.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(pose_deltas, pose_deltas_path)
             poses_upd = [p.detach().clone() for p in train_poses_upd if p is not None]
-            poses_upd_path = '%s/%03i_%.6g_poses_upd.pth' % (cfg.log_dir, it, min_loss)
+            poses_upd_path = '%s/%03i_%.6g_poses_upd.pth' % (cfg.log_dir, it, min_val_loss)
             torch.save(poses_upd, poses_upd_path)
 
             best_cfg = cfg.copy()
@@ -300,7 +283,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 if model.exponent.grad is not None:
                     writer.add_scalar('model/exponent_%i/grad' % i, model.exponent.grad[i], it)
 
-        if train_pose_deltas:
+        if train_pose_deltas and train_pose_deltas[0] is not None:
             # TODO: Add summary histogram for all sequences.
             for i in range(len(train_datasets)):
                 name = str(train_datasets[i])
@@ -312,14 +295,28 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                                              % (name, key), train_pose_deltas[i].grad[:, j], it)
 
         # Optimization step
-        optimizer.zero_grad()
-        train_loss.backward()
-        optimizer.step()
+        if cfg.optimizer == 'LBFGS':
+            def closure():
+                optimizer.zero_grad()
+                train_loss.backward(retain_graph=True)
+                return train_loss
+        else:
+            optimizer.zero_grad()
+            train_loss.backward()
+        # Keep the first pose fixed.
+        if cfg.pose_correction == PoseCorrection.pose:
+            for i in range(len(train_pose_deltas)):
+                train_pose_deltas[i].grad[0].zero_()
+        optimizer.step(closure) if cfg.optimizer == 'LBFGS' else optimizer.step()
 
         # Optimize validation pose updates.
         if val_optimizer is not None:
             val_optimizer.zero_grad()
             val_loss.backward()
+            # Keep the first pose fixed.
+            if cfg.pose_correction == PoseCorrection.pose:
+                for i in range(len(val_pose_deltas)):
+                    val_pose_deltas[i].grad[0].zero_()
             val_optimizer.step()
 
     writer.flush()

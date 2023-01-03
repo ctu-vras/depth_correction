@@ -36,6 +36,11 @@ def load_model(class_name: str=None,
         if device is None:
             device = cfg.device
 
+    if model_args is None:
+        model_args = []
+    if model_kwargs is None:
+        model_kwargs = {}
+
     if isinstance(state_dict, str) and state_dict:
         print('Loading model state from %s.' % state_dict)
         state_dict = torch.load(state_dict)
@@ -203,8 +208,8 @@ class Polynomial(BaseModel):
         return ret
 
     def __str__(self):
-        if self.legacy:
-            return 'Polynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
+        # if self.legacy:
+        #     return 'Polynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
         return 'Polynomial(%s)' % ', '.join('%.6gx^%.6g' % (w, e)
                                                   for w, e in zip(self.w.flatten(), self.exponent.flatten()))
 
@@ -274,8 +279,8 @@ class ScaledPolynomial(BaseModel):
         return ret
 
     def __str__(self):
-        if self.legacy:
-            return 'ScaledPolynomial(%.6g, %.6g)' % (self.p0.item(), self.p1.item())
+        # if self.legacy:
+        #     return 'ScaledPolynomial(%.6g, %.6g)' % (self.w[0].item(), self.w[1].item())
         return 'ScaledPolynomial(%s)' % ', '.join('%.6gx^%.6g' % (w, e)
                                                   for w, e in zip(self.w.flatten(), self.exponent.flatten()))
 
@@ -344,5 +349,5 @@ class ScaledInvCos(BaseModel):
 
 
 def model_by_name(name):
-    assert name in ('BaseModel', 'InvCos', 'Linear', 'Polynomial', 'ScaledInvCos', 'ScaledPolynomial')
+    assert name in ('BaseModel', 'InvCos', 'Linear', 'Polynomial', 'ScaledInvCos', 'ScaledPolynomial'), name
     return globals()[name]

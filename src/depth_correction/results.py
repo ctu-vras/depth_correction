@@ -35,7 +35,7 @@ slam_eval_baseline_format = '{{preproc}}/{dataset}/*/slam_eval_{{slam}}.csv'.for
 # SLAM eval with depth correction filter from training
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv')
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_*_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
-slam_eval_format = '{preproc}/{pose_provider}_{model}_*_{loss}/split_{split}/slam_eval_{slam}_{set}.csv'
+slam_eval_format = '{preproc}/{pose_provider}_{model}_*_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv'
 # SLAM eval with all points corrected
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
 
@@ -476,9 +476,13 @@ def results_for_individual_sequences_demo(std=False):
     print(tabulate.tabulate(df, names, tablefmt='latex'))
 
 
-if __name__ == '__main__':
+def main():
     # slam_localization_error_demo()
     slam_localization_error_tables()
     # mean_loss_tables()
     # mean_loss_over_sequences_and_data_splits_demo()
     # results_for_individual_sequences_demo()
+
+
+if __name__ == '__main__':
+    main()

@@ -363,7 +363,7 @@ class AngleDataset(PlaneDataset):
                  n_pts: int = 10_000,
                  n_poses: int = 5,
                  size: tuple = ([-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0]),
-                 degrees: float = 0.0):
+                 degrees: float = 60.0):
         """AngleDataset composed of multiple point cloud measurements of two intersecting planes forming an angle.
 
         :param name: Name of the dataset
@@ -529,9 +529,11 @@ class RenderedMeshDataset(object):
         if not os.path.exists(path):
             raise FileExistsError('Mesh %s does not exist.' % path)
 
+        self.hash_name = ''
         if poses_path:
             assert poses is None
             if not os.path.isabs(poses_path):
+                self.hash_name = (poses_path.replace(os.path.basename(poses_path), '')).replace('/', '_')
                 poses_path = os.path.join(Config().pkg_dir, 'data', 'meshes', poses_path)
             if not os.path.exists(poses_path):
                 raise FileExistsError('Poses path %s does not exist.' % poses_path)
@@ -574,6 +576,7 @@ class RenderedMeshDataset(object):
         else:
             self.poses = poses
             self.ids = list(range(len(poses)))
+            self.hash_name = str( abs(hash(hashable(poses))) )
         self.n = len(self)
 
     def get_mesh(self):
@@ -632,12 +635,12 @@ class RenderedMeshDataset(object):
     def get_poses_path(self):
         if self.poses_path:
             return self.poses_path
-        path = os.path.join(self.dataset_dir(), 'n%i' % self.n, 'poses.csv')
+        path = os.path.join(self.dataset_dir(), 'hash_%is' % self.hash_name, 'poses.csv')
         return path
 
     def cloud_path(self, id):
         path = os.path.join(self.dataset_dir(),
-                            'n%i_size_%i_%i_fov_%.0f_%.0f' % (self.n, *self.size, *self.fov),
+                            'hash_%s_size_%i_%i_fov_%.0f_%.0f' % (self.hash_name, *self.size, *self.fov),
                             'cloud_%05i.bin' % id)
         return path
 
@@ -681,7 +684,7 @@ class RenderedMeshDataset(object):
 
     def cloud_pose(self, id):
         # self.poses[id][:3, 3])
-        return self.poses[id]
+        return self.poses[self.ids.index(id)]
 
     def show_path(self, title=None):
         fig, axes = plt.subplots(1, 1, figsize=(8.0, 8.0), constrained_layout=True, squeeze=False)
@@ -696,7 +699,7 @@ class RenderedMeshDataset(object):
             ax.set_title(title)
         plt.show()
 
-    def show_global_cloud(self, data_step=5):
+    def show_global_cloud(self, data_step=1):
         clouds = []
         for id in self.ids[::data_step]:
             cloud, pose = self.local_cloud(id), self.cloud_pose(id)
@@ -736,20 +739,21 @@ class TransformingDataset(Forwarding):
     def __init__(self, target):
         super().__init__(target)
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         return cloud
 
-    def transform_pose(self, pose):
+    def transform_pose(self, pose, **kwargs):
         return pose
 
     def __getitem__(self, item):
         assert isinstance(item, int), item
         cloud, pose = self.target[item]
-        return self.transform_cloud(cloud), self.transform_pose(pose)
+        return self.transform_cloud(cloud, item=item), self.transform_pose(pose, item=item)
 
     def __iter__(self):
-        for cloud, pose in self.target:
-            yield self.transform_cloud(cloud), self.transform_pose(pose)
+        for item, (cloud, pose) in enumerate(self.target):
+            yield self.transform_cloud(cloud, item=item), self.transform_pose(pose, item=item)
+            # yield self.target[item]
 
     def local_cloud(self, id):
         return self.transform_cloud(self.target.local_cloud(id))
@@ -764,7 +768,7 @@ class FilteredDataset(TransformingDataset):
         super().__init__(dataset)
         self.cfg = cfg
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         cloud = filtered_cloud(cloud, self.cfg)
         return cloud
 
@@ -775,19 +779,21 @@ class NoisyPoseDataset(TransformingDataset):
         pose = 'pose'
         common = 'common'
 
-    def __init__(self, dataset, noise=0.0, mode=None):
+    def __init__(self, dataset, noise=0.0, mode=None, first_noisy=False):
         """
         :param dataset:
         :param noise: Pose noise, standard deviations for euler angles and position.
         :param mode:
         """
         assert isinstance(noise, float) or len(noise) == 6
+        assert mode is not None
         noise = np.asarray(noise)
         mode = mode or NoisyPoseDataset.Mode.common
         assert mode in NoisyPoseDataset.Mode
         super().__init__(dataset)
         self.noise = noise
         self.mode = mode
+        self.first_noisy = first_noisy
 
     def random_transform(self, seed):
         rng = np.random.default_rng(seed)
@@ -797,8 +803,11 @@ class NoisyPoseDataset(TransformingDataset):
         return noise
 
     # TODO: Cache
-    def transform_pose(self, pose):
+    def transform_pose(self, pose, item=None):
         if self.mode == NoisyPoseDataset.Mode.pose:
+            if not self.first_noisy and item == 0:
+                print('No noise for first pose')
+                return pose
             seed = abs(hash(hashable(pose)))
         elif self.mode == NoisyPoseDataset.Mode.common:
             seed = Config().random_seed
@@ -818,7 +827,7 @@ class NoisyDepthDataset(TransformingDataset):
         super().__init__(dataset)
         self.noise = noise
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         if self.noise:
             pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
             if 'vp_x' in cloud.dtype.names:
@@ -845,7 +854,7 @@ class DepthBiasDataset(TransformingDataset):
         self.model = model
         self.cfg = cfg
 
-    def transform_cloud(self, cloud):
+    def transform_cloud(self, cloud, **kwargs):
         if self.model is not None:
             assert isinstance(self.model, BaseModel)
             dc = DepthCloud.from_structured_array(cloud)
@@ -915,16 +924,14 @@ def dataset_by_name(name):
         return RenderedMeshDataset
     elif '.obj' in name or '.ply' in name:
         return MeshDataset
-    elif name in ['asl_laser', 'semantic_kitti', 'newer_college']:
+    elif name in ['asl_laser', 'semantic_kitti', 'newer_college', 'kitti360', 'depth_correction']:
         imported_module = importlib.import_module("data.%s" % name)
         return getattr(imported_module, "Dataset")
     raise ValueError('Unknown dataset: %s.' % name)
 
 
-def create_dataset(name, cfg: Config, **kwargs):
-    Dataset = dataset_by_name(name)
-    ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
-    ds = FilteredDataset(ds, cfg)
+def noisy_dataset(ds, cfg):
+    assert isinstance(cfg, Config)
 
     if cfg.depth_bias_model_class:
         from .model import model_by_name
@@ -934,12 +941,22 @@ def create_dataset(name, cfg: Config, **kwargs):
             ds = DepthBiasDataset(ds, gt_model, cfg=cfg)
 
     if cfg.depth_noise:
-        print('Adding depth noise %.3g.', cfg.depth_noise)
+        print('Adding depth noise %.3g.' % cfg.depth_noise)
         ds = NoisyDepthDataset(ds, noise=cfg.depth_noise)
 
-    if cfg.pose_noise:
-        print('Adding pose noise %.3g, %s.', cfg.pose_noise, cfg.pose_noise_mode)
+    if cfg.pose_noise_mode is not None and cfg.pose_noise:
+        print('Adding pose noise %s, %s.' % (cfg.pose_noise, cfg.pose_noise_mode))
         ds = NoisyPoseDataset(ds, noise=cfg.pose_noise, mode=cfg.pose_noise_mode)
+    return ds
+
+
+def create_dataset(name, cfg: Config, noisy=True, **kwargs):
+    Dataset = dataset_by_name(name)
+    ds = Dataset(name, *cfg.dataset_args, **cfg.dataset_kwargs, **kwargs)
+    ds = FilteredDataset(ds, cfg)
+
+    if noisy:
+        ds = noisy_dataset(ds, cfg)
 
     ds = Subscriptable(ds)[cfg.data_slice()]
     return ds
@@ -1175,7 +1192,8 @@ def save_newer_college_poses():
         poses = [ds.cloud_pose(id) for id in ds.ids]
         path = os.path.join(Config().out_dir, 'rendered_mesh', 'newer_college', name, 'ouster_lidar_poses.txt')
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        ids = list(range(len(ds)))
+        # ids = list(range(len(ds)))
+        ids = [ds.id_to_pose_index[id] for id in ds.ids]
         write_poses(ids, poses, path)
 
 

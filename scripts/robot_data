@@ -1,11 +1,20 @@
 #!/usr/bin/env python
-"""Node providing robot data from various datasets for SLAM evaluation."""
+"""Node providing robot data from various datasets for SLAM evaluation.
+
+Ground-truth map-to-lidar poses are used to generate noisy odometry
+(odom-to-lidar poses). The noise is applied to pose differences so distance to
+ground truth generally increases with distance traveled.
+
+SLAM is assumed to be initialized with identity map-to-odom transform on first
+pose.
+"""
 from __future__ import absolute_import, division, print_function
 import importlib
 from depth_correction.io import append, write
 from depth_correction.utils import delta_transform, fix_transform, rotation_angle, translation_norm
 from geometry_msgs.msg import Transform, TransformStamped
 import numpy as np
+np.set_printoptions(precision=3, suppress=True)
 from numpy.random import MT19937, RandomState, SeedSequence
 import os
 from ros_numpy import msgify, numpify
@@ -40,10 +49,18 @@ class RobotData(object):
         self.timeout = rospy.Duration.from_sec(rospy.get_param('~timeout', 3.0))
 
         self.odom_source = rospy.get_param('~odom/source', 'ground_truth')
-        self.odom_cov = rospy.get_param('~odom/cov', 6 * [0.])
+        # self.odom_std = rospy.get_param('~odom/std', 6 * [0.])
+        # if self.odom_std:
+        #     self.odom_cov = [s**2 for s in self.odom_std]
+        # self.odom_cov = rospy.get_param('~odom/cov', self.odom_cov)
+        self.odom_cov = rospy.get_param('~odom/cov',  6 * [0.])
+        if isinstance(self.odom_cov, float):
+            self.odom_cov = 6 * [self.odom_cov]
         if isinstance(self.odom_cov, str):
             rospy.logwarn('Converting odometry covariance from string to dict.')
             self.odom_cov = yaml.safe_load(self.odom_cov)
+        if len(self.odom_cov) == 2:
+            self.odom_cov = 3 * [self.odom_cov[0]] + 3 * [self.odom_cov[1]]
         if self.odom_cov:
             self.odom_cov = np.array(self.odom_cov)
             if self.odom_cov.shape == (6,):
@@ -63,11 +80,14 @@ class RobotData(object):
         self.index = None
         imported_module = importlib.import_module("data.%s" % self.dataset_name.split('/')[0])
         Dataset = getattr(imported_module, "Dataset")
-        if self.dataset_path:
+        print(self.dataset_name, self.dataset_path, self.dataset_poses_path)
+        if self.dataset_name and self.dataset_path:
+            self.dataset = Dataset(self.dataset_name, path=self.dataset_path, poses_path=self.dataset_poses_path)
+        elif self.dataset_path:
             self.dataset = Dataset(path=self.dataset_path, poses_path=self.dataset_poses_path)
         else:
             self.dataset = Dataset(self.dataset_name, poses_path=self.dataset_poses_path)
-
+        
         if not self.ids:
             self.ids = self.dataset.ids[slice(self.start, self.stop, self.step)]
 
@@ -79,35 +99,68 @@ class RobotData(object):
         if self.ids:
             # ID index (index into ids)
             self.index = 0
-        # Previous pose (pose for index - 1) including noise
-        self.prev_pose = np.eye(4)
 
         # Timestamps to evaluate localization accuracy.
         self.eval_stamps = []
-        # Ground-truth and SLAM poses
-        self.gt_poses = []  # Ground-truth poses
+        
+        # Ground-truth lidar poses / lidar-to-map transforms
+        self.gt_poses = []
         # Path length, m traversed accumulated from point-to-point distances
-        self.path_len = 0.0
         self.path_lengths = []
         self.odom_poses = []
         self.slam_poses = []
+        self.precompute_poses()
 
         # Use sufficiently large TF buffer cache to be able to evaluate
         # localization during the whole run ex post.
-        # self.tf = Buffer(cache_time=rospy.Duration.from_sec(3600.0))
-        self.tf = Buffer(cache_time=rospy.Duration.from_sec(10.0))
+        self.tf = Buffer(cache_time=rospy.Duration.from_sec(3600.0))
+        # self.tf = Buffer(cache_time=rospy.Duration.from_sec(10.0))
         self.tf_sub = TransformListener(self.tf)
 
         self.tf_pub = rospy.Publisher('/tf', TFMessage, queue_size=2, latch=True)
         self.cloud_pub = rospy.Publisher('cloud', PointCloud2, queue_size=2, latch=True)
 
-        # self.timer = rospy.Timer(rospy.Duration(self.delay_start), self.start_timer, oneshot=True)
+    def precompute_poses(self):
+        """Precompute ground-truth and odometry poses."""
+        self.gt_poses = np.stack([pose for _, pose in self.dataset], axis=0)
+        self.path_lengths = [0.0]
+        self.odom_poses = self.gt_poses.copy()
+        # Don't perturb the first pose - that would transform map origin
+        # as odom-to-map is initialized to identity.
+        for i in range(1, len(self.gt_poses)):
+            delta = delta_transform(self.gt_poses[i - 1], self.gt_poses[i])
+            
+            assert np.allclose(np.matmul(self.gt_poses[i - 1], delta), self.gt_poses[i]), \
+                    (np.matmul(self.gt_poses[i - 1], delta)[:3, 3],
+                     self.gt_poses[i][:3, 3])
+            
+            noisy_delta = self.perturb_pose(delta)
+            self.odom_poses[i] = np.matmul(self.odom_poses[i - 1], noisy_delta)
+            
+            dist = translation_norm(delta)
+            self.path_lengths.append(self.path_lengths[i - 1] + dist)
+            
+            self.evaluate_pose(i, self.odom_poses[i], name='Odom.')
+
+        self.slam_poses = self.odom_poses.copy()
 
     def random_transform(self):
         noise = self.rng.multivariate_normal(np.zeros((6,)), self.odom_cov)
         T = euler_matrix(*noise[:3])
         T[:3, 3] = noise[3:]
         return T
+
+    def evaluate_pose(self, i, slam_pose, name='SLAM'):
+        position = self.ids[i]
+        delta = delta_transform(slam_pose, self.gt_poses[i])
+        r_angle = rotation_angle(delta)
+        t_norm = translation_norm(delta)
+        rel_angle = r_angle / self.path_lengths[i] if self.path_lengths[i] > 0. else 0.
+        rel_offset = t_norm / self.path_lengths[i] if self.path_lengths[i] > 0. else 0.
+        rospy.loginfo('%s err. %i @ %.1f m (%s): %.3f deg. (%.3g deg/m), %.3f m (%.3g %%).',
+                      name, i, self.path_lengths[i], str(position),
+                      np.degrees(r_angle), np.degrees(rel_angle), t_norm, 100. * rel_offset)
+        return r_angle, rel_angle, t_norm, rel_offset
 
     def evaluate(self):
         r_angles = []
@@ -116,18 +169,13 @@ class RobotData(object):
         rel_offsets = []
         for index, (gt_pose, odom_pose, slam_pose, path_len) \
                 in enumerate(zip(self.gt_poses, self.odom_poses, self.slam_poses, self.path_lengths)):
-            position = self.ids[index]
-            delta = delta_transform(slam_pose, gt_pose)
-            r_angle = rotation_angle(delta)
-            t_norm = translation_norm(delta)
-            rel_angle = r_angle / path_len if path_len > 0. else 0.
-            rel_offset = t_norm / path_len if path_len > 0. else 0.
+
+            r_angle, rel_angle, t_norm, rel_offset = self.evaluate_pose(index, slam_pose)
+
             r_angles.append(r_angle)
             t_norms.append(t_norm)
             rel_angles.append(rel_angle)
             rel_offsets.append(rel_offset)
-            rospy.loginfo('SLAM error at pos. %s (index %i): rot. %.6f deg. (%.3f deg/m), transl. %.6f m (%.3f %%).',
-                          str(position), index, np.degrees(r_angle), np.degrees(rel_angle), t_norm, 100. * rel_offset)
 
         r_angle = np.mean(r_angles).item()
         t_norm = np.mean(t_norms).item()
@@ -148,6 +196,9 @@ class RobotData(object):
                   'poseId, timestamp, T00, T01, T02, T03, T10, T11, T12, T13, T20, T21, T22, T23, T30, T31, T32, T33\n')
             for i, t, T in zip(self.ids, self.eval_stamps, self.slam_poses):
                 assert T.shape == (4, 4)
+                # Handle timestamp IDs (sec, nsec) from newer college.
+                if isinstance(i, tuple):
+                    i = ', '.join('%i' % j for j in i)
                 append(self.slam_poses_csv, '%s, %.6f, %s\n'
                        % (str(i), t.to_sec(), ', '.join(['%.6f' % x for x in T.flatten()])))
             rospy.loginfo('SLAM poses written to %s.', os.path.realpath(self.slam_poses_csv))
@@ -172,11 +223,6 @@ class RobotData(object):
             i = self.index
         return self.dataset.cloud_pose(self.ids[i])
 
-    def delta_pose(self):
-        if self.index > 0:
-            return delta_transform(self.cloud_pose(self.index - 1), self.cloud_pose(self.index))
-        return np.eye(4)
-
     def publish(self):
         if rospy.is_shutdown():
             return
@@ -185,50 +231,30 @@ class RobotData(object):
 
         now = rospy.Time.now()
         self.eval_stamps.append(now)
-
-        # Accumulate path length.
-        self.path_len += translation_norm(self.delta_pose())
-        self.path_lengths.append(self.path_len)
+        
         rospy.logdebug('Publishing data from position %i (index %i), path length %.1f m.',
-                       self.ids[self.index], self.index, self.path_len)
+                       self.ids[self.index], self.index, self.path_lengths[self.index])
 
-        # Get and publish ground-truth pose.
-        gt_pose = self.cloud_pose()
-        self.gt_poses.append(gt_pose)
+        # Publish ground-truth pose.
         if self.gt_frames and len(self.gt_frames) == 2:
             tf = TransformStamped()
             tf.header.stamp = now
             tf.header.frame_id = self.gt_frames[0]
             tf.child_frame_id = self.gt_frames[1]
-            tf.transform = msgify(Transform, gt_pose)
+            tf.transform = msgify(Transform, self.gt_poses[self.index])
             self.tf_pub.publish(TFMessage([tf]))
 
-        # Create and publish (noisy) odometry.
-        # Don't perturb the first pose - that would transform map origin
-        # as odom-to-map is initialized to identity.
-        if self.index == 0:
-            assert not self.odom_poses
-            odom_pose = np.eye(4)
-        else:
-            assert self.index > 0
-            assert self.odom_poses
-            odom_pose = self.odom_poses[-1] @ self.delta_pose() @ self.random_transform()
-        odom_pose = fix_transform(odom_pose)
-        self.odom_poses.append(odom_pose)
-        odom_error = translation_norm(delta_transform(gt_pose, odom_pose))
-        rospy.logdebug('Odometry error at pos. %i (index %i): %.3f m (%.1f %%)',
-                       self.ids[self.index], self.index,
-                       odom_error, 100. * odom_error / self.path_len if self.path_len > 0. else 0.)
+        # Publish (noisy) odometry.
         if self.odom_source == 'ground_truth':
             tf = TransformStamped()
             tf.header.stamp = now
             tf.header.frame_id = self.odom_frame
             tf.child_frame_id = self.lidar_frame
-            tf.transform = msgify(Transform, odom_pose)
+            tf.transform = msgify(Transform, self.odom_poses[self.index])
             self.tf_pub.publish(TFMessage([tf]))
 
         # Publish local cloud.
-        cloud = self.local_cloud()
+        cloud = self.local_cloud(i=self.index)
         msg = msgify(PointCloud2, cloud)
         assert isinstance(msg, PointCloud2)
         msg.header.stamp = now
@@ -241,19 +267,13 @@ class RobotData(object):
         try:
             tf = self.tf.lookup_transform(*self.eval_frames, self.eval_stamps[i], self.timeout)
             slam_pose = numpify(tf.transform)
+            self.slam_poses[i] = slam_pose
         except TransformException as ex:
             rospy.logwarn('Could not find transform from %s to %s at position %s (index %i): %s',
                           *self.eval_frames[::-1], str(self.ids[self.index]), self.index, ex)
-            rospy.logwarn_once('Using last transform or identity for evaluation.')
-            if self.slam_poses:
-                slam_pose = self.slam_poses[-1]
-            else:
-                slam_pose = np.eye(4)
-        self.slam_poses.append(slam_pose)
-        slam_error = translation_norm(delta_transform(self.gt_poses[i], slam_pose))
-        rospy.loginfo('SLAM error at pos. %s (index %i): %.3f m (%.1f %%)',
-                      str(self.ids[i]), i,
-                      slam_error, 100. * slam_error / self.path_len if self.path_len > 0. else 0.)
+            rospy.logwarn_once('Using odometry for evaluation (from initialization).')
+        
+        self.evaluate_pose(i, slam_pose)
 
     def move(self):
         self.index += 1
@@ -295,7 +315,6 @@ class RobotData(object):
 def main():
     rospy.init_node('RobotData')
     node = RobotData()
-    # rospy.spin()
     node.spin()
 
 

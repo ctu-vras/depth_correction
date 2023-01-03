@@ -1,13 +1,8 @@
 from __future__ import absolute_import, division, print_function
 from .config import Config, Loss, Model, NeighborhoodType, PoseCorrection
-from .dataset import create_dataset, DepthBiasDataset, NoisyDepthDataset, NoisyPoseDataset
-from .depth_cloud import DepthCloud
-from .eval import eval_loss, eval_loss_single, eval_loss_planes
-from .loss import create_loss
+from .dataset import NoisyPoseDataset
+from .eval import eval_loss
 from .model import load_model, model_by_name, Polynomial, ScaledPolynomial
-from .preproc import global_cloud
-from .segmentation import Planes
-from .utils import covs
 from data.newer_college import dataset_names as newer_college_datasets
 from datetime import datetime
 from itertools import product
@@ -15,7 +10,6 @@ import matplotlib
 matplotlib.rcParams['axes.formatter.useoffset'] = False
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 import os
 import rospy
 
@@ -64,18 +58,11 @@ cfg.grid_res = 0.2
 # cfg.nn_type = NeighborhoodType.ball
 # cfg.nn_k = 0
 # cfg.nn_r = 0.2
-# cfg.nn_r = 0.25
-# cfg.nn_r = 0.4
 cfg.nn_type = NeighborhoodType.plane
-cfg.nn_r = 0.03
-cfg.min_valid_neighbors = 1000
+cfg.ransac_dist_thresh = 0.03
+cfg.min_valid_neighbors = 250
+cfg.max_neighborhoods = 10
 cfg.shadow_angle_bounds = []
-# cfg.eigenvalue_bounds = []
-# cfg.eigenvalue_bounds = [[0, -float('inf'), (cfg.nn_r / 8)**2],
-#                               [1, (cfg.nn_r / 4)**2, float('inf')]]
-# cfg.dir_dispersion_bounds = []
-# cfg.vp_dispersion_bounds = []
-# cfg.log_filters = True
 cfg.log_filters = False
 
 # Artificial noise
@@ -112,66 +99,9 @@ cfg.loss_kwargs['normalization'] = True
 cfg.log_dir = os.path.join(cfg.out_dir, 'loss_landscape', datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
 
 
-def eval_loss_planes(cfg: Config, model=None, loss_fun=None, planes=None):
-    if model is None:
-        model = load_model(cfg=cfg, eval_mode=True)
-
-    if loss_fun is None:
-        loss_fun = create_loss(cfg)
-    assert callable(loss_fun)
-
-    assert len(cfg.test_names) == 1
-    kwargs = {}
-    if cfg.test_poses_path:
-        assert len(cfg.test_poses_path) == 1
-        kwargs['poses_path'] = cfg.test_poses_path[0]
-    ds = create_dataset(cfg.test_names[0], cfg, **kwargs)
-    name = str(ds)
-    print('Using dataset %s with %i clouds.' % (name, len(ds)))
-    clouds = []
-    poses = []
-    for cloud, pose in ds:
-        cloud = DepthCloud.from_structured_array(cloud, cfg.numpy_float_type())
-        clouds.append(cloud)
-        poses.append(pose)
-    poses = np.stack(poses).astype(dtype=cfg.numpy_float_type())
-    poses = torch.as_tensor(poses, device=cfg.device)
-    cloud = global_cloud(clouds, None, poses)
-    print('Global cloud %s contains %i points.' % (name, len(cloud)))
-    if planes is None:
-        planes = Planes.fit(cloud, cfg.nn_r, min_support=cfg.min_valid_neighbors, num_planes=10,
-                            eps=np.sqrt(3) * cfg.grid_res,
-                            visualize_progress=False, visualize_final=False, verbose=0)
-        # planes.visualize(cloud)
-    n_used = sum(len(idx) for idx in planes.indices)
-    print('Testing on %.3f = %i / %i points from %s.' % (n_used / cloud.size(), n_used, cloud.size(), name))
-    # Update cloud incidence angles from normals and ray directions.
-    # segmented = cloud.clone()
-    covs_all = []
-    eigvals_all = []
-    for i in range(planes.size()):
-        plane_cloud = cloud[planes.indices[i]]
-        plane_cloud.normals = planes.params[i:i + 1, :-1].expand((len(planes.indices[i]), -1))
-        plane_cloud.update_incidence_angles()
-        plane_cloud = model(plane_cloud)
-        x = plane_cloud.to_points()
-        cov = covs(x)
-        covs_all.append(cov)
-        eigvals_all.append(torch.linalg.eigh(cov)[0])
-    planes.cov = torch.stack(covs_all)
-    planes.eigvals = torch.stack(eigvals_all)
-    test_loss, _ = loss_fun(planes)
-    return test_loss, planes
-
-
 def loss_landscape_configs(cfg: Config):
     base_cfg = cfg
-    # gt_model = model_by_name(cfg.depth_bias_model_class)(**cfg.depth_bias_model_kwargs)
-    # from depth_correction.model import Polynomial, ScaledPolynomial
-    # assert isinstance(gt_model, (Polynomial, ScaledPolynomial))
-    # assert gt_model.w.numel() == 1
     configs = []
-    # (grid_res, nn_r = ransac thresh, min_valid_neighbors = support)
     grid_nn_all = [
         # ball NN
         # [0.1, 0.2, 5],
@@ -179,8 +109,8 @@ def loss_landscape_configs(cfg: Config):
         # [0.4, 0.8, 5],
         # planes NN
         # [0.1, 0.03, 1000],
-        [0.1, 0.02, 1000],
-        # [0.2, 0.03, 250],
+        # [0.1, 0.02, 1000],
+        [0.2, 0.03, 250],
         # [0.2, 0.02, 250],
     ]
     eigenvalue_ratio_bounds_all = [
@@ -198,10 +128,8 @@ def loss_landscape_configs(cfg: Config):
         # [[0, 1, 0.0, 0.01], [1, 2, 0.25, 1.0]],
         [],
     ]
-    # w_all = np.linspace(-0.004, 0.004, 9)
+    # w_all = np.linspace(-0.005, 0.005, 5)
     w_all = np.linspace(-0.005, 0.005, 21)
-    # w_all = np.linspace(-0.005, 0.005, 7)
-    # w_all = np.linspace(-0.016, 0.016, 17)
     for (name, poses_path), (grid_res, nn_r, min_valid_neighbors), eigenvalue_ratio_bounds, w in product(
             zip(base_cfg.test_names, base_cfg.test_poses_path), grid_nn_all, eigenvalue_ratio_bounds_all, w_all):
         cfg = base_cfg.copy()
@@ -226,29 +154,17 @@ def loss_landscape(cfg: Config):
         gt_model = None
 
     results = {}
-    # for ds in ds:
     cfgs = loss_landscape_configs(cfg=base_cfg)
     planes = {}
     for i, cfg in enumerate(cfgs):
-        print('Computing loss %i / %i on %s...'
-              % (i + 1, len(cfgs), ', '.join(cfg.test_names)))
+        # TODO: Merge key and name?
+        key = cfg.get_preproc_desc() + '/' + ', '.join(cfg.test_names)
+        print('Computing loss %i / %i on %s...' % (i + 1, len(cfgs), key))
         if rospy.is_shutdown():
             raise Exception('Shutdown.')
         model = load_model(cfg=cfg)
-        # print('Using model: %s.' % model)
+        loss, planes[key] = eval_loss(cfg, test_ns=planes[key] if key in planes else None, return_neighborhood=True)
         if cfg.nn_type == NeighborhoodType.ball:
-            loss = eval_loss(cfg)
-        elif cfg.nn_type == NeighborhoodType.plane:
-            assert len(cfg.test_names) == 1
-            key = cfg.get_preproc_desc() + '/' + cfg.test_names[0]
-            if key in planes:
-                loss, _ = eval_loss_planes(cfg, planes=planes[key])
-            else:
-                loss, planes[key] = eval_loss_planes(cfg)
-        else:
-            assert False
-        if cfg.nn_type == NeighborhoodType.ball:
-            # name = ', '.join([cfg.get_preproc_desc(), cfg.get_eigval_ratio_bounds_desc()])
             name = ', '.join([', '.join(cfg.test_names),
                               cfg.get_grid_filter_desc(),
                               cfg.get_depth_filter_desc(),
@@ -262,11 +178,9 @@ def loss_landscape(cfg: Config):
         results.setdefault(name, []).append([model.w.detach().item(), str(model), loss.detach().item()])
 
     for name, res in results.items():
-        # _, model, _, loss = zip(*res)
         _, model, loss = zip(*res)
         print(name, model, loss)
 
-    # fig, axes = plt.subplots(1, 1, figsize=(12.0, 12.0), constrained_layout=True, squeeze=False)
     fig, axes = plt.subplots(1, 1, figsize=(8.0, 8.0), squeeze=False)
     ax = axes[0, 0]
     ax.cla()
@@ -280,23 +194,14 @@ def loss_landscape(cfg: Config):
     ax.set_xlabel('Weights')
     ax.set_ylabel('Loss')
     title = ''
-    # if len(ds) == 1:
-    #     title += str(ds[0])
     if len(base_cfg.test_names) == 1:
         title += str(base_cfg.test_names[0])
     if title:
         ax.set_title(title)
-    # desc = [cfg.get_exp_desc() for cfg in self.loss_landscape_configs()]
-    # ax.set_title(cfg.get_exp_desc())
     ax.grid()
-    # ax.legend()
-    # ax.legend(bbox_to_anchor=(0.0, 1.0), loc="upper left")
-    # ax.legend(loc=(1.04, 1.0))
     ax.legend(loc=(0.0, 1.04))
     fig.tight_layout()
     plt.pause(10.0)
-    # plt.show(block=True)
-    # print('loss_landscape end')
 
     path = os.path.join(cfg.log_dir, 'loss_landscape.png')
     print('Loss landscape written to %s.' % path)

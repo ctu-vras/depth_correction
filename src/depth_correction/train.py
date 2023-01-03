@@ -17,7 +17,7 @@ import numpy as np
 import os
 import rospy
 import torch
-from torch.optim import Adam, SGD  # Needed for eval
+from torch.optim import Adam, SGD, LBFGS  # Needed for eval
 from torch.utils.tensorboard import SummaryWriter
 from scipy.spatial import cKDTree
 
@@ -295,13 +295,19 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                                              % (name, key), train_pose_deltas[i].grad[:, j], it)
 
         # Optimization step
-        optimizer.zero_grad()
-        train_loss.backward()
+        if cfg.optimizer == 'LBFGS':
+            def closure():
+                optimizer.zero_grad()
+                train_loss.backward(retain_graph=True)
+                return train_loss
+        else:
+            optimizer.zero_grad()
+            train_loss.backward()
         # Keep the first pose fixed.
         if cfg.pose_correction == PoseCorrection.pose:
             for i in range(len(train_pose_deltas)):
                 train_pose_deltas[i].grad[0].zero_()
-        optimizer.step()
+        optimizer.step(closure) if cfg.optimizer == 'LBFGS' else optimizer.step()
 
         # Optimize validation pose updates.
         if val_optimizer is not None:

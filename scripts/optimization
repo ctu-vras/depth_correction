@@ -1,0 +1,70 @@
+#! /usr/bin/env python
+import numpy as np
+import open3d as o3d
+import torch
+from data.depth_correction import Dataset, dataset_names
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.model import ScaledPolynomial, Polynomial
+from depth_correction.utils import transform
+from depth_correction.preproc import filtered_cloud
+from depth_correction.config import Config
+from depth_correction.loss import point_to_plane_dist, point_to_plane_loss
+
+
+def main():
+    name = dataset_names[0]
+    ds = Dataset(name=name)
+    model = ScaledPolynomial(w=[0.0], exponent=[4])
+
+    cfg = Config()
+    cfg.lr = 0.001
+    visualize = False
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+
+    points1_struct, pose1 = ds[0]
+    points2_struct, pose2 = ds[1]
+
+    points1_struct = transform(pose1, points1_struct)
+    points2_struct = transform(pose2, points2_struct)
+
+    cloud1 = DepthCloud.from_structured_array(points1_struct)
+    cloud2 = DepthCloud.from_structured_array(points2_struct)
+
+    cloud1 = filtered_cloud(cloud1, cfg)
+    cloud2 = filtered_cloud(cloud2, cfg)
+
+    cloud1.update_all(r=cfg.nn_r)
+    cloud2.update_all(r=cfg.nn_r)
+
+    epochs = 100
+    for i in range(epochs):
+        cloud1_corr = model(cloud1)
+        cloud1_corr.update_points()
+
+        print(model)
+
+        loss = point_to_plane_dist(clouds=[cloud1_corr, cloud2])
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        print(loss)
+
+        if visualize:
+            points1 = cloud1.to_points()
+            points2 = cloud2.to_points()
+
+            pcd1 = o3d.geometry.PointCloud()
+            pcd1.points = o3d.utility.Vector3dVector(points1.detach())
+            pcd1.colors = o3d.utility.Vector3dVector(torch.as_tensor([1, 0, 0]) + torch.zeros_like(points1))
+
+            pcd2 = o3d.geometry.PointCloud()
+            pcd2.points = o3d.utility.Vector3dVector(cloud2.to_points())
+            pcd2.colors = o3d.utility.Vector3dVector(torch.as_tensor([0, 0, 1]) + torch.zeros_like(points2))
+
+            o3d.visualization.draw_geometries([pcd1, pcd2])
+
+
+if __name__ == "__main__":
+    main()

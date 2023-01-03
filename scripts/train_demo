@@ -57,20 +57,21 @@ class TrainingDemo(TrainCallbacks):
 
         # self.cfg.data_step = 4
         self.cfg.data_step = 1
+        self.cfg.data_start = 0
+        self.cfg.data_stop = 10
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
 
         # Depth and grid filters prevent computing L2 loss since the points don't match.
         self.cfg.min_depth = 1.0
         # self.cfg.min_depth = 0.1
-        # self.cfg.max_depth = 20.0
-        self.cfg.max_depth = 10.0
-        # self.cfg.grid_res = 0.4
-        self.cfg.grid_res = 0.25
+        self.cfg.max_depth = 25.0
+        # self.cfg.grid_res = 0.1
+        self.cfg.grid_res = 0.2
 
         self.cfg.nn_type = NeighborhoodType.ball
         self.cfg.nn_k = 0
         # self.cfg.nn_r = 0.25
-        self.cfg.nn_r = 0.5
+        self.cfg.nn_r = 0.4
         self.cfg.min_valid_neighbors = 5
         # self.cfg.min_valid_neighbors = 1
 
@@ -120,15 +121,16 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.optimize_model = True
         self.cfg.model_kwargs = {}
         self.cfg.model_kwargs['w'] = [0.0]
+        # self.cfg.model_kwargs['w'] = [0.00035]
         self.cfg.model_kwargs['exponent'] = [6.0]
         # self.cfg.model_kwargs['w'] = [-0.005, -0.005]
         # self.cfg.model_kwargs['exponent'] = [2.0, 4.0]
         self.cfg.model_kwargs['learnable_exponents'] = False
         self.cfg.model_state_dict = None
 
-        # self.cfg.loss = Loss.min_eigval_loss
+        self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
-        self.cfg.loss = Loss.point_to_plane_loss
+        # self.cfg.loss = Loss.point_to_plane_loss
         self.cfg.loss_offset = False
         self.cfg.loss_kwargs['sqrt'] = False
         # self.cfg.loss_kwargs['sqrt'] = True
@@ -139,12 +141,14 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.loss_kwargs['inlier_loss_mult'] = 1.0
         # self.cfg.loss_kwargs['inlier_loss_mult'] = 2.0
 
-        self.cfg.optimizer = 'Adam'
-        self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
+        # self.cfg.optimizer = 'Adam'
+        # self.cfg.optimizer = 'SGD'
+        self.cfg.optimizer = 'LBFGS'
+        # self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         # Weight decay for the depth correction model parameters (not poses).
-        self.cfg.optimizer_kwargs['weight_decay'] = 0.1
+        # self.cfg.optimizer_kwargs['weight_decay'] = 0.1
         # self.cfg.lr = 0.0002
-        self.cfg.lr = 0.0001
+        self.cfg.lr = 0.002
         self.cfg.n_opt_iters = 1000
 
         self.cfg.from_rosparam()

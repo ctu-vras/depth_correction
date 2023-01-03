@@ -260,8 +260,8 @@ class Config(Configurable):
         self.optimizer = 'Adam'
         self.optimizer_args = []
         self.optimizer_kwargs = {}
-        self.optimizer_kwargs['betas'] = (0.5, 0.9)
-        self.optimizer_kwargs['weight_decay'] = 0.1
+        # self.optimizer_kwargs['betas'] = (0.5, 0.9)
+        # self.optimizer_kwargs['weight_decay'] = 0.1
         self.lr = 2e-4
         # self.optimizer = 'SGD'
         # self.optimizer_args = []

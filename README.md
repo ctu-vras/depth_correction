@@ -78,3 +78,70 @@ To explore the data, simply run (assuming the [data](https://github.com/tpet/dat
 ```bash
 python -m data.depth_correction
 ```
+
+
+
+## Getting Started
+
+Optimization example.
+Point cloud scans correction with ICP-like point to plane distance as loss function.
+
+```python
+# import necessary libraries
+import numpy as np
+import torch
+from data.depth_correction import Dataset, dataset_names
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.model import ScaledPolynomial
+from depth_correction.utils import transform
+from depth_correction.preproc import filtered_cloud
+from depth_correction.config import Config
+from depth_correction.loss import point_to_plane_dist
+
+
+# in this example we use collected indoor dataset
+ds = Dataset(name=dataset_names[0])
+
+# setup data and optimization parameters
+cfg = Config()
+cfg.lr = 0.001
+
+# define model for scans correction: depth correction term in the example d' = w * gamma^4
+model = ScaledPolynomial(w=[0.0], exponent=[4])
+optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+
+# the two neighboring scans are used
+points1_struct, pose1 = ds[0]
+points2_struct, pose2 = ds[1]
+
+# transform point clouds to the same world coordinate frame
+points1_struct = transform(pose1, points1_struct)
+points2_struct = transform(pose2, points2_struct)
+
+# construct depth cloud objects from points
+cloud1 = DepthCloud.from_structured_array(points1_struct)
+cloud2 = DepthCloud.from_structured_array(points2_struct)
+
+# apply grid and depth filters to clouds
+cloud1 = filtered_cloud(cloud1, cfg)
+cloud2 = filtered_cloud(cloud2, cfg)
+
+# compute cloud features necessary for optimization (like normals and incidence angles)
+cloud1.update_all(r=cfg.nn_r)
+cloud2.update_all(r=cfg.nn_r)
+
+# run optimization loop
+epochs = 100
+for i in range(epochs):
+    cloud1_corr = model(cloud1)
+    cloud1_corr.update_points()
+
+    loss = point_to_plane_dist(clouds=[cloud1_corr, cloud2])
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    
+    print(model)
+    print(loss)
+```

@@ -88,12 +88,10 @@ Point cloud scans correction with ICP-like point to plane distance as loss funct
 
 ```python
 # import necessary libraries
-import numpy as np
 import torch
 from data.depth_correction import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial
-from depth_correction.utils import transform
 from depth_correction.preproc import filtered_cloud
 from depth_correction.config import Config
 from depth_correction.loss import point_to_plane_dist
@@ -114,10 +112,6 @@ optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 points1_struct, pose1 = ds[0]
 points2_struct, pose2 = ds[1]
 
-# transform point clouds to the same world coordinate frame
-points1_struct = transform(pose1, points1_struct)
-points2_struct = transform(pose2, points2_struct)
-
 # construct depth cloud objects from points
 cloud1 = DepthCloud.from_structured_array(points1_struct)
 cloud2 = DepthCloud.from_structured_array(points2_struct)
@@ -125,6 +119,10 @@ cloud2 = DepthCloud.from_structured_array(points2_struct)
 # apply grid and depth filters to clouds
 cloud1 = filtered_cloud(cloud1, cfg)
 cloud2 = filtered_cloud(cloud2, cfg)
+
+# transform point clouds to the same world coordinate frame
+cloud1 = cloud1.transform(torch.as_tensor(pose1))
+cloud2 = cloud2.transform(torch.as_tensor(pose2))
 
 # compute cloud features necessary for optimization (like normals and incidence angles)
 cloud1.update_all(r=cfg.nn_r)
@@ -134,9 +132,12 @@ cloud2.update_all(r=cfg.nn_r)
 epochs = 100
 for i in range(epochs):
     cloud1_corr = model(cloud1)
+    cloud2_corr = model(cloud2)
+    
     cloud1_corr.update_points()
+    cloud2_corr.update_points()
 
-    loss = point_to_plane_dist(clouds=[cloud1_corr, cloud2])
+    loss = point_to_plane_dist(clouds=[cloud1_corr, cloud2_corr])
 
     optimizer.zero_grad()
     loss.backward()

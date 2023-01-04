@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<launch>
-    <node pkg="depth_correction" type="tf_test" name="tf_test" output="screen">
-    </node>
-
-    <arg name="config" default="$(dirname)/../config/tf_test.rviz"/>
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg config)"/>
-</launch>

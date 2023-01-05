@@ -7,13 +7,13 @@ from tqdm import tqdm
 from matplotlib import pyplot as plt
 from data.depth_correction import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.model import ScaledPolynomial, Polynomial
+from depth_correction.model import ScaledPolynomial, Polynomial, ScaledInvCos, InvCos
 from depth_correction.preproc import filtered_cloud
 from depth_correction.config import Config
 from depth_correction.loss import point_to_plane_dist, point_to_plane_loss
 
 
-def select_clouds(ds, scan_n, cfg):
+def select_sample(ds, scan_n, cfg):
     points1_struct, pose1 = ds[scan_n]
     points2_struct, pose2 = ds[scan_n + 1]
 
@@ -30,21 +30,23 @@ def select_clouds(ds, scan_n, cfg):
     cloud2.update_all(r=cfg.nn_r)
 
     clouds = [cloud1, cloud2]
-    return clouds
+    poses = [pose1, pose2]
+
+    return clouds, poses
 
 
-phi = np.deg2rad(50.8)
-Rot = torch.as_tensor([[np.cos(phi), -np.sin(phi), 0],
-                       [np.sin(phi), np.cos(phi), 0],
-                       [0, 0, 1]])
-def plot_clouds(ax, clouds, n_pts=5000, **kwargs):
+def plot_clouds(ax, clouds, marker='.', n_pts=5000, **kwargs):
     cloud = DepthCloud.concatenate(clouds)
     idx = np.unique(np.linspace(0, len(cloud) - 1, n_pts, dtype=int)).tolist()
-
+    phi = np.deg2rad(50.8)
+    Rot = torch.tensor([[np.cos(phi), -np.sin(phi), 0],
+                        [np.sin(phi), np.cos(phi), 0],
+                        [0, 0, 1]])
     with torch.no_grad():
         pts = cloud.to_points()
         pts = pts[idx]
-        pts = (Rot.to(pts.device) @ pts.T).T
+        Rot = torch.as_tensor(Rot, dtype=pts.dtype, device=pts.device)
+        pts = (Rot @ pts.T).T
         x = pts[:, 0].detach().cpu()
         y = pts[:, 1].detach().cpu()
         z = pts[:, 2].detach().cpu()
@@ -53,7 +55,7 @@ def plot_clouds(ax, clouds, n_pts=5000, **kwargs):
         x = x[mask]
         y = y[mask]
 
-    ax.plot(x, y, 'b.', **kwargs)
+    ax.plot(x, y, marker, **kwargs)
 
 
 def main():
@@ -61,110 +63,125 @@ def main():
     ds = Dataset(name='slam_2022-11-24-15-28-59_step_1')
 
     cfg = Config()
-    # cfg.min_depth = 1.0
-    # cfg.max_depth = 25.0
-    # cfg.grid_res = 0.2
-    # cfg.nn_r = 0.4
-    cfg.lr = 0.001
+    cfg.min_depth = 1.0
+    cfg.max_depth = 20.0
+    cfg.grid_res = 0.1
+    cfg.nn_r = 0.25
+    cfg.lr = 0.0002
     cfg.device = 'cuda'
     # cfg.device = 'cpu'
-
-    model = ScaledPolynomial(w=[0.0], exponent=[6])
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-
-    train_scan_id = int(np.random.choice(range(len(ds) - 1)))
-    # train_scan_id = 8
-    train_clouds = select_clouds(ds, scan_n=train_scan_id, cfg=cfg)
-
-    val_scan_id = int(np.random.choice(range(len(ds) - 1)))
-    val_clouds = select_clouds(ds, scan_n=val_scan_id, cfg=cfg)
-
-    # put model and data on device
-    model = model.to(cfg.device)
-    train_clouds = [c.to(cfg.device) for c in train_clouds]
-    val_clouds = [c.to(cfg.device) for c in val_clouds]
 
     fig, axes = plt.subplots(3, 2, figsize=(20.0, 10.0), constrained_layout=True, squeeze=False)
     fig.suptitle('ICP optimization')
 
-    epochs = 200
-    losses_train = []
-    losses_val = []
-    weights = []
-    iters = []
-    for i in tqdm(range(epochs)):
-        train_clouds_corr = [model(c) for c in train_clouds]
-        for c in train_clouds_corr:
-            c.update_points()
-        loss = point_to_plane_dist(clouds=train_clouds_corr, dist_th=cfg.grid_res)
+    model = ScaledPolynomial(w=[0.0], exponent=[6])
+    # model = Polynomial(w=[0.0], exponent=[6])
+    # model = ScaledInvCos()
+    # model = InvCos()
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
-        with torch.no_grad():
-            val_clouds_corr = [model(c) for c in val_clouds]
-            for c in val_clouds_corr:
+    val_scan_id = 8
+    val_clouds, val_poses = select_sample(ds, scan_n=val_scan_id, cfg=cfg)
+    val_pose_dist = np.linalg.norm(val_poses[0][:3, 3] - val_poses[1][:3, 3])
+
+    for train_scan_id in range(len(ds) // 2):
+        train_scan_id = int(train_scan_id)
+        train_clouds, train_poses = select_sample(ds, scan_n=train_scan_id, cfg=cfg)
+
+        # val_scan_id = (train_scan_id + 10) % len(ds)
+        # val_clouds = select_clouds(ds, scan_n=val_scan_id, cfg=cfg)
+
+        train_pose_dist = np.linalg.norm(train_poses[0][:3, 3] - train_poses[1][:3, 3])
+        if train_pose_dist > 3.0:
+            print('Distance between view points is too big: %.3f > 3.0 m, skipping' % train_pose_dist)
+            continue
+
+        print('Train indices: (%i, %i), dist between poses: %.3f' %
+              (train_scan_id, train_scan_id + 1, train_pose_dist))
+        print('Val indices: (%i, %i), dist between poses: %.3f' %
+              (val_scan_id, val_scan_id + 1, val_pose_dist))
+
+        # put model and data on device
+        model = model.to(cfg.device)
+        train_clouds = [c.to(cfg.device) for c in train_clouds]
+        val_clouds = [c.to(cfg.device) for c in val_clouds]
+
+        losses_train = []
+        losses_val = []
+        weights = []
+        iters = list(range(100))
+
+        # optimization
+        for i in tqdm(iters):
+            # calculate training loss: on a pair of scans
+            train_clouds_corr = [model(c) for c in train_clouds]
+            for c in train_clouds_corr:
                 c.update_points()
-            loss_val = point_to_plane_dist(clouds=val_clouds_corr, dist_th=cfg.grid_res)
+            loss = point_to_plane_dist(clouds=train_clouds_corr, dist_th=2*cfg.grid_res, verbose=True)
 
-        iters.append(i)
-        losses_train.append(loss.item())
-        losses_val.append(loss_val.item())
-        weights.append(model.w.squeeze().item())
+            # calculate validation loss: on another pair of clouds
+            with torch.no_grad():
+                val_clouds_corr = [model(c) for c in val_clouds]
+                for c in val_clouds_corr:
+                    c.update_points()
+                loss_val = point_to_plane_dist(clouds=val_clouds_corr, dist_th=cfg.grid_res)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            losses_train.append(loss.item())
+            losses_val.append(loss_val.item())
+            # weights.append(model.w.squeeze().item())
 
-        if i % 10 == 0:
-            ax = axes[0, 0]
-            ax.cla()
-            ax.grid()
-            ax.set_ylabel('ICP train loss: (%i, %i)' % (train_scan_id, train_scan_id + 1))
-            ax.set_xlabel('Iterations')
-            ax.plot(iters, losses_train, color='k')
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-            ax = axes[0, 1]
-            ax.cla()
-            ax.grid()
-            ax.set_ylabel('ICP val loss: (%i, %i)' % (val_scan_id, val_scan_id + 1))
-            ax.set_xlabel('Iterations')
-            ax.plot(iters, losses_val, color='k')
+        # visualization of results
+        ax = axes[0, 0]
+        ax.grid(visible=True)
+        ax.set_ylabel('ICP train loss')
+        ax.set_xlabel('Iterations')
+        ax.plot(iters, losses_train, label='(%i, %i)' % (train_scan_id, train_scan_id + 1))
+        # ax.legend()
 
-            ax = axes[1, 0]
-            ax.cla()
-            plot_clouds(ax, train_clouds_corr, markersize=2)
-            ax.set_xlabel('x [m]')
-            ax.set_ylabel('y [m]')
-            ax.set_ylim([-4.0, 4.0])
-            # ax.set_aspect('equal')
-            ax.grid()
+        ax = axes[0, 1]
+        ax.grid(visible=True)
+        ax.set_ylabel('ICP val loss')
+        ax.set_xlabel('Iterations')
+        ax.plot(iters, losses_val, label='(%i, %i)' % (val_scan_id, val_scan_id + 1))
+        # ax.legend()
 
-            ax = axes[1, 1]
-            ax.cla()
-            plot_clouds(ax, val_clouds_corr, markersize=2)
-            ax.set_xlabel('x [m]')
-            ax.set_ylabel('y [m]')
-            ax.set_ylim([-4.0, 4.0])
-            # ax.set_aspect('equal')
-            ax.grid()
+        ax = axes[1, 0]
+        plot_clouds(ax, train_clouds_corr, marker='.', markersize=2)
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('Training cloud: y [m]')
+        ax.set_ylim([-4.0, 4.0])
+        ax.grid(visible=True)
+        ax.axis('equal')
 
-            if cfg.device == 'cpu':
-                ax = axes[2, 0]
-                ax.cla()
-                # TODO: check model.to and model.plot functions when device is CUDA
-                model.plot(ax)
-                ax.grid()
-                ax.legend()
+        ax = axes[1, 1]
+        plot_clouds(ax, val_clouds_corr, marker='b.', markersize=2)
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('Validation cloud: y [m]')
+        ax.set_ylim([-4.0, 4.0])
+        ax.grid(visible=True)
+        ax.axis('equal')
 
-            ax = axes[2, 1]
-            ax.cla()
-            ax.grid()
-            ax.set_ylabel("Model weight, w")
-            ax.set_xlabel('Iterations')
-            ax.plot(iters, weights, color='k')
+        ax = axes[2, 0]
+        # TODO: check model.to and model.plot functions when device is CUDA
+        model.plot(ax)
+        ax.grid(visible=True)
+        # ax.legend()
 
-            plt.pause(0.001)
-            plt.draw()
+        # ax = axes[2, 1]
+        # ax.grid(visible=True)
+        # ax.set_ylabel("Model weight, w")
+        # ax.set_xlabel('Iterations')
+        # ax.plot(iters, weights, label='(%i, %i)' % (train_scan_id, train_scan_id + 1))
+        # # ax.legend()
 
-    print(model)
+        plt.pause(0.001)
+        plt.draw()
+
+        print(model)
     plt.show()
 
 

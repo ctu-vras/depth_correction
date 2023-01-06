@@ -1,86 +1,90 @@
 #! /usr/bin/env python
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
 from data.depth_correction import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.model import ScaledPolynomial
+from depth_correction.model import ScaledPolynomial, ScaledInvCos
 from depth_correction.preproc import filtered_cloud
 from depth_correction.config import Config
-from depth_correction.loss import point_to_plane_dist
-
-# in this example we use collected indoor dataset
-ds = Dataset(name=dataset_names[0][:24] + '_step_1')
-
-# setup data and optimization parameters
-cfg = Config()
-cfg.lr = 0.001
-cfg.device = 'cuda'
-
-plt.figure()
+from depth_correction.loss import point_to_plane_loss
+import open3d as o3d
 
 
-best_weights = []
-
-n_train_samples = len(ds) - 1
-# n_train_samples = 10
-for ds_id in range(n_train_samples):
-    # the two neighboring scans are used
-    points1_struct, pose1 = ds[ds_id]
-    points2_struct, pose2 = ds[ds_id + 1]
+def sample_to_cloud(data, cfg):
+    points_struct, pose = data
 
     # construct depth cloud objects from points
-    cloud1 = DepthCloud.from_structured_array(points1_struct).to(cfg.device)
-    cloud2 = DepthCloud.from_structured_array(points2_struct).to(cfg.device)
+    cloud = DepthCloud.from_structured_array(points_struct).to(cfg.device)
 
     # apply grid and depth filters to clouds
-    cloud1 = filtered_cloud(cloud1, cfg)
-    cloud2 = filtered_cloud(cloud2, cfg)
+    cloud = filtered_cloud(cloud, cfg)
 
     # transform point clouds to the same world coordinate frame
-    cloud1 = cloud1.transform(torch.as_tensor(pose1))
-    cloud2 = cloud2.transform(torch.as_tensor(pose2))
+    cloud = cloud.transform(torch.as_tensor(pose))
 
     # compute cloud features necessary for optimization (like normals and incidence angles)
-    cloud1.update_all(r=cfg.nn_r)
-    cloud2.update_all(r=cfg.nn_r)
+    cloud.update_all(r=cfg.nn_r)
+    return cloud
 
+
+def main():
+    cfg = Config()
+    # cfg.grid_res = 0.2
+    # cfg.min_depth = 1.0
+    # cfg.max_depth = 20.0
+    # cfg.nn_r = 0.4
+    cfg.device = 'cuda'
+
+    clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names]
+    #
     # run optimization loop
     losses = []
-    weights = np.linspace(-1e-2, 1e-2, 200)
+    weights = np.linspace(-0.01, 0.01, 1000)
+    best_model = None
+    min_loss = np.inf
     for w in tqdm(weights):
         model = ScaledPolynomial(w=[w], exponent=[6.0], device=cfg.device)
-        cloud1_corr = model(cloud1)
-        cloud2_corr = model(cloud2)
+        # model = ScaledInvCos(p0=w, device=cfg.device)
+        clouds_corr = [[model(c) for c in seq_clouds] for seq_clouds in clouds]
+        for sc in clouds_corr:
+            for c in sc:
+                c.update_points()
 
-        cloud1_corr.update_points()
-        cloud2_corr.update_points()
-
-        loss = point_to_plane_dist(clouds=[cloud1_corr, cloud2_corr])
-
+        loss, _ = point_to_plane_loss(clouds_corr, dist_th=2*cfg.grid_res, verbose=False)
         losses.append(loss.item())
 
-    best_weight = weights[np.argmin(losses)]
-    best_weights.append(best_weight)
+        if loss < min_loss:
+            min_loss = loss
+            best_model = model
+            best_weight = w
 
-    plt.plot(weights, np.asarray(losses) - losses[0], label='(%i, %i)' % (ds_id, ds_id + 1))
+    best_weight = weights[np.argmin(losses)]
+    print('Found best weight %.5f' % best_weight)
+    print(best_model)
+
+    plt.figure()
+    plt.title('Loss landscape')
+    plt.plot(weights, np.asarray(losses))
     plt.pause(0.01)
     plt.draw()
     plt.grid(visible=True)
-    plt.legend()
 
-best_weights = np.asarray(best_weights)
-mean_weight = np.mean(best_weights)
-std_weight = np.std(best_weights)
-gaussian = np.exp(- 0.5 * (best_weights - mean_weight) ** 2 / (std_weight ** 2)) #  / (std_weight * np.sqrt(2 * np.pi))
+    plt.show()
 
-plt.figure()
-# plt.title('Found weights for different training sequences')
-# plt.plot(list(range(n_train_samples)), best_weights, 'x')
-plt.plot(best_weights, gaussian, 'o')
-plt.grid(visible=True)
-# plt.xlabel('train cloud id')
-# plt.ylabel('best train weight')
+    # best_model = ScaledPolynomial(w=[0.000383], exponent=[6.0], device=cfg.device)
+    # best_model = ScaledPolynomial(w=[0.00013013], exponent=[6.0], device=cfg.device)
+    # best_model = ScaledInvCos(p0=-0.00001, device=cfg.device)
 
-plt.show()
+    clouds_corr = [best_model(c) for c in clouds[0]]
+    cloud = DepthCloud.concatenate(clouds_corr)
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
+    o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
+
+
+if __name__ == "__main__":
+    main()

@@ -365,7 +365,7 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     return loss, cloud
 
 
-def point_to_plane_loss(clouds, poses, model=None, masks=None, **kwargs):
+def point_to_plane_loss(clouds, poses=None, model=None, masks=None, **kwargs):
     """ICP-like point to plane loss.
 
     :param clouds: List of lists of clouds :) Individual scans from different data sequences.
@@ -374,14 +374,17 @@ def point_to_plane_loss(clouds, poses, model=None, masks=None, **kwargs):
     :param masks:
     :return:
     """
-    transformed_clouds = [[model(c).transform(p) if model else c.transform(p) for c, p in zip(seq_clouds, seq_poses)]
-                          for seq_clouds, seq_poses in zip(clouds, poses)]
+    if poses is None:
+        transformed_clouds = clouds
+    else:
+        transformed_clouds = [[model(c).transform(p) if model else c.transform(p) for c, p in zip(seq_clouds, seq_poses)]
+                              for seq_clouds, seq_poses in zip(clouds, poses)]
     loss = 0.
     loss_cloud = []
     for i in range(len(transformed_clouds)):
         seq_trans_clouds = transformed_clouds[i]
         seq_masks = None if masks is None else masks[i]
-        loss_seq = point_to_plane_dist(seq_trans_clouds, masks=seq_masks, dist_th=kwargs['dist_th'])
+        loss_seq = point_to_plane_dist(seq_trans_clouds, masks=seq_masks, **kwargs)
         loss = loss + loss_seq
 
         cloud = DepthCloud.concatenate(seq_trans_clouds)
@@ -417,8 +420,12 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
         assert cloud1.normals is not None, "Cloud must have normals computed to estimate point to plane distance"
         cloud2 = clouds[i + 1]
 
-        points1 = torch.as_tensor(cloud1.to_points(), dtype=torch.float)
-        points2 = torch.as_tensor(cloud2.to_points(), dtype=torch.float)
+        points1 = cloud1.to_points() if cloud1.points is None else cloud1.points
+        points2 = cloud2.to_points() if cloud2.points is None else cloud2.points
+        assert not torch.all(torch.isnan(points1))
+        assert not torch.all(torch.isnan(points2))
+        points1 = torch.as_tensor(points1, dtype=torch.float)
+        points2 = torch.as_tensor(points2, dtype=torch.float)
 
         # find intersections between neighboring point clouds (1 and 2)
         if masks is None:
@@ -456,7 +463,8 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
         point2plane_dist += 0.5 * (dist12 + dist21)
 
         if verbose:
-            print('Mean point to plane distance: %.3f [m] for scans: (%d, %d)' % (dist12.item(), i, i+1))
+            print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers ratio: %.3f' %
+                  (dist12.item(), i, i+1, len(points1_inters) / len(points1)))
 
     return point2plane_dist / len(clouds)
 

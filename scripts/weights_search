@@ -38,22 +38,29 @@ def main():
     # cfg.nn_r = 0.4
     cfg.device = 'cuda'
 
-    clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names]
-    #
+    np.random.shuffle(dataset_names)
+    train_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names[:6]]
+    val_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names[6:]]
+
+    loss_train0 = point_to_plane_loss(train_clouds, dist_th=2 * cfg.grid_res, verbose=False)[0]
+    print('Loss on training set without correction: %f' % loss_train0)
+    loss_val0 = point_to_plane_loss(val_clouds, dist_th=2*cfg.grid_res, verbose=False)[0]
+    print('Loss on validation set without correction: %f\n' % loss_val0)
+
     # run optimization loop
     losses = []
-    weights = np.linspace(-0.01, 0.01, 1000)
+    weights = np.linspace(-0.01, 0.01, 100)
     best_model = None
     min_loss = np.inf
     for w in tqdm(weights):
         model = ScaledPolynomial(w=[w], exponent=[6.0], device=cfg.device)
         # model = ScaledInvCos(p0=w, device=cfg.device)
-        clouds_corr = [[model(c) for c in seq_clouds] for seq_clouds in clouds]
-        for sc in clouds_corr:
+        train_clouds_corr = [[model(c) for c in seq_clouds] for seq_clouds in train_clouds]
+        for sc in train_clouds_corr:
             for c in sc:
                 c.update_points()
 
-        loss, _ = point_to_plane_loss(clouds_corr, dist_th=2*cfg.grid_res, verbose=False)
+        loss, _ = point_to_plane_loss(train_clouds_corr, dist_th=2*cfg.grid_res, verbose=False)
         losses.append(loss.item())
 
         if loss < min_loss:
@@ -64,6 +71,15 @@ def main():
     best_weight = weights[np.argmin(losses)]
     print('Found best weight %.5f' % best_weight)
     print(best_model)
+
+    print('Loss on training set after correction: %f (%f)' % (min_loss, loss_train0))
+
+    val_clouds_corr = [[best_model(c) for c in seq_clouds] for seq_clouds in val_clouds]
+    for sc in val_clouds_corr:
+        for c in sc:
+            c.update_points()
+    print('Loss on validation set after correction: %f (%f)' %
+          (point_to_plane_loss(val_clouds_corr, dist_th=2 * cfg.grid_res, verbose=False)[0], loss_val0))
 
     plt.figure()
     plt.title('Loss landscape')
@@ -78,12 +94,12 @@ def main():
     # best_model = ScaledPolynomial(w=[0.00013013], exponent=[6.0], device=cfg.device)
     # best_model = ScaledInvCos(p0=-0.00001, device=cfg.device)
 
-    clouds_corr = [best_model(c) for c in clouds[0]]
-    cloud = DepthCloud.concatenate(clouds_corr)
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
-    o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
+    # train_clouds_corr = [best_model(c) for c in train_clouds[0]]
+    # cloud = DepthCloud.concatenate(train_clouds_corr)
+    #
+    # pcd = o3d.geometry.PointCloud()
+    # pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
+    # o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
 
 
 if __name__ == "__main__":

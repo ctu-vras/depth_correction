@@ -117,14 +117,14 @@ def main():
             train_clouds_corr = [model(c) for c in train_clouds]
             for c in train_clouds_corr:
                 c.update_points()
-            loss = point_to_plane_dist(clouds=train_clouds_corr, dist_th=2*cfg.grid_res, verbose=True)
+            loss = point_to_plane_dist(clouds=train_clouds_corr, verbose=True)
 
             # calculate validation loss: on another pair of clouds
             with torch.no_grad():
                 val_clouds_corr = [model(c) for c in val_clouds]
                 for c in val_clouds_corr:
                     c.update_points()
-                loss_val = point_to_plane_dist(clouds=val_clouds_corr, dist_th=cfg.grid_res)
+                loss_val = point_to_plane_dist(clouds=val_clouds_corr)
 
             losses_train.append(loss.item())
             losses_val.append(loss_val.item())

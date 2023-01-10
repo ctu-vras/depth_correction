@@ -32,19 +32,20 @@ def sample_to_cloud(data, cfg):
 
 def main():
     cfg = Config()
-    # cfg.grid_res = 0.2
-    # cfg.min_depth = 1.0
-    # cfg.max_depth = 20.0
-    # cfg.nn_r = 0.4
+    cfg.grid_res = 0.1
+    cfg.min_depth = 1.0
+    cfg.max_depth = 10.0
+    cfg.nn_r = 0.25
     cfg.device = 'cuda'
+    cfg.loss_kwargs['icp_inlier_ratio'] = 0.3
 
     np.random.shuffle(dataset_names)
     train_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names[:6]]
     val_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names[6:]]
 
-    loss_train0 = point_to_plane_loss(train_clouds, dist_th=2 * cfg.grid_res, verbose=False)[0]
+    loss_train0 = point_to_plane_loss(train_clouds, inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'], verbose=True)[0]
     print('Loss on training set without correction: %f' % loss_train0)
-    loss_val0 = point_to_plane_loss(val_clouds, dist_th=2*cfg.grid_res, verbose=False)[0]
+    loss_val0 = point_to_plane_loss(val_clouds, inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'], verbose=True)[0]
     print('Loss on validation set without correction: %f\n' % loss_val0)
 
     # run optimization loop
@@ -60,7 +61,7 @@ def main():
             for c in sc:
                 c.update_points()
 
-        loss, _ = point_to_plane_loss(train_clouds_corr, dist_th=2*cfg.grid_res, verbose=False)
+        loss, _ = point_to_plane_loss(train_clouds_corr, inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'], verbose=False)
         losses.append(loss.item())
 
         if loss < min_loss:
@@ -79,7 +80,7 @@ def main():
         for c in sc:
             c.update_points()
     print('Loss on validation set after correction: %f (%f)' %
-          (point_to_plane_loss(val_clouds_corr, dist_th=2 * cfg.grid_res, verbose=False)[0], loss_val0))
+          (point_to_plane_loss(val_clouds_corr, inlier_ratio=0.2, verbose=False)[0], loss_val0))
 
     plt.figure()
     plt.title('Loss landscape')

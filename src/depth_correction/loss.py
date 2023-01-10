@@ -644,19 +644,20 @@ def pose_correction_demo():
     from depth_correction.preproc import filtered_cloud
     from depth_correction.transform import matrix_to_xyz_axis_angle, xyz_axis_angle_to_matrix
     import open3d as o3d
+    from matplotlib import pyplot as plt
 
     cfg = Config()
     cfg.grid_res = 0.2
     cfg.min_depth = 1.0
-    cfg.max_depth = 20.0
+    cfg.max_depth = 10.0
     cfg.nn_r = 0.4
     cfg.device = 'cuda'
 
     ds = Dataset(name=dataset_names[0])
-    id = 0  # int(np.random.choice(range(len(ds) - 1)))
+    id = int(np.random.choice(range(len(ds) - 1)))
     points1, pose1 = ds[id]
-    # points2, pose2 = ds[id + 1]
-    points2, pose2 = ds[id]
+    points2, pose2 = ds[id + 1]
+    # points2, pose2 = ds[id]
 
     cloud1 = DepthCloud.from_structured_array(points1)
     cloud2 = DepthCloud.from_structured_array(points2)
@@ -666,12 +667,12 @@ def pose_correction_demo():
 
     pose1 = torch.tensor(pose1, dtype=torch.float32)
     pose2 = torch.tensor(pose2, dtype=torch.float32)
-    xyza1 = torch.tensor(matrix_to_xyz_axis_angle(pose1[None]), dtype=torch.float32)
+    xyza1 = torch.tensor(matrix_to_xyz_axis_angle(pose1[None]), dtype=torch.float32).squeeze()
 
-    xyza1_delta = torch.tensor([[-0.01, 0.0, 0.0, 0.0, 0.0, 0.0]], dtype=pose1.dtype)
+    xyza1_delta = torch.tensor([-0.01, 0.01, 0.0, 0.0, 0.0, 0.0], dtype=pose1.dtype)
     xyza1_delta.requires_grad = True
 
-    optimizer = torch.optim.Adam([{'params': xyza1_delta, 'lr': 1e-6}])
+    optimizer = torch.optim.Adam([{'params': xyza1_delta, 'lr': 1e-4}])
 
     cloud2 = cloud2.transform(pose2)
     cloud2.update_points()
@@ -684,35 +685,70 @@ def pose_correction_demo():
     pcd2.points = o3d.utility.Vector3dVector(cloud2.points.detach())
     pcd2.colors = o3d.utility.Vector3dVector(torch.zeros_like(cloud2.points.detach()) + torch.tensor([0, 0, 1]))
 
+    plt.figure(figsize=(20, 5))
+    losses = []
+    iters = []
+    xyza_deltas = []
     # run optimization loop
     for it in range(1000):
-        # print('Distance between clouds: %f', (torch.linalg.norm(pose1[:3, 3] - pose2[:3, 3])))
-
         # add noise to poses
-        xyza1 = xyza1 + xyza1_delta
-        pose1 = xyz_axis_angle_to_matrix(xyza1).squeeze()
+        xyza1_corr = xyza1 + xyza1_delta
+        pose1_corr = xyz_axis_angle_to_matrix(xyza1_corr[None]).squeeze()
 
         # transform point clouds to the same world coordinate frame
-        cloud1_corr = cloud1.transform(pose1)
+        cloud1_corr = cloud1.transform(pose1_corr)
         cloud1_corr.update_points()
 
         train_clouds = [cloud1_corr, cloud2]
 
         loss = point_to_plane_dist(train_clouds, dist_th=2 * cfg.grid_res, differentiable=True)
+        # loss, _ = point_to_plane_loss([train_clouds], dist_th=2 * cfg.grid_res, differentiable=True)
 
-        with torch.autograd.detect_anomaly():
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            print('ICP loss: %f' % loss.item())
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-        if it % 100 == 0:
+        print('At iter %i ICP loss: %f' % (it, loss.item()))
+
+        iters.append(it)
+        losses.append(loss.item())
+        xyza_deltas.append(xyza1_delta.clone())
+
+        plt.cla()
+        plt.subplot(1, 3, 1)
+        plt.ylabel('ICP point to plane loss')
+        plt.xlabel('Iterations')
+        plt.plot(iters, losses, color='k')
+        plt.grid(visible=True)
+
+        plt.subplot(1, 3, 2)
+        plt.ylabel('L2 pose distance')
+        plt.xlabel('Iterations')
+        plt.plot(iters, torch.stack(xyza_deltas, dim=0).detach()[:, 0], color='r', label='dx')
+        plt.plot(iters, torch.stack(xyza_deltas, dim=0).detach()[:, 1], color='g', label='dy')
+        plt.plot(iters, torch.stack(xyza_deltas, dim=0).detach()[:, 2], color='b', label='dz')
+        plt.grid(visible=True)
+
+        plt.subplot(1, 3, 3)
+        plt.ylabel('L2 orient distance')
+        plt.xlabel('Iterations')
+        plt.plot(iters, torch.linalg.norm(torch.stack(xyza_deltas, dim=0).detach()[:, 3:], dim=1), label='da')
+        plt.grid(visible=True)
+
+        plt.pause(0.01)
+        plt.draw()
+
+        if True and it % 200 == 0:
+            print('Distance between clouds: %f', (torch.linalg.norm(pose1[:3, 3] - pose2[:3, 3])))
+            print('Changed pose of the first cloud by: %s [m]' % torch.linalg.norm(xyza1_delta[:3]).detach())
+
             pcd1 = o3d.geometry.PointCloud()
             pcd1.points = o3d.utility.Vector3dVector(cloud1_corr.points.detach())
             pcd1.colors = o3d.utility.Vector3dVector(torch.zeros_like(cloud1_corr.points.detach()) +
                                                      torch.tensor([1, 0, 0]))
+            pcd1.normals = o3d.utility.Vector3dVector(cloud1_corr.normals.detach())
 
-            o3d.visualization.draw_geometries([pcd1, pcd2])
+            o3d.visualization.draw_geometries([pcd1, pcd2], point_show_normal=True)
 
 
 def test():

@@ -396,7 +396,7 @@ def point_to_plane_loss(clouds, poses=None, model=None, masks=None, **kwargs):
     return loss, loss_cloud
 
 
-def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=True, verbose=False):
+def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiable=True, verbose=False):
     """ICP-like point to plane distance.
 
     Computes point to plane distances for consecutive pairs of point cloud scans, and returns the average value.
@@ -405,12 +405,13 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
     :param masks: List of tuples masks[i] = (mask1, mask2) where mask1 defines indices of points from 1st point cloud
                   in a pair that intersect (close enough) with points from 2nd cloud in the pair,
                   mask2 is list of indices of intersection points from the 2nd point cloud in a pair.
-    :param dist_th: Distance threshold to determine intersection regions between a pair of point clouds.
+    :param inlier_ratio: Ratio of inlier points between a two pairs of neighboring clouds.
     :param differentiable: Whether to use differentiable method of finding neighboring points (from Pytorch3d: slow on CPU)
                            or from scipy (faster but not differentiable).
     :param verbose:
     :return:
     """
+    assert 0.0 <= inlier_ratio <= 1.0
     if masks is not None:
         assert len(clouds) == len(masks) + 1
         # print('Using precomputed intersection masks for point to plane loss')
@@ -436,10 +437,14 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
                 dists, ids, _ = knn_points(points1[None], points2[None], K=1)
                 dists = torch.sqrt(dists).squeeze()
                 ids = ids.squeeze()
+            dist_th = torch.quantile(dists[~torch.isnan(dists)], inlier_ratio)
             mask1 = dists <= dist_th
             mask2 = ids[mask1]
+            inl_err = dists[mask1].mean()
         else:
             mask1, mask2 = masks[i]
+            inl_err = torch.tensor(-1.0)
+
         points1_inters = points1[mask1]
         assert len(points1_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
         points2_inters = points2[mask2]
@@ -463,8 +468,8 @@ def point_to_plane_dist(clouds: list, dist_th=0.1, masks=None, differentiable=Tr
         point2plane_dist += 0.5 * (dist12 + dist21)
 
         if verbose:
-            print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers ratio: %.3f' %
-                  (dist12.item(), i, i+1, len(points1_inters) / len(points1)))
+            print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
+                  (dist12.item(), i, i+1, inl_err.item()))
 
     return torch.as_tensor(point2plane_dist / len(clouds))
 
@@ -701,8 +706,8 @@ def pose_correction_demo():
 
         train_clouds = [cloud1_corr, cloud2]
 
-        loss = point_to_plane_dist(train_clouds, dist_th=2 * cfg.grid_res, differentiable=True)
-        # loss, _ = point_to_plane_loss([train_clouds], dist_th=2 * cfg.grid_res, differentiable=True)
+        loss = point_to_plane_dist(train_clouds, differentiable=True, inlier_ratio=0.3, verbose=True)
+        # loss, _ = point_to_plane_loss([train_clouds], differentiable=True)
 
         optimizer.zero_grad()
         loss.backward()

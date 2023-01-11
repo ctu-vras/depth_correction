@@ -553,7 +553,7 @@ class DepthCloud(object):
                         xs[i] += shift[i]
 
                 try:
-                    kwargs[f] = torch.concat(xs)
+                    kwargs[f] = torch.cat(xs)
                 except RuntimeError as ex:
                     print('Could not concatenate field %s and tensors %s: %s.'
                           % (f, ', '.join(str(x.shape) for x in xs), ex))

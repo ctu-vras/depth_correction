@@ -10,7 +10,7 @@ from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, Polynomial, ScaledInvCos, InvCos
 from depth_correction.preproc import filtered_cloud
 from depth_correction.config import Config
-from depth_correction.loss import point_to_plane_dist, point_to_plane_loss
+from depth_correction.loss import point_to_plane_dist, icp_loss
 
 
 def select_sample(ds, scan_n, cfg):
@@ -50,8 +50,8 @@ def plot_clouds(ax, clouds, marker='.', n_pts=5000, **kwargs):
         x = pts[:, 0].detach().cpu()
         y = pts[:, 1].detach().cpu()
         z = pts[:, 2].detach().cpu()
-        mask = torch.logical_and(torch.logical_and(y > -4.0, y < 4.0), torch.logical_and(z > 0.1, z < 2.9))
-        # mask = np.logical_and(z > 0.1, z < 2.9)
+        mask = torch.logical_and(torch.logical_and(y > -4.0, y < 4.0), torch.logical_and(z > -0.6, z < 2.9))
+        # mask = np.logical_and(z > -0.6, z < 2.9)
         x = x[mask]
         y = y[mask]
 

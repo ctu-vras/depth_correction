@@ -365,13 +365,14 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     return loss, cloud
 
 
-def point_to_plane_loss(clouds, poses=None, model=None, masks=None, **kwargs):
+def icp_loss(clouds, poses=None, model=None, masks=None, point_to_plane=True, **kwargs):
     """ICP-like point to plane loss.
 
     :param clouds: List of lists of clouds :) Individual scans from different data sequences.
     :param poses: List od lists of poses for each point cloud scan.
     :param model: Depth correction model.
     :param masks:
+    :param point_to_plane: Whether to use point to plane distance. Otherwise, point to point error is computed.
     :return:
     """
     if poses is None:
@@ -381,10 +382,12 @@ def point_to_plane_loss(clouds, poses=None, model=None, masks=None, **kwargs):
                               for seq_clouds, seq_poses in zip(clouds, poses)]
     loss = 0.
     loss_cloud = []
+    loss_fun = point_to_plane_dist if point_to_plane else point_to_point_dist
+
     for i in range(len(transformed_clouds)):
         seq_trans_clouds = transformed_clouds[i]
         seq_masks = None if masks is None else masks[i]
-        loss_seq = point_to_plane_dist(seq_trans_clouds, masks=seq_masks, **kwargs)
+        loss_seq = loss_fun(seq_trans_clouds, masks=seq_masks, **kwargs)
         loss = loss + loss_seq
 
         cloud = DepthCloud.concatenate(seq_trans_clouds)
@@ -416,7 +419,8 @@ def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
         assert len(clouds) == len(masks) + 1
         # print('Using precomputed intersection masks for point to plane loss')
     point2plane_dist = 0.0
-    for i in range(len(clouds) - 1):
+    n_pairs = len(clouds) - 1
+    for i in range(n_pairs):
         cloud1 = clouds[i]
         assert cloud1.normals is not None, "Cloud must have normals computed to estimate point to plane distance"
         cloud2 = clouds[i + 1]
@@ -469,13 +473,78 @@ def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
 
         if verbose:
             print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
-                  (dist12.item(), i, i+1, inl_err.item()))
+                  (point2plane_dist.item(), i, i+1, inl_err.item()))
 
-    return torch.as_tensor(point2plane_dist / len(clouds))
+    return torch.as_tensor(point2plane_dist / n_pairs)
+
+
+def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiable=True, verbose=False):
+    """ICP-like point to plane distance.
+
+    Computes point to point distances for consecutive pairs of point cloud scans, and returns the average value.
+
+    :param clouds: List of clouds. Individual scans from a data sequences.
+    :param masks: List of tuples masks[i] = (mask1, mask2) where mask1 defines indices of points from 1st point cloud
+                  in a pair that intersect (close enough) with points from 2nd cloud in the pair,
+                  mask2 is list of indices of intersection points from the 2nd point cloud in a pair.
+    :param inlier_ratio: Ratio of inlier points between a two pairs of neighboring clouds.
+    :param differentiable: Whether to use differentiable method of finding neighboring points (from Pytorch3d: slow on CPU)
+                           or from scipy (faster but not differentiable).
+    :param verbose:
+    :return:
+    """
+    assert 0.0 <= inlier_ratio <= 1.0
+    if masks is not None:
+        assert len(clouds) == len(masks) + 1
+        # print('Using precomputed intersection masks for point to plane loss')
+    point2point_dist = 0.0
+    n_pairs = len(clouds) - 1
+    for i in range(n_pairs):
+        cloud1 = clouds[i]
+        cloud2 = clouds[i + 1]
+
+        points1 = cloud1.to_points() if cloud1.points is None else cloud1.points
+        points2 = cloud2.to_points() if cloud2.points is None else cloud2.points
+        assert not torch.all(torch.isnan(points1))
+        assert not torch.all(torch.isnan(points2))
+        points1 = torch.as_tensor(points1, dtype=torch.float)
+        points2 = torch.as_tensor(points2, dtype=torch.float)
+
+        # find intersections between neighboring point clouds (1 and 2)
+        if masks is None:
+            if not differentiable:
+                tree = cKDTree(points2)
+                dists, ids = tree.query(points1, k=1)
+            else:
+                dists, ids, _ = knn_points(points1[None], points2[None], K=1)
+                dists = torch.sqrt(dists).squeeze()
+                ids = ids.squeeze()
+            dist_th = torch.quantile(dists[~torch.isnan(dists)], inlier_ratio)
+            mask1 = dists <= dist_th
+            mask2 = ids[mask1]
+            inl_err = dists[mask1].mean()
+        else:
+            mask1, mask2 = masks[i]
+            inl_err = torch.tensor(-1.0)
+
+        points1_inters = points1[mask1]
+        assert len(points1_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
+        points2_inters = points2[mask2]
+        assert len(points2_inters) > 0, "Point clouds do not intersect. Try to sample lidar scans more frequently"
+
+        # point to point distance
+        vectors = points2_inters - points1_inters
+        point2point_dist = torch.linalg.norm(vectors, dim=1).mean()
+
+        if verbose:
+            print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
+                  (point2point_dist.item(), i, i+1, inl_err.item()))
+
+    return torch.as_tensor(point2point_dist / n_pairs)
 
 
 def loss_by_name(name):
-    assert name in ('min_eigval_loss', 'trace_loss', 'point_to_plane_loss')
+    assert name in ('min_eigval_loss', 'trace_loss', 'icp_loss')
     return globals()[name]
 
 
@@ -646,7 +715,7 @@ def test_eigh3():
 
 def pose_correction_demo():
     from data.depth_correction import dataset_names, Dataset
-    from depth_correction.preproc import filtered_cloud
+    from depth_correction.preproc import filtered_cloud, local_feature_cloud
     from depth_correction.transform import matrix_to_xyz_axis_angle, xyz_axis_angle_to_matrix
     import open3d as o3d
     from matplotlib import pyplot as plt
@@ -654,9 +723,11 @@ def pose_correction_demo():
     cfg = Config()
     cfg.grid_res = 0.2
     cfg.min_depth = 1.0
-    cfg.max_depth = 10.0
+    cfg.max_depth = 20.0
     cfg.nn_r = 0.4
     cfg.device = 'cuda'
+    cfg.loss_kwargs['icp_inliers_ratio'] = 0.5
+    point_to_plane = False
 
     ds = Dataset(name=dataset_names[0])
     id = int(np.random.choice(range(len(ds) - 1)))
@@ -677,14 +748,17 @@ def pose_correction_demo():
     xyza1_delta = torch.tensor([-0.01, 0.01, 0.0, 0.0, 0.0, 0.0], dtype=pose1.dtype)
     xyza1_delta.requires_grad = True
 
-    optimizer = torch.optim.Adam([{'params': xyza1_delta, 'lr': 1e-4}])
+    optimizer = torch.optim.Adam([{'params': xyza1_delta, 'lr': 1e-3}])
 
     cloud2 = cloud2.transform(pose2)
     cloud2.update_points()
 
-    # compute cloud features necessary for optimization (like normals and incidence angles)
-    cloud1.update_all(r=cfg.nn_r)
-    cloud2.update_all(r=cfg.nn_r)
+    # compute cloud features necessary for optimization (like normals and incidence angles
+    cloud1 = local_feature_cloud(cloud1, cfg)
+    cloud2 = local_feature_cloud(cloud2, cfg)
+
+    cloud1 = cloud1[cloud1.mask]
+    cloud2 = cloud2[cloud2.mask]
 
     pcd2 = o3d.geometry.PointCloud()
     pcd2.points = o3d.utility.Vector3dVector(cloud2.points.detach())
@@ -706,8 +780,10 @@ def pose_correction_demo():
 
         train_clouds = [cloud1_corr, cloud2]
 
-        loss = point_to_plane_dist(train_clouds, differentiable=True, inlier_ratio=0.3, verbose=True)
-        # loss, _ = point_to_plane_loss([train_clouds], differentiable=True)
+        loss, _ = icp_loss([train_clouds],
+                           point_to_plane=point_to_plane,
+                           inlier_ratio=cfg.loss_kwargs['icp_inliers_ratio'],
+                           verbose=True)
 
         optimizer.zero_grad()
         loss.backward()
@@ -721,7 +797,7 @@ def pose_correction_demo():
 
         plt.cla()
         plt.subplot(1, 3, 1)
-        plt.ylabel('ICP point to plane loss')
+        plt.ylabel('ICP point to %s loss' % 'plane' if point_to_plane else 'point')
         plt.xlabel('Iterations')
         plt.plot(iters, losses, color='k')
         plt.grid(visible=True)
@@ -753,7 +829,8 @@ def pose_correction_demo():
                                                      torch.tensor([1, 0, 0]))
             pcd1.normals = o3d.utility.Vector3dVector(cloud1_corr.normals.detach())
 
-            o3d.visualization.draw_geometries([pcd1, pcd2], point_show_normal=True)
+            o3d.visualization.draw_geometries([pcd1, pcd2], point_show_normal=point_to_plane)
+    plt.show()
 
 
 def test():

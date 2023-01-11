@@ -7,45 +7,81 @@ from tqdm import tqdm
 from data.depth_correction import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, ScaledInvCos
-from depth_correction.preproc import filtered_cloud
+from depth_correction.preproc import filtered_cloud, local_feature_cloud
 from depth_correction.config import Config
-from depth_correction.loss import point_to_plane_loss
+from depth_correction.loss import icp_loss
 import open3d as o3d
 
+
+def filter_outliers(cloud: DepthCloud, cfg: Config, y_min=-2.5, y_max=2.5):
+    """
+    Filter outliers related to lidar beams going through windows
+
+    :param y_max:
+    :param y_min:
+    :param cloud:
+    :param cfg:
+    :return:
+    """
+    phi = np.deg2rad(50.8)
+    Rot = torch.tensor([[np.cos(phi), -np.sin(phi), 0],
+                        [np.sin(phi), np.cos(phi), 0],
+                        [0, 0, 1]]).to(cfg.device)
+    pts = cloud.points if cloud.points is not None else cloud.to_points()
+    pts = (Rot @ pts.T).T
+    y = pts[:, 1]
+    mask = torch.logical_and(y > y_min, y < y_max)
+
+    return cloud[mask]
 
 def sample_to_cloud(data, cfg):
     points_struct, pose = data
 
     # construct depth cloud objects from points
-    cloud = DepthCloud.from_structured_array(points_struct).to(cfg.device)
+    cloud = DepthCloud.from_structured_array(points_struct, dtype=cfg.numpy_float_type(), device=cfg.device)
 
     # apply grid and depth filters to clouds
     cloud = filtered_cloud(cloud, cfg)
+    # filter outlier points which do not belong to the corridor
+    cloud = filter_outliers(cloud, cfg)
 
     # transform point clouds to the same world coordinate frame
     cloud = cloud.transform(torch.as_tensor(pose))
 
     # compute cloud features necessary for optimization (like normals and incidence angles)
-    cloud.update_all(r=cfg.nn_r)
+    cloud = local_feature_cloud(cloud=cloud, cfg=cfg)
+    cloud = cloud[cloud.mask]
+
+    # cloud.visualize()
     return cloud
 
 
 def main():
     cfg = Config()
-    cfg.grid_res = 0.1
+    cfg.grid_res = 0.2
     cfg.min_depth = 1.0
-    cfg.max_depth = 10.0
-    cfg.nn_r = 0.25
+    cfg.max_depth = 20.0
+    cfg.nn_r = 0.4
     cfg.device = 'cuda'
-    cfg.loss_kwargs['icp_inlier_ratio'] = 0.3
+    cfg.loss_kwargs['icp_inlier_ratio'] = 0.5
+    cfg.loss_kwargs['icp_point_to_plane'] = False
 
     np.random.shuffle(dataset_names)
-    train_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names[:6]]
-    val_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in dataset_names[6:]]
+    train_names = dataset_names[:1]
+    val_names = dataset_names[1:]
+    print('Constructing training (%s) and validation (%s) clouds sets...' % (', '.join(train_names), ', '.join(val_names)))
+    train_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in train_names]
+    val_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in val_names]
 
-    loss_train0 = point_to_plane_loss(train_clouds, inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'], verbose=True)[0]
+    loss_train0 = icp_loss(train_clouds,
+                           point_to_plane=cfg.loss_kwargs['icp_point_to_plane'],
+                           inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'],
+                           verbose=True)[0]
     print('Loss on training set without correction: %f' % loss_train0)
-    loss_val0 = point_to_plane_loss(val_clouds, inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'], verbose=True)[0]
+    loss_val0 = icp_loss(val_clouds,
+                         point_to_plane=cfg.loss_kwargs['icp_point_to_plane'],
+                         inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'],
+                         verbose=True)[0]
     print('Loss on validation set without correction: %f\n' % loss_val0)
 
     # run optimization loop
@@ -61,7 +97,10 @@ def main():
             for c in sc:
                 c.update_points()
 
-        loss, _ = point_to_plane_loss(train_clouds_corr, inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'], verbose=False)
+        loss, _ = icp_loss(train_clouds_corr,
+                           point_to_plane=cfg.loss_kwargs['icp_point_to_plane'],
+                           inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'],
+                           verbose=False)
         losses.append(loss.item())
 
         if loss < min_loss:
@@ -80,7 +119,10 @@ def main():
         for c in sc:
             c.update_points()
     print('Loss on validation set after correction: %f (%f)' %
-          (point_to_plane_loss(val_clouds_corr, inlier_ratio=0.2, verbose=False)[0], loss_val0))
+          (icp_loss(val_clouds_corr,
+                    point_to_plane=cfg.loss_kwargs['icp_point_to_plane'],
+                    inlier_ratio=0.2,
+                    verbose=False)[0], loss_val0))
 
     plt.figure()
     plt.title('Loss landscape')
@@ -95,12 +137,12 @@ def main():
     # best_model = ScaledPolynomial(w=[0.00013013], exponent=[6.0], device=cfg.device)
     # best_model = ScaledInvCos(p0=-0.00001, device=cfg.device)
 
-    # train_clouds_corr = [best_model(c) for c in train_clouds[0]]
-    # cloud = DepthCloud.concatenate(train_clouds_corr)
-    #
-    # pcd = o3d.geometry.PointCloud()
-    # pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
-    # o3d.visualization.draw_geometries([pcd.voxel_down_sample(voxel_size=0.2)])
+    train_clouds_corr = [best_model(c) for c in train_clouds[0]]
+    cloud = DepthCloud.concatenate(train_clouds_corr)
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
+    o3d.visualization.draw_geometries([pcd])
 
 
 if __name__ == "__main__":

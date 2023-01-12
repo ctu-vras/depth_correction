@@ -387,7 +387,7 @@ def icp_loss(clouds, poses=None, model=None, masks=None, point_to_plane=True, **
     for i in range(len(transformed_clouds)):
         seq_trans_clouds = transformed_clouds[i]
         seq_masks = None if masks is None else masks[i]
-        loss_seq = loss_fun(seq_trans_clouds, masks=seq_masks, **kwargs)
+        loss_seq = loss_fun(seq_trans_clouds, masks=seq_masks, inlier_ratio=kwargs['icp_inlier_ratio'])
         loss = loss + loss_seq
 
         cloud = DepthCloud.concatenate(seq_trans_clouds)

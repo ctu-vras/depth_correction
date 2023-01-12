@@ -101,7 +101,7 @@ def eval_loss_clouds(clouds, poses, pose_deltas, masks, ns, model, loss_fun, cfg
         for cloud, nn in zip(global_clouds, ns)
     ]
 
-    if cfg.loss == 'point_to_plane_loss':
+    if cfg.loss == 'icp_loss':
         if clouds[0][0].normals is None:
             clouds = [[local_feature_cloud(cloud, cfg) for cloud in seq_clouds] for seq_clouds in clouds]
 

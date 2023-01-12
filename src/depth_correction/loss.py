@@ -471,15 +471,20 @@ def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
 
         point2plane_dist += 0.5 * (dist12 + dist21)
 
+        if inl_err > 0.5:
+            print('ICP inliers error is too big: %.3f (> 0.5) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
+
         if verbose:
             print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
                   (point2plane_dist.item(), i, i+1, inl_err.item()))
 
-    return torch.as_tensor(point2plane_dist / n_pairs)
+    point2plane_dist = torch.as_tensor(point2plane_dist / n_pairs)
+
+    return point2plane_dist
 
 
 def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiable=True, verbose=False):
-    """ICP-like point to plane distance.
+    """ICP-like point to point distance.
 
     Computes point to point distances for consecutive pairs of point cloud scans, and returns the average value.
 
@@ -536,11 +541,16 @@ def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
         vectors = points2_inters - points1_inters
         point2point_dist = torch.linalg.norm(vectors, dim=1).mean()
 
+        if inl_err > 0.5:
+            print('ICP inliers error is too big: %.3f (> 0.5) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
+
         if verbose:
             print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
                   (point2point_dist.item(), i, i+1, inl_err.item()))
 
-    return torch.as_tensor(point2point_dist / n_pairs)
+    point2point_dist = torch.as_tensor(point2point_dist / n_pairs)
+
+    return point2point_dist
 
 
 def loss_by_name(name):
@@ -797,7 +807,7 @@ def pose_correction_demo():
 
         plt.cla()
         plt.subplot(1, 3, 1)
-        plt.ylabel('ICP point to %s loss' % 'plane' if point_to_plane else 'point')
+        plt.ylabel('ICP point to %s loss' % ('plane' if point_to_plane else 'point'))
         plt.xlabel('Iterations')
         plt.plot(iters, losses, color='k')
         plt.grid(visible=True)

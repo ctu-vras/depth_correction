@@ -63,13 +63,15 @@ def main():
     cfg.max_depth = 20.0
     cfg.nn_r = 0.4
     cfg.device = 'cuda'
-    cfg.loss_kwargs['icp_inlier_ratio'] = 0.5
+    cfg.loss_kwargs['icp_inlier_ratio'] = 0.3
     cfg.loss_kwargs['icp_point_to_plane'] = False
 
     np.random.shuffle(dataset_names)
-    train_names = dataset_names[:1]
-    val_names = dataset_names[1:]
-    print('Constructing training (%s) and validation (%s) clouds sets...' % (', '.join(train_names), ', '.join(val_names)))
+    train_names = dataset_names[:6]
+    val_names = dataset_names[2:]
+    print('Constructing training:\n{%s}'
+          '\nand validation:\n{%s}'
+          '\nclouds sets...' % (',\n'.join(train_names), ',\n'.join(val_names)))
     train_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in train_names]
     val_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name)] for name in val_names]
 
@@ -121,7 +123,7 @@ def main():
     print('Loss on validation set after correction: %f (%f)' %
           (icp_loss(val_clouds_corr,
                     point_to_plane=cfg.loss_kwargs['icp_point_to_plane'],
-                    inlier_ratio=0.2,
+                    inlier_ratio=cfg.loss_kwargs['icp_inlier_ratio'],
                     verbose=False)[0], loss_val0))
 
     plt.figure()
@@ -137,8 +139,8 @@ def main():
     # best_model = ScaledPolynomial(w=[0.00013013], exponent=[6.0], device=cfg.device)
     # best_model = ScaledInvCos(p0=-0.00001, device=cfg.device)
 
-    train_clouds_corr = [best_model(c) for c in train_clouds[0]]
-    cloud = DepthCloud.concatenate(train_clouds_corr)
+    clouds_corr = [best_model(c) for c in val_clouds[0]]
+    cloud = DepthCloud.concatenate(clouds_corr)
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())

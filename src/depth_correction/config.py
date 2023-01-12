@@ -52,7 +52,7 @@ class NeighborhoodType(metaclass=ValueEnum):
 class Loss(metaclass=ValueEnum):
     min_eigval_loss = 'min_eigval_loss'
     trace_loss = 'trace_loss'
-    point_to_plane_loss = 'point_to_plane_loss'
+    icp_loss = 'icp_loss'
 
 
 class Model(metaclass=ValueEnum):

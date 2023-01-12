@@ -130,7 +130,7 @@ class TrainingDemo(TrainCallbacks):
 
         self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
-        # self.cfg.loss = Loss.point_to_plane_loss
+        # self.cfg.loss = Loss.icp_loss
         self.cfg.loss_offset = False
         self.cfg.loss_kwargs['sqrt'] = False
         # self.cfg.loss_kwargs['sqrt'] = True
@@ -141,9 +141,9 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.loss_kwargs['inlier_loss_mult'] = 1.0
         # self.cfg.loss_kwargs['inlier_loss_mult'] = 2.0
 
-        # self.cfg.optimizer = 'Adam'
+        self.cfg.optimizer = 'Adam'
         # self.cfg.optimizer = 'SGD'
-        self.cfg.optimizer = 'LBFGS'
+        # self.cfg.optimizer = 'LBFGS'
         # self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         # Weight decay for the depth correction model parameters (not poses).
         # self.cfg.optimizer_kwargs['weight_decay'] = 0.1

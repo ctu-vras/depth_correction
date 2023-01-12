@@ -365,14 +365,13 @@ def trace_loss(cloud, mask=None, offset=None, sqrt=None, reduction=Reduction.MEA
     return loss, cloud
 
 
-def icp_loss(clouds, poses=None, model=None, masks=None, point_to_plane=True, **kwargs):
+def icp_loss(clouds, poses=None, model=None, masks=None, **kwargs):
     """ICP-like point to plane loss.
 
     :param clouds: List of lists of clouds :) Individual scans from different data sequences.
     :param poses: List od lists of poses for each point cloud scan.
     :param model: Depth correction model.
     :param masks:
-    :param point_to_plane: Whether to use point to plane distance. Otherwise, point to point error is computed.
     :return:
     """
     if poses is None:
@@ -382,7 +381,7 @@ def icp_loss(clouds, poses=None, model=None, masks=None, point_to_plane=True, **
                               for seq_clouds, seq_poses in zip(clouds, poses)]
     loss = 0.
     loss_cloud = []
-    loss_fun = point_to_plane_dist if point_to_plane else point_to_point_dist
+    loss_fun = point_to_plane_dist if kwargs['icp_point_to_plane'] else point_to_point_dist
 
     for i in range(len(transformed_clouds)):
         seq_trans_clouds = transformed_clouds[i]
@@ -588,12 +587,12 @@ def dataset_to_cloud(ds, min_depth=None, max_depth=None, grid_res=None, k=None, 
         cloud = DepthCloud.from_points(cloud)
         cloud.to(device)
         pose = torch.tensor(pose, device=device)
-        cloud = cloud.transform(pose)
         cloud = preprocess_cloud(cloud, min_depth=min_depth, max_depth=max_depth, grid_res=grid_res, k=k, r=r)
+        cloud = cloud.transform(pose)
         clouds.append(cloud)
         poses.append(pose)
 
-    cloud = DepthCloud.concatenate(clouds, True)
+    cloud = DepthCloud.concatenate(clouds)
     # cloud.visualize(colors='inc_angles')
     cloud.visualize(colors='z')
     cloud.update_all(k=k, r=r)
@@ -737,10 +736,11 @@ def pose_correction_demo():
     cfg.nn_r = 0.4
     cfg.device = 'cuda'
     cfg.loss_kwargs['icp_inliers_ratio'] = 0.5
-    point_to_plane = False
+    cfg.loss_kwargs['icp_point_to_plane'] = False
 
     ds = Dataset(name=dataset_names[0])
     id = int(np.random.choice(range(len(ds) - 1)))
+    print('Using a pair of scans (%i, %i) from sequence: %s' % (id, id+1, dataset_names[0]))
     points1, pose1 = ds[id]
     points2, pose2 = ds[id + 1]
     # points2, pose2 = ds[id]
@@ -790,10 +790,7 @@ def pose_correction_demo():
 
         train_clouds = [cloud1_corr, cloud2]
 
-        loss, _ = icp_loss([train_clouds],
-                           point_to_plane=point_to_plane,
-                           inlier_ratio=cfg.loss_kwargs['icp_inliers_ratio'],
-                           verbose=True)
+        loss, _ = icp_loss([train_clouds], **cfg.loss_kwargs, verbose=True)
 
         optimizer.zero_grad()
         loss.backward()
@@ -807,7 +804,7 @@ def pose_correction_demo():
 
         plt.cla()
         plt.subplot(1, 3, 1)
-        plt.ylabel('ICP point to %s loss' % ('plane' if point_to_plane else 'point'))
+        plt.ylabel('ICP point to %s loss' % ('plane' if cfg.loss_kwargs['icp_point_to_plane'] else 'point'))
         plt.xlabel('Iterations')
         plt.plot(iters, losses, color='k')
         plt.grid(visible=True)
@@ -839,7 +836,7 @@ def pose_correction_demo():
                                                      torch.tensor([1, 0, 0]))
             pcd1.normals = o3d.utility.Vector3dVector(cloud1_corr.normals.detach())
 
-            o3d.visualization.draw_geometries([pcd1, pcd2], point_show_normal=point_to_plane)
+            o3d.visualization.draw_geometries([pcd1, pcd2], point_show_normal=cfg.loss_kwargs['icp_point_to_plane'])
     plt.show()
 
 

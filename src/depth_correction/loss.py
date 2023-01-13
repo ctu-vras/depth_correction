@@ -846,7 +846,8 @@ def test():
 
 def main():
     # test()
-    demo()
+    # demo()
+    pose_correction_demo()
 
 
 if __name__ == '__main__':

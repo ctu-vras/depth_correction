@@ -43,7 +43,7 @@
         <rosparam subst_value="true">
 <!--            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/ground_map_2cm.npz-->
 <!--            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/map_2cm_alligned.npz-->
-<!--            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/map_5cm_alligned.npz-->
+<!--            cloud_file: $(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/maps/npz/map_5cm_alligned.npz-->
             cloud_file: $(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/maps/npz/ground_map_5cm_alligned.npz
             frame: map
             rate: 30.0

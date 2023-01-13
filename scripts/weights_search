@@ -64,11 +64,11 @@ def main():
     cfg.nn_r = 0.4
     cfg.device = 'cuda'
     cfg.loss_kwargs['icp_inlier_ratio'] = 0.3
-    cfg.loss_kwargs['icp_point_to_plane'] = False
+    cfg.loss_kwargs['icp_point_to_plane'] = True
 
     np.random.shuffle(dataset_names)
     train_names = dataset_names[:6]
-    val_names = dataset_names[2:]
+    val_names = dataset_names[6:]
     print('Constructing training:\n{%s}'
           '\nand validation:\n{%s}'
           '\nclouds sets...' % (',\n'.join(train_names), ',\n'.join(val_names)))

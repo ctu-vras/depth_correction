@@ -7,13 +7,14 @@ from tqdm import tqdm
 from data.depth_correction import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, ScaledInvCos
-from depth_correction.preproc import filtered_cloud, local_feature_cloud
+from depth_correction.preproc import filtered_cloud, local_feature_cloud, filter_grid
 from depth_correction.config import Config
 from depth_correction.loss import icp_loss
+from depth_correction.preproc import global_cloud
 import open3d as o3d
 
 
-def filter_outliers(cloud: DepthCloud, cfg: Config, y_min=-2.5, y_max=2.5):
+def filter_window_outliers(cloud: DepthCloud, cfg: Config, y_min=-2.5, y_max=2.5):
     """
     Filter outliers related to lidar beams going through windows
 
@@ -43,7 +44,7 @@ def sample_to_cloud(data, cfg):
     # apply grid and depth filters to clouds
     cloud = filtered_cloud(cloud, cfg)
     # filter outlier points which do not belong to the corridor
-    cloud = filter_outliers(cloud, cfg)
+    cloud = filter_window_outliers(cloud, cfg)
 
     # transform point clouds to the same world coordinate frame
     cloud = cloud.transform(torch.as_tensor(pose))
@@ -62,9 +63,11 @@ def main():
     cfg.min_depth = 1.0
     cfg.max_depth = 25.0
     cfg.nn_r = 0.4
+    cfg.data_step = 1
     cfg.device = 'cuda'
     cfg.loss_kwargs['icp_inlier_ratio'] = 0.3
-    cfg.loss_kwargs['icp_point_to_plane'] = True
+    cfg.loss_kwargs['icp_point_to_plane'] = False
+    cfg.dataset_kwargs['static_poses'] = True
 
     np.random.shuffle(dataset_names)
     train_names = dataset_names[:6]
@@ -72,8 +75,8 @@ def main():
     print('Constructing training:\n{%s}'
           '\nand validation:\n{%s}'
           '\nclouds sets...' % (',\n'.join(train_names), ',\n'.join(val_names)))
-    train_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name, static_poses=True)] for name in train_names]
-    val_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name, static_poses=True)] for name in val_names]
+    train_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name, **cfg.dataset_kwargs)] for name in train_names]
+    val_clouds = [[sample_to_cloud(s, cfg) for s in Dataset(name=name, **cfg.dataset_kwargs)] for name in val_names]
 
     loss_train0 = icp_loss(train_clouds, **cfg.loss_kwargs, verbose=True)[0]
     print('Loss on training set without correction: %f' % loss_train0)
@@ -114,25 +117,59 @@ def main():
     print('Loss on validation set after correction: %f (%f)' %
           (icp_loss(val_clouds_corr, **cfg.loss_kwargs, verbose=True)[0], loss_val0))
 
+    # plot loss landscape (Loss(weights))
     plt.figure()
     plt.title('Loss landscape')
     plt.plot(weights, np.asarray(losses))
-    plt.pause(0.01)
     plt.draw()
     plt.grid(visible=True)
-
     plt.show()
 
-    # best_model = ScaledPolynomial(w=[0.000383], exponent=[6.0], device=cfg.device)
-    # best_model = ScaledPolynomial(w=[0.00013013], exponent=[6.0], device=cfg.device)
-    # best_model = ScaledInvCos(p0=-0.00001, device=cfg.device)
+    """
+    evaluate mapping (reconstruction) accuracy:
+    estimate mapping error wrt the ground truth map
+    """
+    for i in range(len(val_clouds)):
+        # get ground truth cloud
+        ds = Dataset(name=val_names[i], move_to_origin=False)
+        gt_points_struct = ds.global_cloud(resolution_cm=5.0)
+        gt_points_pose = torch.tensor(ds.global_cloud_pose(), device=cfg.device)
+        gt_cloud = DepthCloud.from_structured_array(gt_points_struct, device=cfg.device)
+        gt_cloud = gt_cloud.transform(gt_points_pose)
 
-    clouds_corr = [best_model(c) for c in val_clouds[0]]
-    cloud = DepthCloud.concatenate(clouds_corr)
+        # sequence cloud before depth correction
+        cloud = DepthCloud.concatenate(val_clouds[i])
+        # sequence cloud after depth correction
+        cloud_corr = DepthCloud.concatenate(val_clouds_corr[i])
 
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
-    o3d.visualization.draw_geometries([pcd])
+        with torch.no_grad():
+            cloud = filter_grid(cloud, grid_res=cfg.grid_res)
+            cloud_corr = filter_grid(cloud_corr, grid_res=cfg.grid_res)
+            gt_cloud = filter_grid(gt_cloud, grid_res=cfg.grid_res)
+
+            # we don't compute point to plane distance (point to point instead)
+            # as we don't estimate normals for the depth clouds
+            cfg.loss_kwargs['icp_point_to_plane'] = False
+            cfg.loss_kwargs['icp_inlier_ratio'] = 1.0
+            map_loss, _ = icp_loss([[cloud, gt_cloud]], **cfg.loss_kwargs, verbose=True)
+            map_loss_corr, _ = icp_loss([[cloud_corr, gt_cloud]], **cfg.loss_kwargs, verbose=True)
+        print('Reconstruction error (point to point) BEFORE correction: %f (for sequence %s)' %
+              (map_loss.item(), val_names[i]))
+        print('Reconstruction error (point to point) AFTER  correction: %f (for sequence %s)' %
+              (map_loss_corr.item(), val_names[i]))
+
+        cloud = DepthCloud.concatenate(val_clouds_corr[i])
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
+        pcd.colors = o3d.utility.Vector3dVector(torch.zeros_like(cloud.to_points().detach().cpu()) +
+                                                torch.tensor([0, 1, 0]))
+
+        gt_pcd = o3d.geometry.PointCloud()
+        gt_pcd.points = o3d.utility.Vector3dVector(gt_cloud.points.cpu())
+        gt_pcd.colors = o3d.utility.Vector3dVector(torch.zeros_like(gt_cloud.points.cpu()) +
+                                                   torch.tensor([1, 0, 0]))
+
+        o3d.visualization.draw_geometries([pcd, gt_pcd])
 
 
 if __name__ == "__main__":

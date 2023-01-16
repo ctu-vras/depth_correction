@@ -120,18 +120,16 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.model_class = Model.ScaledPolynomial
         self.cfg.optimize_model = True
         self.cfg.model_kwargs = {}
-        self.cfg.model_kwargs['w'] = [0.0]
-        # self.cfg.model_kwargs['w'] = [0.00035]
-        self.cfg.model_kwargs['exponent'] = [6.0]
-        # self.cfg.model_kwargs['w'] = [-0.005, -0.005]
-        # self.cfg.model_kwargs['exponent'] = [2.0, 4.0]
+        self.cfg.model_kwargs['w'] = [0.0, 0.0]
+        self.cfg.model_kwargs['exponent'] = [2.0, 4.0]
+        # self.cfg.model_kwargs['w'] = [0.0]
+        # self.cfg.model_kwargs['exponent'] = [6.0]
         self.cfg.model_kwargs['learnable_exponents'] = False
         self.cfg.model_state_dict = None
 
         self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
         # self.cfg.loss = Loss.icp_loss
-        self.cfg.loss_offset = False
         self.cfg.loss_kwargs['sqrt'] = False
         # self.cfg.loss_kwargs['sqrt'] = True
         # self.cfg.loss_kwargs['normalization'] = False
@@ -140,6 +138,8 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.loss_kwargs['inlier_ratio'] = 0.5
         # self.cfg.loss_kwargs['inlier_loss_mult'] = 1.0
         # self.cfg.loss_kwargs['inlier_loss_mult'] = 2.0
+        self.cfg.loss_kwargs['icp_point_to_plane'] = False
+        self.cfg.loss_offset = False
 
         self.cfg.optimizer = 'Adam'
         # self.cfg.optimizer = 'SGD'
@@ -359,7 +359,7 @@ class TrainingDemo(TrainCallbacks):
             self.gt_model.plot(ax)
             model.plot(ax)
             ax.grid()
-            ax.legend()
+            # ax.legend()
 
         ax = self.ax[2, 0]
         ax.cla()

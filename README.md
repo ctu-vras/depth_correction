@@ -37,10 +37,14 @@ with precise localization and ground truth mapping information.
 Download the dataset and put it in the `./data` folder.
 It exhibits the following structure:
 
+<!-- `tree -L 4 -d depth_correction` -->
 ```bash
 depth_correction
 └── 22-11-24-kn_e2_corridor
     ├── bags
+    │   └── slam_2022-11-24-15-39-08
+    │       ├── ouster_points
+    │       └── static_ouster_points
     ├── maps
     │   ├── blk
     │   ├── e57
@@ -52,11 +56,13 @@ depth_correction
         ├── slam_2022-11-24-15-28-59
         │   ├── calibration
         │   ├── ouster_points
-        │   └── poses
+        │   ├── poses
+        │   └── static_ouster_points
         └── slam_2022-11-24-15-39-08
             ├── calibration
             ├── ouster_points
-            └── poses
+            ├── poses
+            └── static_ouster_points
 ```
 ![](./docs/imgs/depth_correction_data.png)
 
@@ -66,7 +72,7 @@ Two "stop-and-go" data sqeuences are provided of a robot with mounter
 Ouster [OS1-128](https://ouster.com/blog/introducing-the-os-1-128-lidar-sensor/)
 lidar moving in the same environment.
 Individual scans from static robot positions are recorded in
-`ouster_points` folders as `*.npz` or `*.bin` file formats.
+`static_ouster_points` folders as `*.npz` or `*.bin` file formats.
 Ground truth robot poses are obtained using
 [norlab-icp-mapper](https://github.com/norlab-ulaval/norlab_icp_mapper_ros)
 lidar SLAM with alignment to prerecorded ground truth map.

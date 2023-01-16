@@ -175,7 +175,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
               for cloud in val_global_clouds]
 
     # Create masks used in optimization.
-    if cfg.loss == 'point_to_plane_loss':
+    if cfg.loss == 'icp_loss':
         train_masks, val_masks = [], []
         for i in range(len(train_clouds)):
             train_masks_seq = []
@@ -187,7 +187,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 points2 = train_clouds[i][j + 1].transform(pose2).to_points()
                 tree = cKDTree(points2)
                 dists, ids = tree.query(points1, k=1)
-                mask1 = dists <= cfg.loss_kwargs['dist_th']
+                dist_th = np.quantile(dists[~np.isnan(dists)], cfg.loss_kwargs['icp_inlier_ratio'])
+                mask1 = dists <= dist_th
                 mask2 = ids[mask1]
                 train_masks_seq.append((mask1, mask2))
             train_masks.append(train_masks_seq)
@@ -202,7 +203,8 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
                 points2 = val_clouds[i][j + 1].transform(pose2).to_points()
                 tree = cKDTree(points2)
                 dists, ids = tree.query(points1, k=1)
-                mask1 = dists <= cfg.loss_kwargs['dist_th']
+                dist_th = np.quantile(dists[~np.isnan(dists)], cfg.loss_kwargs['icp_inlier_ratio'])
+                mask1 = dists <= dist_th
                 mask2 = ids[mask1]
                 val_masks_seq.append((mask1, mask2))
             val_masks.append(val_masks_seq)
@@ -272,16 +274,16 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         if hasattr(model, 'w'):
             assert model.w.shape[0] == 1
             for i in range(model.w.numel()):
-                writer.add_scalar('model/w_%i' % i, model.w[i], it)
+                writer.add_scalar('model/w_%i' % i, model.w.squeeze(0)[i], it)
                 if model.w.grad is not None:
-                    writer.add_scalar('model/w_%i/grad' % i, model.w.grad[i], it)
+                    writer.add_scalar('model/w_%i/grad' % i, model.w.grad.squeeze(0)[i], it)
 
         if hasattr(model, 'exponent'):
             assert model.exponent.shape[0] == 1
             for i in range(model.exponent.numel()):
-                writer.add_scalar('model/exponent_%i' % i, model.exponent[i], it)
+                writer.add_scalar('model/exponent_%i' % i, model.exponent.squeeze(0)[i], it)
                 if model.exponent.grad is not None:
-                    writer.add_scalar('model/exponent_%i/grad' % i, model.exponent.grad[i], it)
+                    writer.add_scalar('model/exponent_%i/grad' % i, model.exponent.grad.squeeze(0)[i], it)
 
         if train_pose_deltas and train_pose_deltas[0] is not None:
             # TODO: Add summary histogram for all sequences.

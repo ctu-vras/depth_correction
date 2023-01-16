@@ -147,9 +147,8 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         # Weight decay for the depth correction model parameters (not poses).
         # self.cfg.optimizer_kwargs['weight_decay'] = 0.1
-        # self.cfg.lr = 0.0002
-        self.cfg.lr = 0.002
-        self.cfg.n_opt_iters = 1000
+        self.cfg.lr = 0.0002
+        self.cfg.n_opt_iters = 500
 
         self.cfg.from_rosparam()
         self.cfg.to_yaml(os.path.join(self.cfg.log_dir, 'config.yaml'))
@@ -394,8 +393,8 @@ class TrainingDemo(TrainCallbacks):
         if self.gt_clouds:
             ax = self.ax[3, 0]
             ax.cla()
-            self.plot_cloud(ax, self.gt_clouds[0], 'bx', mfc='none', markersize=5, label='Ground Truth Cloud')
-            self.plot_cloud(ax, clouds[0], 'ro', mfc='none', markersize=5, label='Corrected Cloud')
+            # self.plot_cloud(ax, self.gt_clouds[0], 'bx', mfc='none', markersize=5, label='Ground Truth Cloud')
+            # self.plot_cloud(ax, clouds[0], 'ro', mfc='none', markersize=5, label='Corrected Cloud')
             if self.gt_poses:
                 self.plot_poses(ax, self.gt_poses[0], 'b+', mfc='none', markersize=5, label='Ground-Truth Viewpoints')
             if poses:
@@ -408,8 +407,8 @@ class TrainingDemo(TrainCallbacks):
 
             ax = self.ax[3, 1]
             ax.cla()
-            self.plot_cloud(ax, self.gt_clouds[0], 'bx', dims=(0, 2), mfc='none', markersize=5, label='Ground Truth')
-            self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
+            # self.plot_cloud(ax, self.gt_clouds[0], 'bx', dims=(0, 2), mfc='none', markersize=5, label='Ground Truth')
+            # self.plot_cloud(ax, clouds[0], 'ro', dims=(0, 2), mfc='none', markersize=5, label='Corrected')
             if self.gt_poses:
                 self.plot_poses(ax, self.gt_poses[0], 'b+', dims=(0, 2), mfc='none', markersize=5, label='Ground-Truth Viewpoints')
             if poses:

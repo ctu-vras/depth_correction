@@ -104,8 +104,6 @@
             <arg name="bag" value="$(arg bag)"/>
             <arg name="bag_prefix" value="$(arg bag_prefix)"/>
         </include>
-<!--        <include file="$(dirname)/reconstruction_eval.launch"/>-->
-    </group>
 
     <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
         <arg name="config" value="$(dirname)/../config/slam.rviz"/>

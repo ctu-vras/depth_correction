@@ -90,11 +90,6 @@ def eval_loss_clouds(clouds, poses, pose_deltas, masks, ns, model, loss_fun, cfg
         global_cloud(clouds=c, model=model if cfg.nn_type == NeighborhoodType.ball else None, poses=p)
         for c, p in zip(clouds, poses_upd)
     ]
-    
-    # TODO: Reset neighborhoods with the new global clouds.
-    for cloud, nn in zip(global_clouds, ns):
-        nn.cloud = len(nn) * [cloud]
-    
     feat_clouds = [
         compute_neighborhood_features(cloud=cloud, model=model if cfg.nn_type == NeighborhoodType.plane else None,
                                       neighborhoods=nn, cfg=cfg)
@@ -106,16 +101,12 @@ def eval_loss_clouds(clouds, poses, pose_deltas, masks, ns, model, loss_fun, cfg
             clouds = [[local_feature_cloud(cloud, cfg) for cloud in seq_clouds] for seq_clouds in clouds]
 
         loss, loss_cloud = loss_fun(clouds, poses_upd, model, masks=masks)
-
     else:
-        # if (not masks or masks[0] is None) and isinstance(feat_clouds[0], DepthCloud):
-        #     masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
-        #              for cloud in feat_clouds]
+        if (not masks or masks[0] is None) and isinstance(feat_clouds[0], DepthCloud):
+            masks = [global_cloud_mask(cloud, cloud.mask if hasattr(cloud, 'mask') else None, cfg)
+                     for cloud in feat_clouds]
 
-        # loss, loss_cloud = loss_fun(feat_clouds, mask=masks, offset=offsets)
-
-        # Neighborhoods for ball and planar NN.
-        loss, loss_cloud = loss_fun(feat_clouds, offset=offsets)
+        loss, loss_cloud = loss_fun(feat_clouds, mask=masks, offset=offsets)
 
     return loss, loss_cloud, poses_upd, feat_clouds
 

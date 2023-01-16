@@ -1,0 +1,179 @@
+#! /usr/bin/env python
+
+import numpy as np
+import torch
+import open3d as o3d
+from tqdm import tqdm
+from matplotlib import pyplot as plt
+from data.depth_correction import Dataset, dataset_names
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.model import ScaledPolynomial, Polynomial, ScaledInvCos, InvCos
+from depth_correction.preproc import filtered_cloud
+from depth_correction.config import Config
+from depth_correction.loss import point_to_plane_dist, icp_loss
+
+
+def select_sample(ds, scan_n, cfg):
+    points1_struct, pose1 = ds[scan_n]
+    points2_struct, pose2 = ds[scan_n + 1]
+
+    cloud1 = DepthCloud.from_structured_array(points1_struct)
+    cloud2 = DepthCloud.from_structured_array(points2_struct)
+
+    cloud1 = filtered_cloud(cloud1, cfg)
+    cloud2 = filtered_cloud(cloud2, cfg)
+
+    cloud1 = cloud1.transform(torch.as_tensor(pose1))
+    cloud2 = cloud2.transform(torch.as_tensor(pose2))
+
+    cloud1.update_all(r=cfg.nn_r)
+    cloud2.update_all(r=cfg.nn_r)
+
+    clouds = [cloud1, cloud2]
+    poses = [pose1, pose2]
+
+    return clouds, poses
+
+
+def plot_clouds(ax, clouds, marker='.', n_pts=5000, **kwargs):
+    cloud = DepthCloud.concatenate(clouds)
+    idx = np.unique(np.linspace(0, len(cloud) - 1, n_pts, dtype=int)).tolist()
+    phi = np.deg2rad(50.8)
+    Rot = torch.tensor([[np.cos(phi), -np.sin(phi), 0],
+                        [np.sin(phi), np.cos(phi), 0],
+                        [0, 0, 1]])
+    with torch.no_grad():
+        pts = cloud.to_points()
+        pts = pts[idx]
+        Rot = torch.as_tensor(Rot, dtype=pts.dtype, device=pts.device)
+        pts = (Rot @ pts.T).T
+        x = pts[:, 0].detach().cpu()
+        y = pts[:, 1].detach().cpu()
+        z = pts[:, 2].detach().cpu()
+        mask = torch.logical_and(torch.logical_and(y > -4.0, y < 4.0), torch.logical_and(z > -0.6, z < 2.9))
+        # mask = np.logical_and(z > -0.6, z < 2.9)
+        x = x[mask]
+        y = y[mask]
+
+    ax.plot(x, y, marker, **kwargs)
+
+
+def main():
+    # ds = Dataset(name=dataset_names[0])
+    ds = Dataset(name='slam_2022-11-24-15-28-59_step_1')
+
+    cfg = Config()
+    cfg.min_depth = 1.0
+    cfg.max_depth = 25.0
+    cfg.grid_res = 0.2
+    cfg.nn_r = 0.4
+    cfg.lr = 0.0002
+    cfg.device = 'cuda'
+    # cfg.device = 'cpu'
+
+    fig, axes = plt.subplots(3, 2, figsize=(20.0, 10.0), constrained_layout=True, squeeze=False)
+    fig.suptitle('ICP optimization')
+
+    model = ScaledPolynomial(w=[0.0], exponent=[4])
+    # model = Polynomial(w=[0.0], exponent=[6])
+    # model = ScaledInvCos()
+    # model = InvCos()
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+
+    val_scan_id = 8
+    val_clouds, val_poses = select_sample(ds, scan_n=val_scan_id, cfg=cfg)
+    val_pose_dist = np.linalg.norm(val_poses[0][:3, 3] - val_poses[1][:3, 3])
+
+    for train_scan_id in range(len(ds) // 2):
+        train_scan_id = int(train_scan_id)
+        train_clouds, train_poses = select_sample(ds, scan_n=train_scan_id, cfg=cfg)
+
+        # val_scan_id = (train_scan_id + 10) % len(ds)
+        # val_clouds = select_clouds(ds, scan_n=val_scan_id, cfg=cfg)
+
+        train_pose_dist = np.linalg.norm(train_poses[0][:3, 3] - train_poses[1][:3, 3])
+        if train_pose_dist > 3.0:
+            print('Distance between view points is too big: %.3f > 3.0 m, skipping' % train_pose_dist)
+            continue
+
+        print('Train indices: (%i, %i), dist between poses: %.3f' %
+              (train_scan_id, train_scan_id + 1, train_pose_dist))
+        print('Val indices: (%i, %i), dist between poses: %.3f' %
+              (val_scan_id, val_scan_id + 1, val_pose_dist))
+
+        # put model and data on device
+        model = model.to(cfg.device)
+        train_clouds = [c.to(cfg.device) for c in train_clouds]
+        val_clouds = [c.to(cfg.device) for c in val_clouds]
+
+        losses_train = []
+        losses_val = []
+        iters = list(range(500))
+
+        # optimization
+        for it in tqdm(iters):
+            # calculate training loss: on a pair of scans
+            train_clouds_corr = [model(c) for c in train_clouds]
+            for c in train_clouds_corr:
+                c.update_points()
+            loss = point_to_plane_dist(clouds=train_clouds_corr, verbose=True)
+
+            # calculate validation loss: on another pair of clouds
+            with torch.no_grad():
+                val_clouds_corr = [model(c) for c in val_clouds]
+                for c in val_clouds_corr:
+                    c.update_points()
+                loss_val = point_to_plane_dist(clouds=val_clouds_corr)
+
+            losses_train.append(loss.item())
+            losses_val.append(loss_val.item())
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        # visualization of results
+        ax = axes[0, 0]
+        ax.grid(visible=True)
+        ax.set_ylabel('ICP train loss')
+        ax.set_xlabel('Iterations')
+        ax.plot(iters, np.asarray(losses_train) - losses_train[0], label='(%i, %i)' % (train_scan_id, train_scan_id + 1))
+        # ax.legend()
+
+        ax = axes[0, 1]
+        ax.grid(visible=True)
+        ax.set_ylabel('ICP val loss')
+        ax.set_xlabel('Iterations')
+        ax.plot(iters, np.asarray(losses_val) - losses_val[0], label='(%i, %i)' % (val_scan_id, val_scan_id + 1))
+        # ax.legend()
+
+        ax = axes[1, 0]
+        plot_clouds(ax, train_clouds_corr, marker='.', markersize=2)
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('Training cloud: y [m]')
+        ax.set_ylim([-4.0, 4.0])
+        ax.grid(visible=True)
+        ax.axis('equal')
+
+        ax = axes[1, 1]
+        plot_clouds(ax, val_clouds_corr, marker='b.', markersize=2)
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('Validation cloud: y [m]')
+        ax.set_ylim([-4.0, 4.0])
+        ax.grid(visible=True)
+        ax.axis('equal')
+
+        ax = axes[2, 0]
+        model.plot(ax)
+        ax.grid(visible=True)
+        ax.legend()
+
+        plt.pause(0.001)
+        plt.draw()
+
+        print(model)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()

@@ -228,7 +228,7 @@ def train(cfg: Config, callbacks=None, train_datasets=None, val_datasets=None):
         # Validation
         val_loss, _, val_poses_upd, val_feat_clouds \
                 = eval_loss_clouds(val_clouds, val_poses, val_pose_deltas, val_masks, val_ns,
-                               model, loss_fun, cfg)
+                                   model, loss_fun, cfg)
         callbacks.val_loss(it, model, val_feat_clouds, val_pose_deltas, val_poses_upd, val_masks, val_loss)
 
         if cfg.enable_ros and cfg.val_names:

@@ -104,7 +104,8 @@ class BaseModel(torch.nn.Module):
         with torch.no_grad():
             cloud = DepthCloud.from_points(torch.ones((n_pts, 3)) / torch.sqrt(torch.tensor(3.0)))
             cloud.inc_angles = torch.as_tensor(np.linspace(0, max_angle, n_pts))[:, None]
-            ax.plot(np.rad2deg(cloud.inc_angles.numpy()).flatten(), self(cloud).depth.numpy().flatten(), **kwargs)
+            cloud = cloud.to(self.w.device)
+            ax.plot(np.rad2deg(cloud.inc_angles.cpu().numpy()).flatten(), self(cloud).depth.cpu().numpy().flatten(), **kwargs)
             ax.set_xlabel('Incidence Angle [deg]')
             ax.set_ylabel('Depth [m]')
 

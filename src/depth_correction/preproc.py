@@ -281,7 +281,6 @@ def compute_neighborhood_features(dataset=None, clouds=None, poses=None, model=N
         neighborhoods.eigvecs = eigvecs
         return neighborhoods
 
-
     elif cfg.nn_type == NeighborhoodType.plane:
         planes = neighborhoods.copy()
         plane_clouds = []

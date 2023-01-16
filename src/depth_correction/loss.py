@@ -11,6 +11,7 @@ from numpy.polynomial import Polynomial
 import torch
 from scipy.spatial import cKDTree
 from pytorch3d.ops.knn import knn_points
+import warnings
 
 
 __all__ = [
@@ -470,8 +471,8 @@ def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
 
         point2plane_dist += 0.5 * (dist12 + dist21)
 
-        if inl_err > 0.5:
-            print('ICP inliers error is too big: %.3f (> 0.5) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
+        if inl_err > 0.3:
+            warnings.warn('ICP inliers error is too big: %.3f (> 0.3) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
 
         if verbose:
             print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
@@ -540,8 +541,8 @@ def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
         vectors = points2_inters - points1_inters
         point2point_dist = torch.linalg.norm(vectors, dim=1).mean()
 
-        if inl_err > 0.5:
-            print('ICP inliers error is too big: %.3f (> 0.5) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
+        if inl_err > 0.3:
+            warnings.warn('ICP inliers error is too big: %.3f (> 0.3) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
 
         if verbose:
             print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %

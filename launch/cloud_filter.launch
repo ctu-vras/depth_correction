@@ -6,6 +6,7 @@
     <arg name="min_depth" default="1.0" doc="Minimum depth to keep."/>
     <arg name="max_depth" default="15.0" doc="Maximum depth to keep."/>
     <arg name="grid_res" default="0.1" doc="Voxel grid bin size."/>
+    <arg name="max_age" default="1.0" doc="Maximum delay of input point cloud"/>
 
     <node name="cloud_filter" pkg="depth_correction" type="cloud_filter" output="screen">
         <rosparam subst_value="true">
@@ -15,6 +16,7 @@
             min_depth: $(arg min_depth)
             max_depth: $(arg max_depth)
             grid_res: $(arg grid_res)
+            max_age: $(arg max_age)
         </rosparam>
         <remap from="input" to="$(arg input)"/>
         <remap from="output" to="$(arg output)"/>

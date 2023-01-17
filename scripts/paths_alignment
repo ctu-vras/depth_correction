@@ -220,8 +220,8 @@ def absolute_orientation(x, y):
 def demo():
     import open3d as o3d
 
-    # seq = 'slam_2022-11-24-15-28-59'
-    seq = 'slam_2022-11-24-15-39-08'
+    seq = 'slam_2022-11-24-15-28-59'
+    # seq = 'slam_2022-11-24-15-39-08'
     path = '/home/ruslan/data/datasets/depth_correction/22-11-24-kn_e2_corridor/sequences/'
     points = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_leica_poses_raw.txt'))
     points = points - np.array([0, 0, 0.1])  # crystal is 10 cm above lidar

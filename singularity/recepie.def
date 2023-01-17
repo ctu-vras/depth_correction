@@ -75,6 +75,7 @@ From: ros:noetic-perception
     mkdir -p $lpm_build && cd $lpm_build && cmake $ws/src/libpointmatcher/
     cd $lpm_build && make && make install
 
+    # build ROS workspace
     cd "${ws}/" && catkin config --extend /opt/ros/noetic
     cd "${ws}/" && catkin config --cmake-args -DCMAKE_BUILD_TYPE=Release
     cd "${ws}/" && catkin build

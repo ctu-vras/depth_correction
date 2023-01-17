@@ -13,10 +13,19 @@
     <node name="rosbag_play" pkg="rosbag" type="play" args="--clock --delay 3.0 --rate 1.0 --start 0 $(arg bag)"/>
 
     <!-- 3D alignment to find transformation between subt and map frames -->
-    <node pkg="tf" type="static_transform_publisher" name="leica_frame_broadcaster"
-          args="2.04918219 -0.0549657  -0.14208485
-                0.00176987 -0.00817518  0.08592385  0.99626659
-                subt map 100" />
+    <!-- For sequence slam_2022-11-24-15-28-59 -->
+    <!-- TODO: double check it, does not work -->
+    <node if="$(eval '2022-11-24-15-28-59' in bag)"
+          pkg="tf" type="static_transform_publisher" name="leica_frame_broadcaster"
+          args="-1.99887395  0.41757888  0.17917509
+                0.00798539  0.00732319 -0.08601576  0.99623486
+                map subt 100" />
+    <!-- For sequence slam_2022-11-24-15-39-08 -->
+    <node if="$(eval '2022-11-24-15-39-08' in bag)"
+          pkg="tf" type="static_transform_publisher" name="leica_frame_broadcaster"
+          args="-2.00522453  0.40555919  0.17453647
+                -0.00176987  0.00817518 -0.08592385  0.99626659
+                map subt 100" />
     <node pkg="tf" type="static_transform_publisher" name="subt_frame_broadcaster"
           args="0 0 0
                 0 0 0 1
@@ -61,6 +70,7 @@
                                   /tf
                                   /tf_static
                                   /total_station_driver/ts_points"/>
+        <arg name="bag_prefix" value="$(find depth_correction)/slam_no_alignment"/>
     </include>
 
     <!-- RVIZ -->

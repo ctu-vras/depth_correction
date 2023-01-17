@@ -54,9 +54,27 @@ From: ros:noetic-perception
     ln -s /usr/bin/python3 /usr/bin/python
 
     # Setup ROS workspace
-    #ws=/opt/ros/depthcorr_ws
-    #mkdir -p "${ws}/src/"
-    #cd "${ws}/src"
-    #git clone https://github.com/tpet/data.git
-    #git clone https://github.com/RuslanAgishev/depth_correction.git
-    #cd $ws && wstool init src ${ws}/src/depth_correction/dependencies.rosinstall
+    ws=/opt/ros/depthcorr_ws/
+    mkdir -p "${ws}/src/"
+    cd "${ws}/src/"
+    git clone https://github.com/tpet/data.git
+    git clone -b depth_correction https://github.com/RuslanAgishev/depth_correction.git
+    cd $ws && wstool init src ${ws}/src/depth_correction/dependencies.rosinstall
+
+    # build libnabo
+    cd "${ws}/src/"
+    git clone https://github.com/ethz-asl/libnabo
+    nabo_build=$ws/src/libnabo/build/
+    mkdir -p $nabo_build && cd $nabo_build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo $ws/src/libnabo/
+    cd $nabo_build && make && make install
+
+    # build libpointmatcher
+    cd "${ws}/src/"
+    git clone https://github.com/ethz-asl/libpointmatcher
+    lpm_build=$ws/src/libpointmacher_ros/build/
+    mkdir -p $lpm_build && cd $lpm_build && cmake $ws/src/libpointmatcher/
+    cd $lpm_build && make && make install
+
+    cd "${ws}/" && catkin config --extend /opt/ros/noetic
+    cd "${ws}/" && catkin config --cmake-args -DCMAKE_BUILD_TYPE=Release
+    cd "${ws}/" && catkin build

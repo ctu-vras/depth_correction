@@ -184,21 +184,21 @@ class Config(Configurable):
         self.max_depth = 20.0
         self.grid_res = 0.1
         # Neighborhood
-        # self.nn_type = NeighborhoodType.ball
+        self.nn_type = NeighborhoodType.ball
         self.nn_k = 0
         self.nn_r = 0.25
         self.nn_grid_res = 0.5
-        # self.min_valid_neighbors = 5
-        # self.max_neighborhoods = None
+        self.min_valid_neighbors = 5
+        self.max_neighborhoods = None
         # self.nn_scale = self.nn_r / 2
         self.nn_scale = None
-        self.nn_type = NeighborhoodType.plane
-        self.ransac_model_size = 3
-        self.ransac_dist_thresh = 0.03
-        self.num_ransac_iters = 500
-        # self.min_valid_neighbors = 1000
-        self.min_valid_neighbors = 250
-        self.max_neighborhoods = 10
+        # # self.nn_type = NeighborhoodType.plane
+        # self.ransac_model_size = 3
+        # self.ransac_dist_thresh = 0.03
+        # self.num_ransac_iters = 500
+        # # self.min_valid_neighbors = 1000
+        # self.min_valid_neighbors = 250
+        # self.max_neighborhoods = 10
 
         # Depth correction
         self.shadow_neighborhood_angle = 0.017453  # 1 deg
@@ -218,12 +218,12 @@ class Config(Configurable):
         self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1]]
 
         # Data
-        self.dataset = 'asl_laser'
+        self.dataset = 'depth_correction'
         self.dataset_args = []
         self.dataset_kwargs = {}
-        self.train_names = ['eth']
-        self.val_names = ['stairs']
-        self.test_names = ['gazebo_winter']
+        self.train_names = []
+        self.val_names = []
+        self.test_names = []
         # print('Training set: %s.' % ', '.join(self.train_names))
         # print('Validation set: %s.' % ', '.join(self.val_names))
         # print('Test set: %s.' % ', '.join(self.val_names))
@@ -232,7 +232,7 @@ class Config(Configurable):
         self.test_poses_path = []
         self.data_start = None
         self.data_stop = None
-        self.data_step = 5
+        self.data_step = 1
         self.world_frame = 'world'
 
         # Artificial data noise

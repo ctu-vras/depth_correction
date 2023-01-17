@@ -5,7 +5,7 @@
 - git:
     local-name: libpointmatcher_ros
     uri: https://github.com/norlab-ulaval/libpointmatcher_ros.git
-    version: master
+    version: melodic
 - git:
     local-name: norlab_icp_mapper
     uri: https://github.com/tpet/norlab_icp_mapper.git

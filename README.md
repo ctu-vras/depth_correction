@@ -135,8 +135,7 @@ cloud1.update_all(r=cfg.nn_r)
 cloud2.update_all(r=cfg.nn_r)
 
 # run optimization loop
-epochs = 100
-for i in range(epochs):
+for i in range(cfg.n_opt_iters):
     cloud1_corr = model(cloud1)
     cloud2_corr = model(cloud2)
     
@@ -151,4 +150,26 @@ for i in range(epochs):
     
     print(model)
     print(loss)
+```
+
+## Usage
+
+Launch training of depth correction models:
+```bash
+roslaunch depth_correction train_demo.launch rviz:=true
+```
+
+Evaluation of baselines.
+
+Compute map consistency metrics on raw data (not corrected with the models):
+```bash
+python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 -- eval_loss_baselines
+```
+
+Estimate localization accuracy with
+[norlab_icp_mapper](https://github.com/norlab-ulaval/norlab_icp_mapper)
+using ground truth from a dataset:
+
+```bash
+python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 --ros-master-port 12311 --rviz true -- eval_slam_baselines
 ```

@@ -86,7 +86,6 @@ python -m data.depth_correction
 ```
 
 
-
 ## Getting Started
 
 Optimization example.
@@ -172,4 +171,9 @@ using ground truth from a dataset:
 
 ```bash
 python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 --ros-master-port 12311 --rviz true -- eval_slam_baselines
+```
+
+Training of depth correction models and evaluation of them on map consistency and localization accuracy (whole pipeline):
+```bash
+python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 -- train_and_eval_all
 ```

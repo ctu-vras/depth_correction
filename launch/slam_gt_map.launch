@@ -50,13 +50,11 @@
     <!-- estimate initial ground truth map position for ICP convergence (publish GT cloud in ROS and visualize it) -->
     <node pkg="depth_correction" type="cloud_publisher" name="cloud_publisher">
         <rosparam subst_value="true">
-<!--            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/ground_map_2cm.npz-->
-<!--            cloud_file: $(dirname)/../data/22-11-24-kn_e2_corridor/npz/map_2cm_alligned.npz-->
 <!--            cloud_file: $(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/maps/npz/map_5cm_alligned.npz-->
             cloud_file: $(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/maps/npz/ground_map_5cm_alligned.npz
             frame: map
             rate: 30.0
-            allignment: false
+            alignment: false
         </rosparam>
         <remap from="cloud" to="ground_truth_map"/>
     </node>
@@ -70,7 +68,7 @@
                                   /tf
                                   /tf_static
                                   /total_station_driver/ts_points"/>
-        <arg name="bag_prefix" value="$(find depth_correction)/slam_no_alignment"/>
+        <arg name="bag_prefix" value="$(dirname)/../slam_no_alignment_depth_correction"/>
     </include>
 
     <!-- RVIZ -->

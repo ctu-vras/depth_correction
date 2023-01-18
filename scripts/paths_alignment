@@ -254,6 +254,7 @@ def demo():
 
     o3d.visualization.draw_geometries([pcd, pcd_aligned, pcd_target])
 
+
 def main():
     # alignment_2d()
     demo()

@@ -267,6 +267,82 @@ def extract_data(bag_paths=(), output_bag_path='{dir}/{name}/static_data.bag',
             write_poses(leica_poses, path=output_bag_path.replace(bag_file_name, prefix + 'leica_poses.txt'))
 
 
+def localization_accuracy(seq='2022-11-24-15-39-08', fixed_frame='map', pose_frame_id='os_sensor'):
+    assert seq in ['2022-11-24-15-39-08', '2022-11-24-15-28-59'], 'Bag sequence is not supported (no gt to compare to)'
+    import matplotlib.pyplot as plt
+    from depth_correction.utils import delta_transform, rotation_angle, translation_norm
+
+    def str_to_sec(stamp):
+        sec = float(stamp.split('_')[0])
+        nsec = float(stamp.split('_')[1])
+        t = sec + nsec / float(1e9)
+        return t
+
+    def read_poses(path):
+        poses = np.genfromtxt(path)
+        poses = np.asarray([np.vstack([p, np.array([0, 0, 0, 1])[None]]) for p in poses.reshape((-1, 3, 4))])
+        return poses
+
+    data_path = '/home/ruslan/data/datasets/depth_correction/22-11-24-kn_e2_corridor/'
+    poses = []
+    # bag_path = os.path.join(data_path, 'bags/slam_no_alignment_depth_correction_%s.bag' % seq)
+    bag_path = os.path.join(data_path, 'bags/slam_no_alignment_%s.bag' % seq)
+    stamps_path = os.path.join(data_path, 'sequences/slam_%s/timestamps.txt' % seq)
+    poses_path = os.path.join(data_path, 'sequences/slam_%s/poses/poses.txt' % seq)
+    gt_poses = read_poses(poses_path)
+
+    stamps = np.sort(np.genfromtxt(stamps_path, dtype=str)).tolist()
+    buffer, _ = load_buffer(bag_paths=[bag_path])
+
+    r_angles = []
+    t_norms = []
+    rel_angles = []
+    rel_offsets = []
+    for i, s in enumerate(stamps):
+        stamp = str_to_sec(s)
+        # Get cloud pose in fixed frame to check mutual cloud distance.
+        try:
+            tf = buffer.lookup_transform_core(fixed_frame, pose_frame_id, rospy.Time.from_seconds(stamp))
+        except TransformException as ex:
+            print('Could not find transform from %s to %s. Skipping. %s'
+                  % (pose_frame_id, fixed_frame, ex))
+            continue
+        slam_pose = numpify(tf.transform)
+        poses.append(slam_pose)
+
+        # evaluate localization accuracy
+        delta = delta_transform(slam_pose, gt_poses[i])
+        r_angle = rotation_angle(delta)
+        t_norm = translation_norm(delta)
+
+        rel_angle = r_angle / len(gt_poses)
+        rel_offset = t_norm / len(gt_poses)
+
+        r_angles.append(r_angle)
+        t_norms.append(t_norm)
+        rel_angles.append(rel_angle)
+        rel_offsets.append(rel_offset)
+
+        # print('SLAM err. for pose %i / %i (%s): %.3f deg. (%.3g deg/m), %.3f m (%.3g %%).' %
+        #       (i, len(gt_poses), str(stamps[i]),
+        #        np.degrees(r_angle).item(), np.degrees(rel_angle).item(), t_norm, 100. * rel_offset))
+
+    r_angle = np.mean(r_angles).item()
+    t_norm = np.mean(t_norms).item()
+    rel_angle = np.mean(rel_angles).item()
+    rel_offset = np.mean(rel_offsets).item()
+    print('Average error: rot. %.6f deg. (%.3f deg/m), transl. %.6f m (%.3f %%).' %
+          (np.degrees(r_angle).item(), np.degrees(rel_angle).item(), t_norm, 100. * rel_offset))
+
+    # poses = np.asarray(poses)
+    # plt.figure()
+    # plt.plot(poses[:, 0, 3], poses[:, 1, 3], 'ro')
+    # plt.plot(gt_poses[:, 0, 3], gt_poses[:, 1, 3], 'gx')
+    # plt.axis('equal')
+    # plt.grid()
+    # plt.show()
+
+
 def main():
     args = get_arg_parser().parse_args()
 

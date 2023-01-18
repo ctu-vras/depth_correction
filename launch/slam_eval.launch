@@ -68,7 +68,6 @@
             <arg name="slam_eval_csv" value="$(arg slam_eval_csv)"/>
             <arg name="slam_poses_csv" value="$(arg slam_poses_csv)"/>
         </include>
-<!--        <include file="$(dirname)/reconstruction_eval.launch"/>-->
     </group>
 
     <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
@@ -97,13 +96,13 @@
         <arg name="max_age" value="1.0"/>
     </include>
     <include file="$(dirname)/slam.launch">
-            <arg name="cloud" value="$(eval 'corrected_cloud' if depth_correction else 'filtered_cloud')"/>
-            <arg name="odom_frame" value="$(eval 'odom' if odom else 'lidar')"/>
-        </include>
-        <include if="$(arg record)" file="$(dirname)/record.launch">
-            <arg name="bag" value="$(arg bag)"/>
-            <arg name="bag_prefix" value="$(arg bag_prefix)"/>
-        </include>
+        <arg name="cloud" value="$(eval 'corrected_cloud' if depth_correction else 'filtered_cloud')"/>
+        <arg name="odom_frame" value="$(eval 'odom' if odom else 'lidar')"/>
+    </include>
+    <include if="$(arg record)" file="$(dirname)/record.launch">
+        <arg name="bag" value="$(arg bag)"/>
+        <arg name="bag_prefix" value="$(arg bag_prefix)"/>
+    </include>
 
     <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
         <arg name="config" value="$(dirname)/../config/slam.rviz"/>

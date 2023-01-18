@@ -21,7 +21,7 @@ class CloudPublisher(object):
         self.rate = rospy.get_param('~rate', 1.0)
         self.cloud_file = rospy.get_param('~cloud_file')
         self.frame = rospy.get_param('~frame', 'map')
-        self.allignment = rospy.get_param('~allignment', False)
+        self.alignment = rospy.get_param('~alignment', False)
 
         self.cloud = self.load_cloud()
 
@@ -32,7 +32,7 @@ class CloudPublisher(object):
     def load_cloud(self):
         assert os.path.exists(self.cloud_file), "Point cloud file %s does not exist" % self.cloud_file
         cloud = np.load(self.cloud_file)['cloud']
-        if self.allignment:
+        if self.alignment:
             cloud = self.allign_cloud(cloud)
 
         return cloud

@@ -58,7 +58,7 @@ From: ros:noetic-perception
     mkdir -p "${ws}/src/"
     cd "${ws}/src/"
     git clone https://github.com/tpet/data.git
-    git clone -b depth_correction https://github.com/RuslanAgishev/depth_correction.git
+    git clone https://github.com/RuslanAgishev/depth_correction.git
     cd $ws && wstool init src ${ws}/src/depth_correction/dependencies.rosinstall
 
     # build libnabo

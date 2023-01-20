@@ -10,7 +10,6 @@ from depth_correction.model import ScaledPolynomial, ScaledInvCos
 from depth_correction.preproc import filtered_cloud, local_feature_cloud, filter_grid
 from depth_correction.config import Config
 from depth_correction.loss import icp_loss
-from depth_correction.preproc import global_cloud
 import open3d as o3d
 
 
@@ -133,9 +132,11 @@ def main():
         # get ground truth cloud
         ds = Dataset(name=val_names[i], move_to_origin=False)
         gt_points_struct = ds.global_cloud(resolution_cm=5.0)
-        gt_points_pose = torch.tensor(ds.global_cloud_pose(), device=cfg.device)
         gt_cloud = DepthCloud.from_structured_array(gt_points_struct, device=cfg.device)
-        gt_cloud = gt_cloud.transform(gt_points_pose)
+
+        if not ds.move_to_origin:
+            gt_points_pose = torch.tensor(ds.global_cloud_pose(), device=cfg.device)
+            gt_cloud = gt_cloud.transform(torch.linalg.inv(gt_points_pose))
 
         # sequence cloud before depth correction
         cloud = DepthCloud.concatenate(val_clouds[i])

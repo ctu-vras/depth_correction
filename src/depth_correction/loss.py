@@ -371,15 +371,15 @@ def icp_loss(clouds, poses=None, model=None, masks=None, **kwargs):
 
     :param clouds: List of lists of clouds :) Individual scans from different data sequences.
     :param poses: List od lists of poses for each point cloud scan.
-    :param model: Depth correction model.
     :param masks:
     :return:
     """
-    if poses is None:
-        transformed_clouds = clouds
-    else:
-        transformed_clouds = [[model(c).transform(p) if model else c.transform(p) for c, p in zip(seq_clouds, seq_poses)]
-                              for seq_clouds, seq_poses in zip(clouds, poses)]
+    transformed_clouds = clouds
+    if model is not None:
+        transformed_clouds = [[model(c) for c in seq_clouds] for seq_clouds in transformed_clouds]
+    if poses is not None:
+        transformed_clouds = [[c.transform(p) for c, p in zip(seq_clouds, seq_poses)]
+                              for seq_clouds, seq_poses in zip(transformed_clouds, poses)]
     loss = 0.
     loss_cloud = []
     loss_fun = point_to_plane_dist if kwargs['icp_point_to_plane'] else point_to_point_dist

@@ -93,6 +93,7 @@ def main():
     print('Loss on validation set without correction: %f\n' % loss_val0)
 
     model = ScaledPolynomial(w=[0.0, 0.0], exponent=[2, 4], device=cfg.device)
+    # model = ScaledPolynomial(w=[0.0], exponent=[6], device=cfg.device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
@@ -101,16 +102,18 @@ def main():
     losses_train, losses_val = [], []
     best_model = ScaledPolynomial()
     min_loss = np.inf
-    max_iters = 200
-    for it in tqdm(range(max_iters)):
+
+    for it in tqdm(range(cfg.n_opt_iters)):
         train_clouds_corr = [[model(c) for c in seq_clouds] for seq_clouds in train_clouds]
         for sc in train_clouds_corr:
             for c in sc:
                 c.update_points()
 
-        optimizer.zero_grad()
-        loss_train, _ = loss_fn(train_clouds_corr, **cfg.loss_kwargs, verbose=True)
+        # with torch.autograd.detect_anomaly():
+        loss_train, _ = loss_fn(clouds=train_clouds_corr, **cfg.loss_kwargs, verbose=True)
         losses_train.append(loss_train.item())
+
+        optimizer.zero_grad()
         loss_train.backward()
         optimizer.step()
 
@@ -187,9 +190,7 @@ def main():
         # get ground truth cloud
         ds = Dataset(name=val_names[i], move_to_origin=False)
         gt_points_struct = ds.global_cloud(resolution_cm=5.0)
-        gt_points_pose = torch.tensor(ds.global_cloud_pose(), device=cfg.device)
         gt_cloud = DepthCloud.from_structured_array(gt_points_struct, device=cfg.device)
-        gt_cloud = gt_cloud.transform(gt_points_pose)
         gt_cloud.update_points()
 
         # sequence cloud before depth correction

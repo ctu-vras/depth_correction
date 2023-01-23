@@ -1,5 +1,33 @@
 # Depth Correction
 
+Point cloud maps acquired using consumer-level lidar still
+suffer from **bias related to measuring scene surfaces with high incidence angle**.
+A learnable method that refines lidar measurements based on the local shape of the measured surface.
+In particular, we introduce two novel point cloud map consistency losses, which facilitate self-supervised learning on real data of lidar depth correction models.
+Complementary to the removal of the bias from lidar measurements, we demonstrate that the depth correction models help to reduce localization drift.
+
+#### Topics
+
+- `input` [[sensor_msgs/PointCloud2](http://docs.ros.org/en/noetic/api/sensor_msgs/html/msg/PointCloud2.html)]: Input point cloud to subscribe to.
+- `output` [sensor_msgs/PointCloud2]: Published point cloud topic.
+
+#### Paramters
+
+- `model_class`: Class name from module depth_correction.model.
+- `model_args`: Model constructor positional arguments.
+- `model_kwargs`: Model constructor key-value arguments.
+- `model_state_dict`: Path to the model state dict.
+- `device`: Device to run tensor operations on: cpu or cuda.
+- `max_age`: Maximum age of input point cloud to correct.
+- `publish_filtered`: 
+- `nn_k`: Nearest neighbor count.
+- `nn_r`: Nearest neighbor radius.
+- `shadow_neighborhood_angle`: Shadow neighborhood angle.
+- `shadow_angle_bounds`: Shadow angle bounds for neighbors.
+- `eigenvalue_bounds`: Eigenvalue bounds for correcting depth.
+
+## Training Pipeline
+
 ![](./docs/imgs/depth_correction_scheme.png)
 
 LiDAR measurements correction models trained in a self-supervised manner on real data from diverse environments.
@@ -152,6 +180,13 @@ for i in range(cfg.n_opt_iters):
 ```
 
 ## Usage
+
+Running depth correction node to refine point clouds used futher as input to
+[SLAM](https://github.com/tpet/norlab_icp_mapper_ros):
+
+```bash
+roslaunch depth_correction slam_eval.launch depth_correction:=true model_class:=ScaledPolynomial model_state_dict:=/path/to/model_state_dict.pth play:=true bag:=/path/to/bag/file/name.bag rviz:=true
+```
 
 Launch training of depth correction models:
 ```bash

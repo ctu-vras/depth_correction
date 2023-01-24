@@ -37,7 +37,7 @@ class CloudPublisher(object):
 
         return cloud
 
-    def allign_cloud(self, cloud):
+    def align_cloud(self, cloud):
         points = structured_to_unstructured(cloud[['x', 'y', 'z']])
         scan_0_pose = np.asarray([[0.999904, 0.013786, 0.001106, 0.000000],
                                   [-0.013786, 0.999905, -0.000566, 0.000000],

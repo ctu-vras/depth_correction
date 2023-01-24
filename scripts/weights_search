@@ -130,13 +130,9 @@ def main():
     """
     for i in range(len(val_clouds)):
         # get ground truth cloud
-        ds = Dataset(name=val_names[i], move_to_origin=False)
+        ds = Dataset(name=val_names[i])
         gt_points_struct = ds.global_cloud(resolution_cm=5.0)
         gt_cloud = DepthCloud.from_structured_array(gt_points_struct, device=cfg.device)
-
-        if not ds.move_to_origin:
-            gt_points_pose = torch.tensor(ds.global_cloud_pose(), device=cfg.device)
-            gt_cloud = gt_cloud.transform(torch.linalg.inv(gt_points_pose))
 
         # sequence cloud before depth correction
         cloud = DepthCloud.concatenate(val_clouds[i])

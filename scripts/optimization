@@ -8,12 +8,10 @@ from data.depth_correction import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, ScaledInvCos
 from depth_correction.preproc import \
-    (filtered_cloud, local_feature_cloud, filter_grid, establish_neighborhoods, compute_neighborhood_features)
+    (filtered_cloud, local_feature_cloud, filter_grid)
 from depth_correction.config import Config
 from depth_correction.loss import icp_loss
-from depth_correction.preproc import global_cloud
 from depth_correction.loss import loss_by_name
-from depth_correction.dataset import create_dataset
 import open3d as o3d
 
 
@@ -104,15 +102,15 @@ def main():
     min_loss = np.inf
 
     for it in tqdm(range(cfg.n_opt_iters)):
+
         train_clouds_corr = [[model(c) for c in seq_clouds] for seq_clouds in train_clouds]
         for sc in train_clouds_corr:
             for c in sc:
                 c.update_points()
-
-        # with torch.autograd.detect_anomaly():
         loss_train, _ = loss_fn(clouds=train_clouds_corr, **cfg.loss_kwargs, verbose=True)
         losses_train.append(loss_train.item())
 
+        # with torch.autograd.detect_anomaly():
         optimizer.zero_grad()
         loss_train.backward()
         optimizer.step()
@@ -122,7 +120,7 @@ def main():
             for sc in val_clouds_corr:
                 for c in sc:
                     c.update_points()
-            loss_val, _ = loss_fn(val_clouds_corr, **cfg.loss_kwargs)
+            loss_val, _ = loss_fn(clouds=val_clouds_corr, **cfg.loss_kwargs)
             losses_val.append(loss_val.item())
 
         iters.append(it)

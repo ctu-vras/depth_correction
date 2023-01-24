@@ -1,0 +1,203 @@
+#!/usr/bin/env python
+
+from __future__ import absolute_import, division, print_function
+
+from ros_numpy import msgify
+import rospy
+from sensor_msgs.msg import PointCloud2, PointField
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped, Pose
+from std_msgs.msg import Header
+
+from scipy.spatial.transform import Rotation
+from tqdm import tqdm
+import numpy as np
+from numpy.lib.recfunctions import unstructured_to_structured, structured_to_unstructured
+from depth_correction.config import Config
+from depth_correction.preproc import filtered_cloud
+from data.depth_correction import dataset_names, Dataset, seq_names
+
+
+def transform_cloud(cloud, Tr):
+    cloud_transformed = np.matmul(cloud[:, :3], Tr[:3, :3].T) + Tr[:3, 3:].T
+    return cloud_transformed
+
+
+def xyzrgb_array_to_pointcloud2(points, colors, stamp=None, frame_id='camera_link', seq=None):
+    '''
+    Create a sensor_msgs.PointCloud2 from an array
+    of points.
+    '''
+    msg = PointCloud2()
+
+    if stamp:
+        msg.header.stamp = stamp
+    if frame_id:
+        msg.header.frame_id = frame_id
+    if seq:
+        msg.header.seq = seq
+
+    N = len(points)
+    xyzrgb = np.array(np.hstack([points, colors]), dtype=np.float32)
+    msg.height = 1
+    msg.width = N
+
+    msg.fields = [
+        PointField('x', 0, PointField.FLOAT32, 1),
+        PointField('y', 4, PointField.FLOAT32, 1),
+        PointField('z', 8, PointField.FLOAT32, 1),
+        PointField('r', 12, PointField.FLOAT32, 1),
+        PointField('g', 16, PointField.FLOAT32, 1),
+        PointField('b', 20, PointField.FLOAT32, 1),
+    ]
+    msg.is_bigendian = False
+    msg.point_step = 24
+    msg.row_step = msg.point_step * N
+    msg.is_dense = True
+    msg.data = xyzrgb.tobytes()
+
+    return msg
+
+
+def poses_list_to_path_msg(poses):
+    assert isinstance(poses, (np.ndarray, list))
+    for p in poses:
+        assert p.shape == (4, 4)
+    msg = Path()
+    msg.poses = [PoseStamped(Header(), msgify(Pose, p)) for p in poses]
+    return msg
+
+
+def filter_window_outliers(points: np.ndarray, y_min=-2.5, y_max=2.5):
+    """
+    Filter outliers related to lidar beams going through windows
+    """
+    phi = np.deg2rad(50.8)
+    Rot = np.array([[np.cos(phi), -np.sin(phi), 0],
+                    [np.sin(phi), np.cos(phi), 0],
+                    [0, 0, 1]])
+    pts = (Rot @ points.T).T
+    y = pts[:, 1]
+    mask = np.logical_and(y > y_min, y < y_max)
+
+    return points[mask]
+
+
+class DatasetPublisher(object):
+
+    def __init__(self):
+        self.cfg = Config()
+        self.cfg.grid_res = 0.1
+        self.cfg.max_depth = 20.0
+        self.cfg.min_depth = 0.5
+        self.cfg.data_step = 1
+        self.cfg.dataset_kwargs['static_poses'] = False
+        self.cfg.dataset_kwargs['move_to_origin'] = False
+
+        self.max_age = rospy.get_param('~max_age', 1.0)
+        self.rate = rospy.get_param('~rate', 0.5)
+        self.name = rospy.get_param('~name', seq_names[0])
+        self.frame = rospy.get_param('~frame', 'map')
+
+        self.cloud_pub = rospy.Publisher('~cloud', PointCloud2, queue_size=1)
+        self.global_cloud_pub = rospy.Publisher('~global_cloud', PointCloud2, queue_size=2)
+        self.path_pub = rospy.Publisher('~path', Path, queue_size=1)
+
+        self.global_cloud_msg = self.load_dataset()
+
+        rospy.Timer(rospy.Duration(1. / self.rate), self.run)
+
+    def align_cloud(self, points):
+        rot = Rotation.from_euler('xyz', [0, -1, 10], degrees=True)
+        trans = np.asarray([0., 0., 0.])
+        Tr = np.eye(4)
+        Tr[:3, :3] = rot.as_matrix()
+        Tr[:3, 3] = trans
+
+        points = transform_cloud(points, Tr)
+        points, Tr = np.asarray(points, dtype=np.float32), np.asarray(Tr, dtype=np.float32)
+
+        return points, Tr
+
+    def load_dataset(self):
+        ds = Dataset(self.name, **self.cfg.dataset_kwargs)
+        rospy.loginfo('Dataset %s contains %i clouds.' % (self.name, len(ds)))
+
+        global_points_struct = ds.global_cloud(resolution_cm=2)
+        global_points = structured_to_unstructured(global_points_struct[['x', 'y', 'z']])
+        global_colors = structured_to_unstructured(global_points_struct[['r', 'g', 'b']]) / 255.
+
+        # remove upper half
+        mask = global_points_struct['z'] <= np.quantile(global_points_struct['z'], 0.5)
+        global_points = global_points[mask]
+        global_colors = global_colors[mask]
+
+        points_list = []
+        poses = []
+        dists = []
+        pose_prev = np.eye(4)
+        for points, pose in tqdm(ds[::self.cfg.data_step]):
+            points = structured_to_unstructured(points[['x', 'y', 'z']], dtype=np.float32)
+
+            points = filtered_cloud(points, cfg=self.cfg)
+            points = filter_window_outliers(points)
+
+            # transform to map frame
+            points = transform_cloud(points, pose)
+
+            points_list.append(points)
+            poses.append(pose)
+            dists.append(np.linalg.norm(pose[:3, 3] - pose_prev[:3, 3]))
+            pose_prev = pose
+            rospy.logdebug('%i points read from dataset %s, points.' % (len(points), ds.name))
+
+        points = np.concatenate(points_list)
+        points = np.asarray(points, dtype=np.float32)
+
+        # remove upper half
+        mask = points[:, 2] <= np.quantile(points[:, 2], 0.5)
+        points = points[mask]
+        dists.pop(0)
+
+        rospy.loginfo('Loaded dataset %s, pts: %d, distances between poses:  mean=%.2f, max=%.2f'
+                      % (self.name, len(points), np.mean(dists).item(), np.max(dists)))
+
+        points, Tr = self.align_cloud(points)
+        global_points, _ = self.align_cloud(global_points)
+        poses = [Tr @ p for p in poses]
+
+        # convert data to ROS msgs
+        path_msg = poses_list_to_path_msg(poses)
+        global_cloud_msg = xyzrgb_array_to_pointcloud2(global_points, global_colors)
+        stacked_clouds_msg = msgify(PointCloud2, unstructured_to_structured(points, names=['x', 'y', 'z']))
+
+        return global_cloud_msg, stacked_clouds_msg, path_msg
+
+    def run(self, event):
+        global_cloud_msg, stacked_clouds_msg, path_msg = self.global_cloud_msg
+
+        now = rospy.Time.now()
+
+        global_cloud_msg.header.frame_id = self.frame
+        global_cloud_msg.header.stamp = now
+        self.global_cloud_pub.publish(global_cloud_msg)
+
+        stacked_clouds_msg.header.frame_id = self.frame
+        stacked_clouds_msg.header.stamp = now
+        self.cloud_pub.publish(stacked_clouds_msg)
+
+        path_msg.header.stamp = now
+        path_msg.header.frame_id = self.frame
+        self.path_pub.publish(path_msg)
+
+        rospy.loginfo('Publishing global cloud')
+
+
+def main():
+    rospy.init_node('dataset_publisher', log_level=rospy.INFO)
+    node = DatasetPublisher()
+    rospy.spin()
+
+
+if __name__ == '__main__':
+    main()

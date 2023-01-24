@@ -6,7 +6,7 @@ A learnable method that refines lidar measurements based on the local shape of t
 In particular, we introduce two novel point cloud map consistency losses, which facilitate self-supervised learning on real data of lidar depth correction models.
 Complementary to the removal of the bias from lidar measurements, we demonstrate that the depth correction models help to reduce localization drift.
 
-![](./docs/imgs/bias.png)
+<img src="https://github.com/ctu-vras/depth_correction/blob/main/docs/imgs/bias.png" width="500" />
 
 #### Topics
 
@@ -107,7 +107,7 @@ depth_correction
             ├── poses
             └── static_ouster_points
 ```
-![](./docs/imgs/depth_correction_data.png)
+![](./docs/imgs/corridor_data.png) ![](./docs/imgs/corridor_part_stairs.png)
 
 There the `map` folder containes ground truth scans captured with
 the [Leica BLK360](https://leica-geosystems.com/products/laser-scanners/scanners/blk360) scanner.

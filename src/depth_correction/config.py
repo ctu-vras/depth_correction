@@ -172,8 +172,8 @@ class Config(Configurable):
         self.optimize_model = True  # Whether to optimize model parameters.
         self.model_args = []
         self.model_kwargs = {}
-        self.model_kwargs['w'] = [0.0, 0.0]
-        self.model_kwargs['exponent'] = [2.0, 4.0]
+        # self.model_kwargs['w'] = [0.0, 0.0]
+        # self.model_kwargs['exponent'] = [2.0, 4.0]
         # self.model_kwargs['learnable_exponents'] = False
         self.model_state_dict = ''
         self.float_type = 'float64'

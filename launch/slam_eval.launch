@@ -2,7 +2,7 @@
 <launch>
     <!-- Evaluation of SLAM pipelines with and without depth correction module. -->
     <arg name="config" default="''"/>
-    <arg name="dataset" default="depth_correction/slam_2022-11-24-15-28-59" doc="Dataset and sequence name."/>
+    <arg name="dataset" default="fee_corridor/seq1" doc="Dataset and sequence name."/>
     <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
     <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
     <arg name="odom" default="true" doc="Publish possibly perturbed odometry."/>

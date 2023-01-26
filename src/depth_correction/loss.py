@@ -724,7 +724,7 @@ def test_eigh3():
 
 
 def pose_correction_demo():
-    from data.depth_correction import dataset_names, Dataset
+    from data.fee_corridor import dataset_names, Dataset
     from depth_correction.preproc import filtered_cloud, local_feature_cloud
     from depth_correction.transform import matrix_to_xyz_axis_angle, xyz_axis_angle_to_matrix
     import open3d as o3d

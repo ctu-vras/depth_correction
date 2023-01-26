@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
-from data.depth_correction import Dataset, dataset_names
+from data.fee_corridor import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, ScaledInvCos
 from depth_correction.preproc import \
@@ -62,7 +62,7 @@ def main():
     cfg = Config()
     cfg.grid_res = 0.2
     cfg.min_depth = 1.0
-    cfg.max_depth = 25.0
+    cfg.max_depth = 20.0
     cfg.nn_r = 0.4
     cfg.data_step = 1
     cfg.device = 'cuda'

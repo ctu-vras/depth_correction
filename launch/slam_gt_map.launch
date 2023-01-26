@@ -2,7 +2,7 @@
 <launch>
     <arg name="config" default="''"/>
     <arg name="rviz" default="true"/>
-    <arg name="sequence" default="seq1" doc="A sequence from data set. One of [seq1, seq2]"/>
+    <arg name="sequence" default="seq2" doc="A sequence from data set. One of [seq1, seq2]"/>
     <arg name="bag" default="$(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/bags/$(arg sequence).bag"/>
     <arg name="params" default="$(eval bag.split()[0] + '.params')"/>
     <!-- Cloud filter -->

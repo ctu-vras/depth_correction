@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <node name="dataset_publisher" pkg="depth_correction" type="dataset_publisher"/>
+    <node name="dataset_publisher" pkg="depth_correction" type="dataset_publisher" output="screen"/>
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(dirname)/../config/dataset.rviz"/>
 </launch>

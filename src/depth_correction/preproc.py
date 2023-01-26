@@ -232,7 +232,7 @@ def compute_neighborhood_features(dataset=None, clouds=None, poses=None, model=N
 def demo_neighborhood_features():
     # from data.asl_laser import Dataset, dataset_names, prefix
     # from data.newer_college import Dataset, dataset_names, prefix
-    from data.depth_correction import dataset_names, prefix
+    from data.fee_corridor import dataset_names, prefix
     from .dataset import create_dataset
     from .loss import create_loss
     cfg = Config()
@@ -266,7 +266,7 @@ def demo_neighborhood_features():
 
 
 def demo_point_to_plane():
-    from data.depth_correction import dataset_names, prefix
+    from data.fee_corridor import dataset_names, prefix
     # from data.asl_laser import dataset_names, prefix
     from .dataset import create_dataset
     from .loss import point_to_plane_dist

@@ -82,30 +82,29 @@ It exhibits the following structure:
 
 <!-- `tree -L 4 -d depth_correction` -->
 ```bash
-depth_correction
-└── 22-11-24-kn_e2_corridor
-    ├── bags
-    │   └── slam_2022-11-24-15-39-08
-    │       ├── ouster_points
-    │       └── static_ouster_points
-    ├── maps
-    │   ├── blk
-    │   ├── e57
-    │   ├── npz
-    │   ├── pcd
-    │   ├── ptx
-    │   └── vtk
-    └── sequences
-        ├── slam_2022-11-24-15-28-59
-        │   ├── calibration
-        │   ├── ouster_points
-        │   ├── poses
-        │   └── static_ouster_points
-        └── slam_2022-11-24-15-39-08
-            ├── calibration
-            ├── ouster_points
-            ├── poses
-            └── static_ouster_points
+fee_corridor
+├── bags
+│   └── seq2
+│       ├── ouster_points
+│       └── static_ouster_points
+├── maps
+│   ├── blk
+│   ├── e57
+│   ├── npz
+│   ├── pcd
+│   ├── ptx
+│   └── vtk
+└── sequences
+    ├── seq1
+    │   ├── calibration
+    │   ├── ouster_points
+    │   ├── poses
+    │   └── static_ouster_points
+    └── seq2
+        ├── calibration
+        ├── ouster_points
+        ├── poses
+        └── static_ouster_points
 ```
 ![](./docs/imgs/corridor_data.png) ![](./docs/imgs/corridor_part_stairs.png)
 
@@ -136,13 +135,12 @@ Point cloud scans correction with ICP-like point to plane distance as loss funct
 ```python
 # import necessary libraries
 import torch
-from data.depth_correction import Dataset, dataset_names
+from data.fee_corridor import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial
 from depth_correction.preproc import filtered_cloud
 from depth_correction.config import Config
 from depth_correction.loss import point_to_plane_dist
-
 
 # in this example we use collected indoor dataset
 ds = Dataset(name=dataset_names[0])

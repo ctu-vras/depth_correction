@@ -256,7 +256,7 @@ class Config(Configurable):
         self.loss_kwargs['inlier_ratio'] = 1.0
         self.loss_kwargs['icp_inlier_ratio'] = 0.3
         self.loss_kwargs['icp_point_to_plane'] = True
-        self.n_opt_iters = 100
+        self.n_opt_iters = 2
 
         self.optimizer = 'Adam'
         self.optimizer_args = []

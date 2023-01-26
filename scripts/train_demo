@@ -48,11 +48,11 @@ class TrainingDemo(TrainCallbacks):
         # 4 clouds
         # self.cfg.train_names = ['kitti360/03_start_223_end_243_step_1']
         # self.cfg.train_names = ['kitti360/07_start_52_end_102_step_1']
-        self.cfg.train_names = ['depth_correction/slam_2022-11-24-15-39-08']
+        self.cfg.train_names = ['fee_corridor/seq2']
         self.cfg.train_poses_path = []
         # self.cfg.val_names = ['kitti360/03_start_223_end_243_step_1']
         # self.cfg.val_names = ['kitti360/07_start_52_end_102_step_1']
-        self.cfg.val_names = ['depth_correction/slam_2022-11-24-15-28-59']
+        self.cfg.val_names = ['fee_corridor/seq1']
         self.cfg.val_poses_path = []
 
         # self.cfg.data_step = 4
@@ -127,9 +127,9 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.model_kwargs['learnable_exponents'] = False
         self.cfg.model_state_dict = None
 
-        self.cfg.loss = Loss.min_eigval_loss
+        # self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
-        # self.cfg.loss = Loss.icp_loss
+        self.cfg.loss = Loss.icp_loss
         self.cfg.loss_kwargs['sqrt'] = False
         # self.cfg.loss_kwargs['sqrt'] = True
         # self.cfg.loss_kwargs['normalization'] = False

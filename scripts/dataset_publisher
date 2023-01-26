@@ -15,7 +15,7 @@ import numpy as np
 from numpy.lib.recfunctions import unstructured_to_structured, structured_to_unstructured
 from depth_correction.config import Config
 from depth_correction.preproc import filtered_cloud
-from data.depth_correction import dataset_names, Dataset, seq_names
+from data.fee_corridor import dataset_names, Dataset, seq_names
 
 
 def transform_cloud(cloud, Tr):
@@ -83,6 +83,19 @@ def filter_window_outliers(points: np.ndarray, y_min=-2.5, y_max=2.5):
     return points[mask]
 
 
+def align_cloud(points):
+    rot = Rotation.from_euler('xyz', [0, -1, 10], degrees=True)
+    trans = np.asarray([0., 0., 0.])
+    Tr = np.eye(4)
+    Tr[:3, :3] = rot.as_matrix()
+    Tr[:3, 3] = trans
+
+    points = transform_cloud(points, Tr)
+    points, Tr = np.asarray(points, dtype=np.float32), np.asarray(Tr, dtype=np.float32)
+
+    return points, Tr
+
+
 class DatasetPublisher(object):
 
     def __init__(self):
@@ -107,18 +120,6 @@ class DatasetPublisher(object):
 
         rospy.Timer(rospy.Duration(1. / self.rate), self.run)
 
-    def align_cloud(self, points):
-        rot = Rotation.from_euler('xyz', [0, -1, 10], degrees=True)
-        trans = np.asarray([0., 0., 0.])
-        Tr = np.eye(4)
-        Tr[:3, :3] = rot.as_matrix()
-        Tr[:3, 3] = trans
-
-        points = transform_cloud(points, Tr)
-        points, Tr = np.asarray(points, dtype=np.float32), np.asarray(Tr, dtype=np.float32)
-
-        return points, Tr
-
     def load_dataset(self):
         ds = Dataset(self.name, **self.cfg.dataset_kwargs)
         rospy.loginfo('Dataset %s contains %i clouds.' % (self.name, len(ds)))
@@ -136,6 +137,7 @@ class DatasetPublisher(object):
         poses = []
         dists = []
         pose_prev = np.eye(4)
+        rospy.loginfo('Reading poses and clouds from dataset %s...' % self.name)
         for points, pose in tqdm(ds[::self.cfg.data_step]):
             points = structured_to_unstructured(points[['x', 'y', 'z']], dtype=np.float32)
 
@@ -162,8 +164,8 @@ class DatasetPublisher(object):
         rospy.loginfo('Loaded dataset %s, pts: %d, distances between poses:  mean=%.2f, max=%.2f'
                       % (self.name, len(points), np.mean(dists).item(), np.max(dists)))
 
-        points, Tr = self.align_cloud(points)
-        global_points, _ = self.align_cloud(global_points)
+        points, Tr = align_cloud(points)
+        global_points, _ = align_cloud(global_points)
         poses = [Tr @ p for p in poses]
 
         # convert data to ROS msgs

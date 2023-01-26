@@ -13,7 +13,7 @@ Complementary to the removal of the bias from lidar measurements, we demonstrate
 - `input` [[sensor_msgs/PointCloud2](http://docs.ros.org/en/noetic/api/sensor_msgs/html/msg/PointCloud2.html)]: Input point cloud to subscribe to.
 - `output` [sensor_msgs/PointCloud2]: Published point cloud topic.
 
-#### Paramters
+#### Parameters
 
 - `model_class`: Class name from module depth_correction.model.
 - `model_args`: Model constructor positional arguments.
@@ -67,20 +67,23 @@ roslaunch depth_correction train_demo.launch rviz:=true
 
 ## Datasets
 
-For models evauation we utilize and provide training pipeline on
+For models evaluation we utilize and provide training pipeline on
 the following publicly available datasets:
 
 - [ASL laser](https://projects.asl.ethz.ch/datasets/doku.php?id=laserregistration:laserregistration),
 - [Semantic KITTI](http://www.semantic-kitti.org/dataset.html),
 - [Newer College](https://ori-drs.github.io/newer-college-dataset/).
 - [KITTI-360](https://www.cvlibs.net/datasets/kitti-360/)
+- [FEE Corridor](https://drive.google.com/file/d/12jp2iVD54a1ntAB6iXPYOx3mRsKVbNbc/view?usp=share_link)
 
-In addition, we provide our dataset that contains point cloud data captured in indorr environment
+In addition, we provide our dataset (`FEE Corridor`) that contains point cloud data captured in indorr environment
 with precise localization and ground truth mapping information.
-Download the dataset and put it in the `./data` folder.
+Download the
+[dataset](https://drive.google.com/file/d/12jp2iVD54a1ntAB6iXPYOx3mRsKVbNbc/view?usp=share_link)
+and put it to the `./data` folder (50 Gb).
 It exhibits the following structure:
 
-<!-- `tree -L 4 -d depth_correction` -->
+<!-- `tree -L 4 -d fee_corridor` -->
 ```bash
 fee_corridor
 ├── bags

@@ -115,6 +115,7 @@ class DatasetPublisher(object):
         self.cloud_pub = rospy.Publisher('~cloud', PointCloud2, queue_size=1)
         self.global_cloud_pub = rospy.Publisher('~global_cloud', PointCloud2, queue_size=2)
         self.path_pub = rospy.Publisher('~path', Path, queue_size=1)
+        # self.path_pub2 = rospy.Publisher('~path2', Path, queue_size=1)
 
         self.global_cloud_msg = self.load_dataset()
 
@@ -164,18 +165,26 @@ class DatasetPublisher(object):
         rospy.loginfo('Loaded dataset %s, pts: %d, distances between poses:  mean=%.2f, max=%.2f'
                       % (self.name, len(points), np.mean(dists).item(), np.max(dists)))
 
+        # ds2 = Dataset(seq_names[1], **self.cfg.dataset_kwargs)
+        # poses2 = [p for id, p in ds2.poses.items()]
+        # poses2 = poses2[::self.cfg.data_step]
+
         points, Tr = align_cloud(points)
         global_points, _ = align_cloud(global_points)
         poses = [Tr @ p for p in poses]
+        # poses2 = [Tr @ p for p in poses2]
 
         # convert data to ROS msgs
         path_msg = poses_list_to_path_msg(poses)
+        # path_msg2 = poses_list_to_path_msg(poses2)
         global_cloud_msg = xyzrgb_array_to_pointcloud2(global_points, global_colors)
         stacked_clouds_msg = msgify(PointCloud2, unstructured_to_structured(points, names=['x', 'y', 'z']))
 
+        # return global_cloud_msg, stacked_clouds_msg, path_msg, path_msg2
         return global_cloud_msg, stacked_clouds_msg, path_msg
 
     def run(self, event):
+        # global_cloud_msg, stacked_clouds_msg, path_msg, path_msg2 = self.global_cloud_msg
         global_cloud_msg, stacked_clouds_msg, path_msg = self.global_cloud_msg
 
         now = rospy.Time.now()
@@ -191,6 +200,10 @@ class DatasetPublisher(object):
         path_msg.header.stamp = now
         path_msg.header.frame_id = self.frame
         self.path_pub.publish(path_msg)
+
+        # path_msg2.header.stamp = now
+        # path_msg2.header.frame_id = self.frame
+        # self.path_pub2.publish(path_msg2)
 
         rospy.loginfo('Publishing global cloud')
 

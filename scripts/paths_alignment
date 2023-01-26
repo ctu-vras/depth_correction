@@ -220,15 +220,17 @@ def absolute_orientation(x, y):
 def demo():
     import open3d as o3d
 
-    seq = 'slam_2022-11-24-15-28-59'
-    # seq = 'slam_2022-11-24-15-39-08'
+    seq = 'seq1'
+    # seq = 'seq2'
     path = '/home/ruslan/data/datasets/depth_correction/22-11-24-kn_e2_corridor/sequences/'
-    points = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_leica_poses_raw.txt'))
-    points = points - np.array([0, 0, 0.1])  # crystal is 10 cm above lidar
+    poses_leica = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_leica_poses_raw.txt'))
+    poses_leica = poses_leica - np.array([0, 0, 0.1])  # crystal is 10 cm above lidar
 
-    points_target = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_poses.txt')).reshape((-1, 3, 4))[:, :, 3]
+    poses_slam = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_poses.csv'), delimiter=', ', skip_header=True)
+    poses_slam = poses_slam[:, 2:]
+    poses_slam = poses_slam.reshape((-1, 4, 4))[:, :3, 3]
 
-    T_source_target = absolute_orientation(points.T, points_target.T)
+    T_source_target = absolute_orientation(poses_leica.T, poses_slam.T)
 
     print('Resulting transformation: \n%s\n' % T_source_target)
     R = np.eye(3)
@@ -237,20 +239,20 @@ def demo():
     print('Translation (x, y): %s' % T_source_target[:3, 3])
     print('Quaternion: %s' % quat)
 
-    points_aligned = transform_cloud(points, T_source_target)
-    print('Alignment MSE [m]: %f' % np.mean(np.linalg.norm(points_aligned - points_target, axis=1)))
+    points_aligned = transform_cloud(poses_leica, T_source_target)
+    print('Alignment MSE [m]: %f' % np.mean(np.linalg.norm(points_aligned - poses_slam, axis=1)))
 
     pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    pcd.colors = o3d.utility.Vector3dVector(np.zeros_like(points) + np.array([1, 0, 0]))
+    pcd.points = o3d.utility.Vector3dVector(poses_leica)
+    pcd.colors = o3d.utility.Vector3dVector(np.zeros_like(poses_leica) + np.array([1, 0, 0]))
 
     pcd_aligned = o3d.geometry.PointCloud()
     pcd_aligned.points = o3d.utility.Vector3dVector(points_aligned)
     pcd_aligned.colors = o3d.utility.Vector3dVector(np.zeros_like(points_aligned) + np.array([0, 1, 0]))
 
     pcd_target = o3d.geometry.PointCloud()
-    pcd_target.points = o3d.utility.Vector3dVector(points_target)
-    pcd_target.colors = o3d.utility.Vector3dVector(np.zeros_like(points_target) + np.array([0, 0, 1]))
+    pcd_target.points = o3d.utility.Vector3dVector(poses_slam)
+    pcd_target.colors = o3d.utility.Vector3dVector(np.zeros_like(poses_slam) + np.array([0, 0, 1]))
 
     o3d.visualization.draw_geometries([pcd, pcd_aligned, pcd_target])
 

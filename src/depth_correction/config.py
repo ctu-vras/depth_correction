@@ -218,7 +218,7 @@ class Config(Configurable):
         self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1]]
 
         # Data
-        self.dataset = 'depth_correction'
+        self.dataset = 'fee_corridor'
         self.dataset_args = []
         self.dataset_kwargs = {}
         self.train_names = []
@@ -256,7 +256,7 @@ class Config(Configurable):
         self.loss_kwargs['inlier_ratio'] = 1.0
         self.loss_kwargs['icp_inlier_ratio'] = 0.3
         self.loss_kwargs['icp_point_to_plane'] = True
-        self.n_opt_iters = 2
+        self.n_opt_iters = 200
 
         self.optimizer = 'Adam'
         self.optimizer_args = []

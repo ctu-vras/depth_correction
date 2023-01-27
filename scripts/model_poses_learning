@@ -1,0 +1,165 @@
+#! /usr/bin/env python
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from tqdm import tqdm
+from data.fee_corridor import Dataset, dataset_names, seq_names
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.model import ScaledPolynomial, Polynomial
+from depth_correction.preproc import \
+    (filtered_cloud, local_feature_cloud, filter_grid)
+from depth_correction.config import Config
+from depth_correction.loss import icp_loss
+from depth_correction.eval import create_corrected_poses, global_cloud
+
+
+def filter_window_outliers(cloud: DepthCloud, cfg: Config, y_min=-2.5, y_max=2.5):
+    """
+    Filter outliers related to lidar beams going through windows
+
+    :param y_max:
+    :param y_min:
+    :param cloud:
+    :param cfg:
+    :return:
+    """
+    phi = np.deg2rad(50.8)
+    Rot = torch.tensor([[np.cos(phi), -np.sin(phi), 0],
+                        [np.sin(phi), np.cos(phi), 0],
+                        [0, 0, 1]]).to(cfg.device)
+    pts = cloud.points if cloud.points is not None else cloud.to_points()
+    pts = (Rot @ pts.T).T
+    y = pts[:, 1]
+    mask = torch.logical_and(y > y_min, y < y_max)
+
+    return cloud[mask]
+
+def points_to_cloud(points_struct, cfg):
+    # construct depth cloud objects from points
+    cloud = DepthCloud.from_structured_array(points_struct, dtype=cfg.numpy_float_type(), device=cfg.device)
+
+    # apply grid and depth filters to clouds
+    cloud = filtered_cloud(cloud, cfg)
+    # filter outlier points which do not belong to the corridor
+    cloud = filter_window_outliers(cloud, cfg)
+
+    # compute cloud features necessary for optimization (like normals and incidence angles)
+    cloud = local_feature_cloud(cloud=cloud, cfg=cfg)
+    cloud = cloud[cloud.mask]
+
+    # cloud.visualize()
+    return cloud
+
+
+def main():
+    cfg = Config()
+    cfg.grid_res = 0.2
+    cfg.min_depth = 1.0
+    cfg.max_depth = 20.0
+    cfg.nn_r = 0.4
+    cfg.data_step = 1
+    cfg.lr = 0.001
+    cfg.device = 'cuda'
+    cfg.loss_kwargs['icp_inlier_ratio'] = 0.3
+    cfg.loss_kwargs['icp_point_to_plane'] = True
+    cfg.dataset_kwargs['static_poses'] = True
+    cfg.pose_correction = 'pose'
+
+    # train_name = dataset_names[0]
+    # train_name = np.random.choice(dataset_names)
+    train_name = np.random.choice(seq_names)
+    print('Training on %s sequence' % train_name)
+    ds = Dataset(name=train_name, **cfg.dataset_kwargs)
+    train_clouds = []
+    for id in ds.ids:
+        points_struct = ds.local_cloud(id)
+        train_clouds.append(points_to_cloud(points_struct, cfg))
+    train_poses = np.stack([ds.poses[id] for id in ds.ids])
+    train_poses = torch.as_tensor(train_poses, device=cfg.device, dtype=cfg.torch_float_type())
+    train_pose_deltas = torch.zeros((len(train_clouds), 6),
+                                    dtype=cfg.torch_float_type(), requires_grad=True, device=cfg.device)
+
+    # model = ScaledPolynomial(w=[0.0, 0.0], exponent=[2, 4], device=cfg.device)
+    model = ScaledPolynomial(w=[0.0], exponent=[6], device=cfg.device)
+
+    # optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    optimizer = torch.optim.Adam([{'params': train_pose_deltas, 'lr': cfg.lr},
+                                  {'params': model.parameters(), 'lr': cfg.lr}])
+
+    # ground truth data (map and Leica tracker positions):
+    gt_points = ds.global_cloud(resolution_cm=5)
+    gt_cloud = DepthCloud.from_structured_array(gt_points, device=cfg.device)
+    gt_xyz = np.stack([ds.leica_xyz[id] for id in ds.ids])
+    gt_xyz = torch.as_tensor(gt_xyz, dtype=cfg.torch_float_type(), device=cfg.device)
+
+    # run optimization loop
+    fig, axes = plt.subplots(1, 3, figsize=(21.0, 7.0), constrained_layout=True, squeeze=False)
+    fig.suptitle('ICP optimization')
+    iters = []
+    losses_train = []
+    map_losses = []
+    pose_losses = []
+    for it in tqdm(range(cfg.n_opt_iters)):
+        # update poses
+        train_poses_corr = create_corrected_poses(train_poses, train_pose_deltas, cfg)
+        train_poses_corr = torch.stack(train_poses_corr)
+
+        # update clouds with model
+        train_clouds_corr = [model(c) for c in train_clouds]
+        for c in train_clouds_corr:
+            c.update_points()
+
+        # compute icp loss
+        loss_train, _ = icp_loss(clouds=[train_clouds_corr], poses=[train_poses_corr], **cfg.loss_kwargs)
+        losses_train.append(loss_train.item())
+
+        # optimization step
+        # with torch.autograd.detect_anomaly():
+        optimizer.zero_grad()
+        loss_train.backward()
+        optimizer.step()
+
+        # evaluation (metrics)
+        cloud = global_cloud(clouds=train_clouds_corr, poses=train_poses_corr)
+        pose_loss = torch.linalg.norm(gt_xyz - train_poses_corr[:, :3, 3], dim=1).mean()
+        pose_losses.append(pose_loss.item())
+        cfg.loss_kwargs['icp_point_to_plane'] = False
+        map_loss, _ = icp_loss([[cloud, gt_cloud]], **cfg.loss_kwargs)
+        map_losses.append(map_loss.item())
+
+        iters.append(it)
+
+        print(loss_train.item())
+
+        # visualization
+        if True and it % 2 == 0:
+            # visualization of results
+            plt.cla()
+            ax = axes[0, 0]
+            ax.grid(visible=True)
+            ax.set_ylabel('ICP train loss')
+            ax.set_xlabel('Iterations')
+            ax.plot(iters, losses_train, color='k')
+
+            ax = axes[0, 1]
+            ax.grid(visible=True)
+            ax.set_ylabel('Map accuracy ICP loss')
+            ax.set_xlabel('Iterations')
+            ax.plot(iters, map_losses, color='b')
+
+            ax = axes[0, 2]
+            # model.plot(ax, color='k')
+            # ax.grid(visible=True)
+            # ax.legend()
+            ax.grid(visible=True)
+            ax.set_ylabel('Pose L2 loss')
+            ax.set_xlabel('Iterations')
+            ax.plot(iters, pose_losses, color='b')
+
+            plt.pause(0.001)
+            plt.draw()
+
+
+if __name__ == "__main__":
+    main()

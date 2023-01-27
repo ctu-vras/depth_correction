@@ -82,18 +82,18 @@ class RobotData(object):
         Dataset = getattr(imported_module, "Dataset")
         print(self.dataset_name, self.dataset_path, self.dataset_poses_path)
         if self.dataset_name and self.dataset_path:
-            if 'depth_correction' in self.dataset_name:
+            if 'fee_corridor' in self.dataset_name:
                 self.dataset = Dataset(self.dataset_name, path=self.dataset_path, poses_path=self.dataset_poses_path,
                                        static_poses=False)
             else:
                 self.dataset = Dataset(self.dataset_name, path=self.dataset_path, poses_path=self.dataset_poses_path)
         elif self.dataset_path:
-            if 'depth_correction' in self.dataset_name:
+            if 'fee_corridor' in self.dataset_name:
                 self.dataset = Dataset(path=self.dataset_path, poses_path=self.dataset_poses_path, static_poses=False)
             else:
                 self.dataset = Dataset(path=self.dataset_path, poses_path=self.dataset_poses_path)
         else:
-            if 'depth_correction' in self.dataset_name:
+            if 'fee_corridor' in self.dataset_name:
                 self.dataset = Dataset(self.dataset_name, poses_path=self.dataset_poses_path, static_poses=False)
             else:
                 self.dataset = Dataset(self.dataset_name, poses_path=self.dataset_poses_path)

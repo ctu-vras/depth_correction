@@ -1,4 +1,4 @@
 #! /bin/bash
 
-python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --data-step 1 --grid-res 0.2 --nn-r 0.4 --ros-master-port 12311 --rviz true -- eval_loss_baselines
+python -m depth_correction.main --dataset fee_corridor --min-depth 1.0 --max-depth 25.0 --data-step 1 --grid-res 0.2 --nn-r 0.4 --ros-master-port 12311 --rviz true -- eval_loss_baselines
 

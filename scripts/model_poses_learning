@@ -4,12 +4,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
+import open3d as o3d
 from data.fee_corridor import Dataset, dataset_names, seq_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, Polynomial
 from depth_correction.preproc import \
     (filtered_cloud, local_feature_cloud, filter_grid)
-from depth_correction.config import Config
+from depth_correction.config import Config, PoseCorrection
 from depth_correction.loss import icp_loss
 from depth_correction.eval import create_corrected_poses, global_cloud
 
@@ -56,21 +57,27 @@ def main():
     cfg = Config()
     cfg.grid_res = 0.2
     cfg.min_depth = 1.0
-    cfg.max_depth = 20.0
+    cfg.max_depth = 25.0
     cfg.nn_r = 0.4
     cfg.data_step = 1
     cfg.lr = 0.001
+    cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
+    cfg.optimizer_kwargs['weight_decay'] = 0.1
+    cfg.n_opt_iters = 500
     cfg.device = 'cuda'
     cfg.loss_kwargs['icp_inlier_ratio'] = 0.3
     cfg.loss_kwargs['icp_point_to_plane'] = True
     cfg.dataset_kwargs['static_poses'] = True
-    cfg.pose_correction = 'pose'
+    cfg.pose_correction = PoseCorrection.pose
 
     # train_name = dataset_names[0]
     # train_name = np.random.choice(dataset_names)
-    train_name = np.random.choice(seq_names)
+    train_name = 'seq2'
     print('Training on %s sequence' % train_name)
-    ds = Dataset(name=train_name, **cfg.dataset_kwargs)
+    ds = Dataset(name=train_name,
+                 poses_path='/home/ruslan/workspaces/depthcorr_ws/src/depth_correction/gen/fee_corridor_d1-25_g0.20'
+                            '/fee_corridor/seq2/slam_poses_norlab_icp_mapper.csv',
+                 **cfg.dataset_kwargs)
     train_clouds = []
     for id in ds.ids:
         points_struct = ds.local_cloud(id)
@@ -80,12 +87,13 @@ def main():
     train_pose_deltas = torch.zeros((len(train_clouds), 6),
                                     dtype=cfg.torch_float_type(), requires_grad=True, device=cfg.device)
 
-    # model = ScaledPolynomial(w=[0.0, 0.0], exponent=[2, 4], device=cfg.device)
-    model = ScaledPolynomial(w=[0.0], exponent=[6], device=cfg.device)
+    model = ScaledPolynomial(w=[0.0, 0.0], exponent=[2, 4], device=cfg.device)
+    # model = ScaledPolynomial(w=[0.0], exponent=[6], device=cfg.device)
 
     # optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     optimizer = torch.optim.Adam([{'params': train_pose_deltas, 'lr': cfg.lr},
-                                  {'params': model.parameters(), 'lr': cfg.lr}])
+                                  {'params': model.parameters(), 'lr': cfg.lr}], **cfg.optimizer_kwargs)
+    # optimizer = torch.optim.Adam([{'params': train_pose_deltas, 'lr': cfg.lr}])
 
     # ground truth data (map and Leica tracker positions):
     gt_points = ds.global_cloud(resolution_cm=5)
@@ -94,7 +102,7 @@ def main():
     gt_xyz = torch.as_tensor(gt_xyz, dtype=cfg.torch_float_type(), device=cfg.device)
 
     # run optimization loop
-    fig, axes = plt.subplots(1, 3, figsize=(21.0, 7.0), constrained_layout=True, squeeze=False)
+    fig, axes = plt.subplots(2, 2, figsize=(14.0, 14.0), constrained_layout=True, squeeze=False)
     fig.suptitle('ICP optimization')
     iters = []
     losses_train = []
@@ -125,22 +133,22 @@ def main():
         pose_loss = torch.linalg.norm(gt_xyz - train_poses_corr[:, :3, 3], dim=1).mean()
         pose_losses.append(pose_loss.item())
         cfg.loss_kwargs['icp_point_to_plane'] = False
+        cfg.loss_kwargs['icp_inlier_ratio'] = 0.8
         map_loss, _ = icp_loss([[cloud, gt_cloud]], **cfg.loss_kwargs)
         map_losses.append(map_loss.item())
 
         iters.append(it)
 
-        print(loss_train.item())
-
         # visualization
-        if True and it % 2 == 0:
+        if True and it % 1 == 0:
             # visualization of results
             plt.cla()
             ax = axes[0, 0]
             ax.grid(visible=True)
             ax.set_ylabel('ICP train loss')
             ax.set_xlabel('Iterations')
-            ax.plot(iters, losses_train, color='k')
+            ax.plot(iters[1:], losses_train[1:], color='k')
+            # ax.plot(iters, losses_train, color='k')
 
             ax = axes[0, 1]
             ax.grid(visible=True)
@@ -148,17 +156,34 @@ def main():
             ax.set_xlabel('Iterations')
             ax.plot(iters, map_losses, color='b')
 
-            ax = axes[0, 2]
-            # model.plot(ax, color='k')
-            # ax.grid(visible=True)
-            # ax.legend()
+            ax = axes[1, 0]
             ax.grid(visible=True)
             ax.set_ylabel('Pose L2 loss')
             ax.set_xlabel('Iterations')
             ax.plot(iters, pose_losses, color='b')
 
+            ax = axes[1, 1]
+            model.plot(ax, color='k')
+            ax.grid(visible=True)
+            ax.legend()
+
             plt.pause(0.001)
             plt.draw()
+
+        if False and it % 50 == 0:
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(cloud.to_points().detach().cpu())
+            pcd.colors = o3d.utility.Vector3dVector(torch.zeros_like(cloud.to_points().detach().cpu()) +
+                                                    torch.tensor([0, 1, 0]))
+
+            gt_pcd = o3d.geometry.PointCloud()
+            gt_pcd.points = o3d.utility.Vector3dVector(gt_cloud.to_points().detach().cpu())
+            gt_pcd.colors = o3d.utility.Vector3dVector(torch.zeros_like(gt_cloud.to_points().detach().cpu()) +
+                                                       torch.tensor([0, 0, 1]))
+
+            o3d.visualization.draw_geometries([pcd, gt_pcd])
+
+    plt.show()
 
 
 if __name__ == "__main__":

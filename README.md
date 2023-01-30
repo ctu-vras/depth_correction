@@ -79,7 +79,7 @@ the following publicly available datasets:
 In addition, we provide our dataset (`FEE Corridor`) that contains point cloud data captured in indorr environment
 with precise localization and ground truth mapping information.
 Download the
-[dataset](https://drive.google.com/file/d/12jp2iVD54a1ntAB6iXPYOx3mRsKVbNbc/view?usp=share_link)
+[dataset](http://ptak.felk.cvut.cz/vras/data/fee_corridor/fee_corridor.zip)
 and put it to the `./data` folder (50 Gb).
 It exhibits the following structure:
 

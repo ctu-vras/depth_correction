@@ -1,0 +1,76 @@
+#! /usr/bin/env python
+
+import numpy as np
+import torch
+from tqdm import tqdm
+from data.fee_corridor import Dataset, dataset_names
+from depth_correction.depth_cloud import DepthCloud
+from depth_correction.model import ScaledPolynomial
+from depth_correction.preproc import filtered_cloud, local_feature_cloud
+from depth_correction.config import Config, PoseCorrection
+from depth_correction.loss import create_loss
+from depth_correction.eval import create_corrected_poses, global_cloud
+from depth_correction.preproc import establish_neighborhoods, compute_neighborhood_features
+from depth_correction.config import Loss, NeighborhoodType
+
+
+def main():
+    cfg = Config()
+    cfg.grid_res = 0.2
+    cfg.min_depth = 1.0
+    cfg.max_depth = 20.0
+    cfg.nn_r = 0.4
+    cfg.lr = 0.001
+    cfg.n_opt_iters = 100
+    cfg.device = 'cpu'
+    cfg.pose_correction = PoseCorrection.pose
+    cfg.loss = Loss.min_eigval_loss
+    cfg.nn_type = NeighborhoodType.ball
+
+    train_name = dataset_names[0]
+    print('Training on %s sequence' % train_name)
+    ds = Dataset(name=train_name, static_poses=True)
+
+    train_clouds = []
+    for id in ds.ids:
+        points_struct = ds.local_cloud(id)
+        cloud = DepthCloud.from_structured_array(points_struct, dtype=cfg.numpy_float_type(), device=cfg.device)
+        cloud = filtered_cloud(cloud, cfg)
+        cloud = local_feature_cloud(cloud, cfg)
+        train_clouds.append(cloud)
+
+    train_poses = np.stack([ds.poses[id] for id in ds.ids])
+    train_poses = torch.as_tensor(train_poses, device=cfg.device, dtype=cfg.torch_float_type())
+    train_pose_deltas = torch.zeros((len(train_poses), 6),
+                                    dtype=cfg.torch_float_type(), requires_grad=True, device=cfg.device)
+
+    train_ns = establish_neighborhoods(clouds=train_clouds, poses=train_poses, cfg=cfg)
+
+    model = ScaledPolynomial(w=[0.0, 0.0], exponent=[2, 4], device=cfg.device)
+
+    loss_fn = create_loss(cfg)
+
+    optimizer = torch.optim.Adam([{'params': train_pose_deltas, 'lr': cfg.lr},
+                                  {'params': model.parameters(), 'lr': cfg.lr}], **cfg.optimizer_kwargs)
+
+    # run optimization loop
+    for it in tqdm(range(cfg.n_opt_iters)):
+        # update poses
+        train_poses_corr = create_corrected_poses(train_poses, train_pose_deltas, cfg)
+        train_poses_corr = torch.stack(train_poses_corr)
+
+        cloud = global_cloud(clouds=train_clouds, model=model, poses=train_poses_corr)
+        feats = compute_neighborhood_features(cloud=cloud, model=None, neighborhoods=train_ns, cfg=cfg)
+
+        # compute map consistency loss
+        loss_train, _ = loss_fn(feats)
+        print(loss_train.item())
+
+        # optimization step
+        optimizer.zero_grad()
+        loss_train.backward()
+        optimizer.step()
+
+
+if __name__ == "__main__":
+    main()

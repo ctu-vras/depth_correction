@@ -387,7 +387,7 @@ def icp_loss(clouds, poses=None, model=None, masks=None, **kwargs):
     for i in range(len(transformed_clouds)):
         seq_trans_clouds = transformed_clouds[i]
         seq_masks = None if masks is None else masks[i]
-        loss_seq = loss_fun(seq_trans_clouds, masks=seq_masks, inlier_ratio=kwargs['icp_inlier_ratio'])
+        loss_seq = loss_fun(seq_trans_clouds, masks=seq_masks, **kwargs)
         loss = loss + loss_seq
 
         cloud = DepthCloud.concatenate(seq_trans_clouds)
@@ -399,7 +399,7 @@ def icp_loss(clouds, poses=None, model=None, masks=None, **kwargs):
     return loss, loss_cloud
 
 
-def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiable=True, verbose=False):
+def point_to_plane_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differentiable=True, verbose=False, **kwargs):
     """ICP-like point to plane distance.
 
     Computes point to plane distances for consecutive pairs of point cloud scans, and returns the average value.
@@ -408,13 +408,13 @@ def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
     :param masks: List of tuples masks[i] = (mask1, mask2) where mask1 defines indices of points from 1st point cloud
                   in a pair that intersect (close enough) with points from 2nd cloud in the pair,
                   mask2 is list of indices of intersection points from the 2nd point cloud in a pair.
-    :param inlier_ratio: Ratio of inlier points between a two pairs of neighboring clouds.
+    :param icp_inlier_ratio: Ratio of inlier points between a two pairs of neighboring clouds.
     :param differentiable: Whether to use differentiable method of finding neighboring points (from Pytorch3d: slow on CPU)
                            or from scipy (faster but not differentiable).
     :param verbose:
     :return:
     """
-    assert 0.0 <= inlier_ratio <= 1.0
+    assert 0.0 <= icp_inlier_ratio <= 1.0
     if masks is not None:
         assert len(clouds) == len(masks) + 1
         # print('Using precomputed intersection masks for point to plane loss')
@@ -441,7 +441,7 @@ def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
                 dists, ids, _ = knn_points(points1[None], points2[None], K=1)
                 dists = torch.sqrt(dists).squeeze()
                 ids = ids.squeeze()
-            dist_th = torch.quantile(dists[~torch.isnan(dists)], inlier_ratio)
+            dist_th = torch.quantile(dists[~torch.isnan(dists)], icp_inlier_ratio)
             mask1 = dists <= dist_th
             mask2 = ids[mask1]
             inl_err = dists[mask1].mean()
@@ -483,7 +483,7 @@ def point_to_plane_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
     return point2plane_dist
 
 
-def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiable=True, verbose=False):
+def point_to_point_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differentiable=True, verbose=False, **kwargs):
     """ICP-like point to point distance.
 
     Computes point to point distances for consecutive pairs of point cloud scans, and returns the average value.
@@ -492,13 +492,13 @@ def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
     :param masks: List of tuples masks[i] = (mask1, mask2) where mask1 defines indices of points from 1st point cloud
                   in a pair that intersect (close enough) with points from 2nd cloud in the pair,
                   mask2 is list of indices of intersection points from the 2nd point cloud in a pair.
-    :param inlier_ratio: Ratio of inlier points between a two pairs of neighboring clouds.
+    :param icp_inlier_ratio: Ratio of inlier points between a two pairs of neighboring clouds.
     :param differentiable: Whether to use differentiable method of finding neighboring points (from Pytorch3d: slow on CPU)
                            or from scipy (faster but not differentiable).
     :param verbose:
     :return:
     """
-    assert 0.0 <= inlier_ratio <= 1.0
+    assert 0.0 <= icp_inlier_ratio <= 1.0
     if masks is not None:
         assert len(clouds) == len(masks) + 1
         # print('Using precomputed intersection masks for point to plane loss')
@@ -519,12 +519,12 @@ def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
         if masks is None:
             if not differentiable:
                 tree = cKDTree(points2)
-                dists, ids = tree.query(points1, k=1)
+                dists, ids = tree.query(points1.detach(), k=1)
             else:
                 dists, ids, _ = knn_points(points1[None], points2[None], K=1)
                 dists = torch.sqrt(dists).squeeze()
                 ids = ids.squeeze()
-            dist_th = torch.quantile(dists[~torch.isnan(dists)], inlier_ratio)
+            dist_th = torch.quantile(dists[~torch.isnan(dists)], icp_inlier_ratio)
             mask1 = dists <= dist_th
             mask2 = ids[mask1]
             inl_err = dists[mask1].mean()
@@ -545,7 +545,7 @@ def point_to_point_dist(clouds: list, inlier_ratio=0.5, masks=None, differentiab
             warnings.warn('ICP inliers error is too big: %.3f (> 0.3) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
 
         if verbose:
-            print('Mean point to plane distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
+            print('Mean point to point distance: %.3f [m] for scans: (%i, %i), inliers error: %.6f' %
                   (point2point_dist.item(), i, i+1, inl_err.item()))
 
     point2point_dist = torch.as_tensor(point2point_dist / n_pairs)
@@ -733,13 +733,13 @@ def pose_correction_demo():
     cfg = Config()
     cfg.grid_res = 0.2
     cfg.min_depth = 1.0
-    cfg.max_depth = 20.0
+    cfg.max_depth = 25.0
     cfg.nn_r = 0.4
     cfg.device = 'cuda'
     cfg.loss_kwargs['icp_inliers_ratio'] = 0.5
     cfg.loss_kwargs['icp_point_to_plane'] = False
 
-    ds = Dataset(name=dataset_names[0])
+    ds = Dataset(name=dataset_names[0], static_poses=False)
     id = int(np.random.choice(range(len(ds) - 1)))
     print('Using a pair of scans (%i, %i) from sequence: %s' % (id, id+1, dataset_names[0]))
     points1, pose1 = ds[id]
@@ -756,7 +756,7 @@ def pose_correction_demo():
     pose2 = torch.tensor(pose2, dtype=torch.float32)
     xyza1 = torch.tensor(matrix_to_xyz_axis_angle(pose1[None]), dtype=torch.float32).squeeze()
 
-    xyza1_delta = torch.tensor([-0.01, 0.01, 0.0, 0.0, 0.0, 0.0], dtype=pose1.dtype)
+    xyza1_delta = torch.tensor([-0.01, 0.01, 0.02, 0.01, 0.01, -0.02], dtype=pose1.dtype)
     xyza1_delta.requires_grad = True
 
     optimizer = torch.optim.Adam([{'params': xyza1_delta, 'lr': 1e-3}])
@@ -782,8 +782,8 @@ def pose_correction_demo():
     # run optimization loop
     for it in range(1000):
         # add noise to poses
-        xyza1_corr = xyza1 + xyza1_delta
-        pose1_corr = xyz_axis_angle_to_matrix(xyza1_corr[None]).squeeze()
+        pose_deltas_mat = xyz_axis_angle_to_matrix(xyza1_delta[None]).squeeze()
+        pose1_corr = torch.matmul(pose1, pose_deltas_mat)
 
         # transform point clouds to the same world coordinate frame
         cloud1_corr = cloud1.transform(pose1_corr)

@@ -140,6 +140,36 @@ def filter_depth(cloud, min=None, max=None, only_mask=False, log=False):
     return filtered
 
 
+def filter_box(cloud, pose, size, only_mask=False):
+    """Keep points with rectangular bounds."""
+    assert isinstance(cloud, (DepthCloud, np.ndarray))
+    assert len(pose) == len(size) == 3
+
+    if isinstance(cloud, DepthCloud):
+        pts = cloud.points
+    elif isinstance(cloud, np.ndarray):
+        if cloud.dtype.names:
+            pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        else:
+            pts = cloud
+
+    x = pts[:, 0]
+    y = pts[:, 1]
+    z = pts[:, 2]
+
+    keep_x = within_bounds(x, min=pose[0] - size[0] / 2, max=pose[0] + size[0] / 2)
+    keep_y = within_bounds(y, min=pose[1] - size[1] / 2, max=pose[1] + size[1] / 2)
+    keep_z = within_bounds(z, min=pose[2] - size[2] / 2, max=pose[2] + size[2] / 2)
+
+    keep = torch.logical_and(keep_x, keep_y)
+    keep = torch.logical_and(keep, keep_z)
+
+    if only_mask:
+        return keep
+    filtered = cloud[keep]
+    return filtered
+
+
 def filter_valid_neighbors(cloud, min=None, only_mask=False, log=False):
     """Keep points with enough valid neighbors."""
     assert isinstance(cloud, DepthCloud)

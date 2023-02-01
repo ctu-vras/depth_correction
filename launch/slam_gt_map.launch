@@ -3,7 +3,7 @@
     <arg name="config" default="''"/>
     <arg name="rviz" default="true"/>
     <arg name="sequence" default="seq2" doc="A sequence from data set. One of [seq1, seq2]"/>
-    <arg name="bag" default="$(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/bags/$(arg sequence).bag"/>
+    <arg name="bag" default="$(dirname)/../data/fee_corridor/bags/$(arg sequence).bag"/>
     <arg name="params" default="$(eval bag.split()[0] + '.params')"/>
     <!-- Cloud filter -->
     <arg name="min_depth" default="1.0"/>
@@ -89,8 +89,8 @@
     <!-- estimate initial ground truth map position for ICP convergence (publish GT cloud in ROS and visualize it) -->
     <node pkg="depth_correction" type="cloud_publisher" name="cloud_publisher">
         <rosparam subst_value="true">
-<!--            cloud_file: $(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/maps/npz/map_5cm_alligned.npz-->
-            cloud_file: $(dirname)/../data/depth_correction/22-11-24-kn_e2_corridor/maps/npz/ground_map_5cm_alligned.npz
+<!--            cloud_file: $(dirname)/../data/fee_corridor/maps/npz/map_5cm_alligned.npz-->
+            cloud_file: $(dirname)/../data/fee_corridor/maps/npz/ground_map_5cm_alligned.npz
             frame: map
             rate: 5.0
             alignment: false

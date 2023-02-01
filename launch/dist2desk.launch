@@ -1,0 +1,20 @@
+<launch>
+
+  <arg name="bag" default="$(dirname)/../data/bags/dist2desk/depth_correction_2023-02-01-14-51-59.bag"/>
+  <arg name="rviz" default="true"/>
+
+  <param name="use_sim_time" value="true"/>
+  <node name="rosbag_play" pkg="rosbag" type="play" args="--clock --rate 1.0 --start 0 --loop $(arg bag)"/>
+
+  <node pkg="depth_correction" type="distance_to_desk" name="distance_to_desk" output="screen">
+    <rosparam subst_value="true">
+      search_radius: 0.3
+    </rosparam>
+    <remap from="input" to="/ouster/points"/>
+  </node>
+
+  <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+      <arg name="config" value="$(dirname)/../config/dist2desk.rviz"/>
+  </include>
+
+</launch>

@@ -508,12 +508,18 @@ def point_to_point_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differen
         cloud1 = clouds[i]
         cloud2 = clouds[i + 1]
 
-        points1 = cloud1.to_points() if cloud1.points is None else cloud1.points
-        points2 = cloud2.to_points() if cloud2.points is None else cloud2.points
-        assert not torch.all(torch.isnan(points1))
-        assert not torch.all(torch.isnan(points2))
+        if isinstance(cloud1, DepthCloud):
+            points1 = cloud1.to_points() if cloud1.points is None else cloud1.points
+        else:
+            points1 = cloud1
+        if isinstance(cloud2, DepthCloud):
+            points2 = cloud2.to_points() if cloud2.points is None else cloud2.points
+        else:
+            points2 = cloud2
         points1 = torch.as_tensor(points1, dtype=torch.float)
         points2 = torch.as_tensor(points2, dtype=torch.float)
+        assert not torch.all(torch.isnan(points1))
+        assert not torch.all(torch.isnan(points2))
 
         # find intersections between neighboring point clouds (1 and 2)
         if masks is None:
@@ -524,6 +530,7 @@ def point_to_point_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differen
                 dists, ids, _ = knn_points(points1[None], points2[None], K=1)
                 dists = torch.sqrt(dists).squeeze()
                 ids = ids.squeeze()
+            dists = torch.as_tensor(dists)
             dist_th = torch.quantile(dists[~torch.isnan(dists)], icp_inlier_ratio)
             mask1 = dists <= dist_th
             mask2 = ids[mask1]

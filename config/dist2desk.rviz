@@ -106,14 +106,14 @@ Visualization Manager:
       Max Intensity: 15
       Min Color: 0; 0; 0
       Min Intensity: -10
-      Name: PointCloud2
+      Name: Ouster Cloud
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
       Size (Pixels): 2
       Size (m): 0.029999999329447746
       Style: Flat Squares
-      Topic: /ouster/points
+      Topic: /cloud
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -127,8 +127,8 @@ Visualization Manager:
       Axis: Z
       Channel Name: z
       Class: rviz/PointCloud2
-      Color: 255; 255; 255
-      Color Transformer: Intensity
+      Color: 114; 159; 207
+      Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
       Invert Rainbow: true
@@ -136,14 +136,44 @@ Visualization Manager:
       Max Intensity: 15
       Min Color: 0; 0; 0
       Min Intensity: -10
-      Name: Filtered Cloud
+      Name: Desk Cloud
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
       Size (m): 0.029999999329447746
       Style: Spheres
-      Topic: /output
+      Topic: /desk_points
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: false
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: z
+      Class: rviz/PointCloud2
+      Color: 252; 233; 79
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: true
+      Max Color: 255; 255; 255
+      Max Intensity: 15
+      Min Color: 0; 0; 0
+      Min Intensity: -10
+      Name: Corrected Desk Cloud
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.029999999329447746
+      Style: Spheres
+      Topic: /corrected_points
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -208,6 +238,66 @@ Visualization Manager:
       Namespaces:
         "": true
       Queue Size: 100
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: false
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: z
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: false
+      Invert Rainbow: true
+      Max Color: 255; 255; 255
+      Max Intensity: 15
+      Min Color: 0; 0; 0
+      Min Intensity: -10
+      Name: Filtered Cloud
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.029999999329447746
+      Style: Flat Squares
+      Topic: /filtered_cloud
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: false
+    - Alpha: 1
+      Autocompute Intensity Bounds: false
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: z
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: true
+      Max Color: 255; 255; 255
+      Max Intensity: 15
+      Min Color: 0; 0; 0
+      Min Intensity: -10
+      Name: Corrected Cloud
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.029999999329447746
+      Style: Flat Squares
+      Topic: /corrected_cloud
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
       Value: true
   Enabled: true
   Global Options:

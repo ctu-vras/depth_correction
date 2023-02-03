@@ -33,7 +33,7 @@ class CloudPublisher(object):
         assert os.path.exists(self.cloud_file), "Point cloud file %s does not exist" % self.cloud_file
         cloud = np.load(self.cloud_file)['cloud']
         if self.alignment:
-            cloud = self.allign_cloud(cloud)
+            cloud = self.align_cloud(cloud)
 
         return cloud
 

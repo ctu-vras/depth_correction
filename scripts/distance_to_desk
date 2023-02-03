@@ -65,7 +65,7 @@ def create_sphere_marker(p=None, q=None, scale=None):
     return marker
 
 
-def compute_dist(cloud, pose_est, search_radius=0.3):
+def compute_dist(cloud, pose_init, search_radius=0.3):
     """Estimate distance to a rectangular desk placed perpendicular to a lidar"""
     assert isinstance(cloud, np.ndarray)
 
@@ -79,20 +79,20 @@ def compute_dist(cloud, pose_est, search_radius=0.3):
         pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
     else:
         pts = cloud
-    vps = np.full_like(pts, pose_est)
+    vps = np.full_like(pts, pose_init)
 
     xyzv = unstructured_to_structured(np.concatenate([pts, vps], axis=1), names=['x', 'y', 'z', 'vp_x', 'vp_y', 'vp_z'])
     keep = filter_depth(xyzv, min=0, max=search_radius, only_mask=True)
     filtered = cloud[keep]
 
-    x = pts[:, 0]
-    dist = x[keep].mean()
+    dist = pts[keep, 0].mean()
     rospy.loginfo('Estimated distance to desk: %f' % dist)
 
-    pose = pose_est
-    marker = create_sphere_marker(p=pose, scale=[2 * search_radius, 2 * search_radius, 2 * search_radius])
+    marker = create_sphere_marker(p=pose_init, scale=[2 * search_radius, 2 * search_radius, 2 * search_radius])
 
-    return dist, filtered, marker
+    pose_est = [dist, pose_init[1], pose_init[2]]
+
+    return pose_est, filtered, marker
 
 
 class DeskDistance(object):
@@ -104,7 +104,7 @@ class DeskDistance(object):
             self.cfg.from_yaml(cfg_path)
         self.cfg.from_rosparam()
 
-        self.pose_est = [5.475, 0.0, 0.45]
+        self.pose_init = [5.475, 0.0, 0.45]
         self.search_radius = rospy.get_param('~search_radius', 0.3)
 
         self.pub = rospy.Publisher('output', PointCloud2, queue_size=2)
@@ -118,7 +118,7 @@ class DeskDistance(object):
         if cloud.ndim == 2:
             cloud = cloud.reshape((-1,))
 
-        dist, cloud, box_marker = compute_dist(cloud, self.pose_est, self.search_radius)
+        pose_est, cloud, box_marker = compute_dist(cloud, self.pose_init, self.search_radius)
 
         output_msg = msgify(PointCloud2, cloud)
         output_msg.header = input_cloud_msg.header
@@ -130,9 +130,9 @@ class DeskDistance(object):
 
         t.header = input_cloud_msg.header
         t.child_frame_id = 'desk'
-        t.transform.translation.x = dist
-        t.transform.translation.y = self.pose_est[1]
-        t.transform.translation.z = self.pose_est[2]
+        t.transform.translation.x = pose_est[0]
+        t.transform.translation.y = pose_est[1]
+        t.transform.translation.z = pose_est[2]
         t.transform.rotation.x = 0
         t.transform.rotation.y = 0
         t.transform.rotation.z = 0

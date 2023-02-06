@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="config" default="''"/>
+    <arg name="rviz" default="true"/>
+<!--    <arg name="bag" default="$(dirname)/../data/bags/leica_ouster/big_board/8m/depth_correction_2023-02-06-16-15-50.bag"/>-->
+    <arg name="bag" default="$(dirname)/../data/bags/leica_ouster/big_board/8m/depth_correction_black_board_2023-02-06-16-46-40.bag"/>
+    <!-- Cloud filter -->
+    <arg name="min_depth" default="1.0"/>
+    <arg name="max_depth" default="25.0"/>
+    <arg name="grid_res" default="0.2"/>
+    <!-- Depth correction -->
+    <arg name="depth_correction" default="false"/>
+    <arg name="nn_k" default="0"/>
+    <arg name="nn_r" default="0.4"/>
+    <arg name="shadow_neighborhood_angle" default="0.017453"/>
+    <arg name="shadow_angle_bounds" default="[0.087266, .nan]"/>
+    <arg name="eigenvalue_bounds" default="[[0, -.inf, 0.0025], [1, 0.0025, .inf]]"/>
+    <arg name="model_class" default="BaseModel"/>
+    <arg name="model_args" default="''"/>
+    <arg name="model_kwargs" default="{}"/>
+    <arg name="model_state_dict" default="''"/>
+    <arg name="device" default="cpu"/>
+    <!-- Bag recording -->
+    <arg name="record" default="false"/>
+    <arg name="recorded_bag" default=""/>
+
+    <!-- Robot data: from bag file -->
+    <param name="use_sim_time" value="true"/>
+    <node name="rosbag_play" pkg="rosbag" type="play" args="--start 30.0 --rate 2.0 $(arg bag)">
+        <remap from="ouster/points" to="cloud"/>
+    </node>
+
+    <!-- Depth correction -->
+    <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">
+        <arg name="config" value="$(arg config)"/>
+        <arg name="input" value="filtered_cloud"/>
+        <arg name="output" value="corrected_cloud"/>
+        <arg name="nn_k" value="$(arg nn_k)"/>
+        <arg name="nn_r" value="$(arg nn_r)"/>
+        <arg name="shadow_neighborhood_angle" value="$(arg shadow_neighborhood_angle)"/>
+        <arg name="shadow_angle_bounds" value="$(arg shadow_angle_bounds)"/>
+        <arg name="eigenvalue_bounds" value="$(arg eigenvalue_bounds)"/>
+        <arg name="model_class" value="$(arg model_class)"/>
+        <arg name="model_args" value="$(arg model_args)"/>
+        <arg name="model_kwargs" value="$(arg model_kwargs)"/>
+        <arg name="model_state_dict" value="$(arg model_state_dict)"/>
+        <arg name="device" value="$(arg device)"/>
+    </include>
+
+    <!-- Cloud filterring -->
+    <include file="$(dirname)/cloud_filter.launch">
+        <arg name="config" value="$(arg config)"/>
+        <arg name="input" value="cloud"/>
+        <arg name="output" value="filtered_cloud"/>
+        <arg name="min_depth" value="$(arg min_depth)"/>
+        <arg name="max_depth" value="$(arg max_depth)"/>
+        <arg name="grid_res" value="$(arg grid_res)"/>
+        <arg name="max_age" value="1.0"/>
+    </include>
+
+    <!-- Leica data postprocessing -->
+    <node pkg="depth_correction" type="leica_ouster_postproc_big_board" name="leica_ouster_postproc_big_board" output="screen">
+        <remap from="cloud" to="cloud"/>
+        <remap from="crystal_points" to="total_station_driver/ts_points"/>
+    </node>
+
+    <!-- RVIZ -->
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+        <arg name="config" value="$(dirname)/../config/leica_ouster.rviz"/>
+    </include>
+</launch>

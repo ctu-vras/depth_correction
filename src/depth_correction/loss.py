@@ -441,7 +441,8 @@ def point_to_plane_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differen
                 dists, ids, _ = knn_points(points1[None], points2[None], K=1)
                 dists = torch.sqrt(dists).squeeze()
                 ids = ids.squeeze()
-            dist_th = torch.quantile(dists[~torch.isnan(dists)], icp_inlier_ratio)
+            dists = torch.as_tensor(dists)
+            dist_th = torch.nanquantile(dists, icp_inlier_ratio)
             mask1 = dists <= dist_th
             mask2 = ids[mask1]
             inl_err = dists[mask1].mean()
@@ -531,7 +532,7 @@ def point_to_point_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differen
                 dists = torch.sqrt(dists).squeeze()
                 ids = ids.squeeze()
             dists = torch.as_tensor(dists)
-            dist_th = torch.quantile(dists[~torch.isnan(dists)], icp_inlier_ratio)
+            dist_th = torch.nanquantile(dists, icp_inlier_ratio)
             mask1 = dists <= dist_th
             mask2 = ids[mask1]
             inl_err = dists[mask1].mean()

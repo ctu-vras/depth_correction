@@ -12,7 +12,10 @@ from visualization_msgs.msg import Marker
 from numpy.lib.recfunctions import unstructured_to_structured, structured_to_unstructured
 from ros_numpy import msgify, numpify
 from depth_correction.loss import point_to_point_dist, point_to_plane_dist
+from depth_correction.filters import filter_box
 import open3d as o3d
+from matplotlib import pyplot as plt
+from threading import RLock
 
 
 def create_marker(p=None, q=None, scale=None):
@@ -35,7 +38,7 @@ def create_marker(p=None, q=None, scale=None):
     marker.scale.x = scale[0]
     marker.scale.y = scale[1]
     marker.scale.z = scale[2]
-    marker.color.a = 0.5
+    marker.color.a = 0.8
     marker.color.r = 0.0
     marker.color.g = 1.0
     marker.color.b = 0.0
@@ -64,10 +67,29 @@ def normalize(v):
     return v / norm
 
 def transform_cloud(cloud, Tr):
+    assert isinstance(cloud, np.ndarray)
+    if cloud.dtype.names:
+        pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    else:
+        pts = cloud
     R, t = Tr[:-1, :-1], Tr[:-1, -1:]
-    cloud_tr = cloud @ R.T + t.T
+    pts_tr = pts @ R.T + t.T
+    if cloud.dtype.names:
+        cloud_tr = cloud.copy()
+        cloud_tr[['x', 'y', 'z']] = unstructured_to_structured(pts_tr, names=['x', 'y', 'z'])
+    else:
+        cloud_tr = pts_tr
     return cloud_tr
 
+
+# pcd1 = o3d.geometry.PointCloud()
+# pcd1.points = o3d.utility.Vector3dVector(board_points)
+# pcd1.colors = o3d.utility.Vector3dVector(np.zeros_like(board_points) + np.array([0, 1, 0]))
+#
+# pcd2 = o3d.geometry.PointCloud()
+# pcd2.points = o3d.utility.Vector3dVector(ouster_points)
+# pcd2.colors = o3d.utility.Vector3dVector(np.zeros_like(ouster_points) + np.array([0, 0, 1]))
+# o3d.visualization.draw_geometries([pcd1, pcd2])
 
 class Process(object):
 
@@ -80,62 +102,116 @@ class Process(object):
         # self.measurements = {'subt_corner': np.asarray([5.2576, 0.5684, 0.1379]),
         #                      'subt_base': np.asarray([5.2603, -0.0051, -0.3578]),
         #                      'subt_crystal': np.asarray([5.2441, -0.5964, 0.1509])}
+
+        # for point cloud filtering
+        self.board_height = self.measurements['subt_corner'][2] - self.measurements['subt_base'][2] - 0.01  # Z
+        self.board_length = self.measurements['subt_crystal'][1] - self.measurements['subt_corner'][1]  # Y
+        self.board_width = 0.015  # X
+        self.board_box_size = 0.6 * np.asarray([self.board_length, self.board_length, self.board_height])
+
         self.static_frame = 'subt'
         self.ouster_pose = None
         self.ouster_msg = None
         self.board_pose = None
         self.board_angle = None
+        self.board_normal = None
         self.static_transforms = self.measurements_to_transforms()
         self.board_cloud = self.generate_board_cloud()
+
         self.tf_br = tf2_ros.TransformBroadcaster()
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration.from_sec(1.0))
         self.tf_listerner = tf2_ros.TransformListener(self.tf_buffer)
-        self.marker_pub = rospy.Publisher('normal', Marker, queue_size=1)
-        self.cloud_pub = rospy.Publisher('board_cloud', PointCloud2, queue_size=2)
-        self.leica_sub = rospy.Subscriber('crystal_points',
-                                          PointStamped, callback=self.leica_process, queue_size=2)
-        self.ouster_sub = rospy.Subscriber('cloud', PointCloud2, callback=self.ouster_process, queue_size=2)
-        self.evaluate_ouster()
 
-    def evaluate_ouster(self):
+        self.marker_pub = rospy.Publisher('normal', Marker, queue_size=1)
+        self.cloud_pub = rospy.Publisher('board_cloud', PointCloud2, queue_size=1)
+        self.filtered_cloud_pub = rospy.Publisher('ouster_board_cloud', PointCloud2, queue_size=1)
+
+        self.leica_lock = RLock()
+        self.ouster_lock = RLock()
+        self.leica_sub = rospy.Subscriber('crystal_points',
+                                          PointStamped, callback=self.leica_process, queue_size=1)
+        self.ouster_sub = rospy.Subscriber('cloud', PointCloud2, callback=self.ouster_process, queue_size=1)
+        self.spin()
+
+    def spin(self):
         """
         compute ouster point cloud error wrt ground truth
         """
-
+        fig = plt.figure()
+        icp_errs = []
+        angles = []
         while not rospy.is_shutdown():
             if self.ouster_pose is None:
                 rospy.logwarn_once('Ouster pose is not yet available')
                 continue
+            try:
+                tf = self.tf_buffer.lookup_transform(self.static_frame, 'base_marker',
+                                                     rospy.Time.now())
+                self.board_pose = numpify(tf.transform)
+            except tf2_ros.TransformException as ex:
+                rospy.logwarn('Could not find transform from %s to %s: %s',
+                              'base_marker', self.static_frame, ex)
+                return
             if self.board_pose is None:
                 rospy.logwarn_once('Board pose is not yet available')
                 continue
-            ouster_points = structured_to_unstructured(numpify(self.ouster_msg)[['x', 'y', 'z']])
-            if ouster_points.ndim == 3:
-                ouster_points = ouster_points.reshape((-1, 3))
-                # ouster_points = ouster_points[~np.isnan(ouster_points)]
-            board_points = structured_to_unstructured(self.board_cloud[['x', 'y', 'z']])
+            ouster_cloud = numpify(self.ouster_msg)
+            if ouster_cloud.ndim == 2:
+                ouster_cloud = ouster_cloud.reshape((-1,))
+
+            # transform clouds to the same coordinate frame
+            board_cloud = transform_cloud(self.board_cloud, self.board_pose)
+            ouster_cloud = transform_cloud(ouster_cloud, self.ouster_pose)
+
+            # filter clouds
+            # board_cloud = filter_box(board_cloud,
+            #                          pose=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
+            #                          size=self.board_box_size)
+            ouster_cloud = filter_box(ouster_cloud,
+                                      pose=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
+                                      size=self.board_box_size)
+
+            ouster_points = structured_to_unstructured(ouster_cloud[['x', 'y', 'z']])
+            board_points = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
             assert ouster_points.ndim == board_points.ndim == 2
             assert ouster_points.shape[1] == board_points.shape[1] == 3  # (N, 3)
 
-            # transform clouds to the same coordinate frame
-            board_points = transform_cloud(board_points, self.board_pose)
-            ouster_points = transform_cloud(ouster_points, self.ouster_pose)
+            # compute ICP distance between clouds
+            if len(ouster_points) > 0:
+                # icp_dist = point_to_point_dist([board_points, ouster_points],
+                #                                icp_inlier_ratio=0.9, differentiable=False)
 
-            # pcd1 = o3d.geometry.PointCloud()
-            # pcd1.points = o3d.utility.Vector3dVector(board_points)
-            # pcd1.colors = o3d.utility.Vector3dVector(np.zeros_like(board_points) + np.array([0, 1, 0]))
-            # pcd2 = o3d.geometry.PointCloud()
-            # pcd2.points = o3d.utility.Vector3dVector(ouster_points)
-            # o3d.visualization.draw_geometries([pcd1, pcd2])
+                # point to plane distance
+                v_diff = ouster_points - self.board_pose[:3, 3]
+                icp_dist = np.abs(v_diff @ self.board_normal[None].T).mean()
+                rospy.loginfo('ICP distance between clouds: %.3f for estimated angle [deg]: %.1f' %
+                              (icp_dist.item(), np.rad2deg(self.board_angle)))
 
-            icp_dist = point_to_point_dist([board_points, ouster_points], icp_inlier_ratio=0.95, differentiable=False)
-            rospy.loginfo('ICP distance between clouds: %.3f for estimated angle [deg]: %.1f' %
-                          (icp_dist.item(), np.rad2deg(self.board_angle)))
+                angles.append(np.rad2deg(self.board_angle))
+                icp_errs.append(icp_dist)
+
+                plt.plot(angles, icp_errs, color='b')
+                plt.grid(visible=True)
+                plt.pause(0.01)
+                plt.draw()
+            else:
+                rospy.logwarn('No board points measured with lidar')
+
+            # publish clouds
+            board_cloud_msg = msgify(PointCloud2, board_cloud)
+            board_cloud_msg.header.frame_id = self.static_frame
+            board_cloud_msg.header.stamp = self.ouster_msg.header.stamp
+            self.cloud_pub.publish(board_cloud_msg)
+
+            ouster_msg_filtered = msgify(PointCloud2, ouster_cloud)
+            ouster_msg_filtered.header.stamp = self.ouster_msg.header.stamp
+            ouster_msg_filtered.header.frame_id = self.static_frame
+            self.filtered_cloud_pub.publish(ouster_msg_filtered)
 
     def generate_board_cloud(self, n_pts=1000):
-        length = self.measurements['subt_crystal'][1] - self.measurements['subt_corner'][1]
-        height = self.measurements['subt_corner'][2] - self.measurements['subt_base'][2]
-        width = 0.01  # 1 cm
+        length = self.board_length
+        height = self.board_height
+        width = self.board_width
         x0, y0, z0 = self.measurements['subt_corner'] - self.measurements['subt_base']
         z0 -= height
         origin = np.asarray([x0, y0, z0])  # in base frame
@@ -157,108 +233,92 @@ class Process(object):
         """
         manually finding lidar pose relative to origin (fixed frame)
         """
-        # map (subt) -> ouster lidar
-        tr = TransformStamped()
-        tr.header.stamp = ouster_msg.header.stamp
-        tr.header.frame_id = self.static_frame
-        tr.child_frame_id = ouster_msg.header.frame_id
-        tr.transform.translation.x = 0
-        tr.transform.translation.y = 0
-        tr.transform.translation.z = -0.09
-        # estimate orientation
-        angle_z = 0.055
-        q = quaternion_from_euler(0, 0, angle_z)
-        tr.transform.rotation.x = q[0]
-        tr.transform.rotation.y = q[1]
-        tr.transform.rotation.z = q[2]
-        tr.transform.rotation.w = q[3]
-        self.tf_br.sendTransform(tr)
-
-        # publish board cloud
-        board_cloud_msg = msgify(PointCloud2, self.board_cloud)
-        board_cloud_msg.header.frame_id = 'base_marker'
-        board_cloud_msg.header.stamp = rospy.Time.now()
-        self.cloud_pub.publish(board_cloud_msg)
-
-        # cloud poses in static frame
-        self.ouster_pose = numpify(tr.transform)
-        self.ouster_msg = ouster_msg
-        try:
-            tf = self.tf_buffer.lookup_transform(self.static_frame, board_cloud_msg.header.frame_id, rospy.Time.now())
-            self.board_pose = numpify(tf.transform)
-        except tf2_ros.TransformException as ex:
-            rospy.logwarn('Could not find transform from %s to %s: %s',
-                          board_cloud_msg.header.frame_id, self.static_frame, ex)
-            return
-
-    def leica_process(self, crystal_point_msg):
-        # subt -> base
-        tr = TransformStamped()
-        tr.header.stamp = crystal_point_msg.header.stamp
-        tr.header.frame_id = self.static_frame
-        tr.child_frame_id = 'base'
-        # assume base is not moving
-        tr.transform.translation.x = self.measurements['subt_base'][0]
-        tr.transform.translation.y = self.measurements['subt_base'][1]
-        tr.transform.translation.z = self.measurements['subt_base'][2]
-        tr.transform.rotation.x = 0
-        tr.transform.rotation.y = 0
-        tr.transform.rotation.z = 0
-        tr.transform.rotation.w = 1
-        self.tf_br.sendTransform(tr)
-
-        # base -> base_marker
-        tr = TransformStamped()
-        tr.header.stamp = crystal_point_msg.header.stamp
-        tr.header.frame_id = 'base'
-        tr.child_frame_id = 'base_marker'
-        # assume base is not moving
-        tr.transform.translation.x = 0
-        tr.transform.translation.y = 0
-        tr.transform.translation.z = 0
-
-        # compute from 3 points (orientation of base marker in origin/fixed frame (subt))
-        crystal_subt_pose = np.asarray([crystal_point_msg.point.x,
-                                        crystal_point_msg.point.y,
-                                        crystal_point_msg.point.z])
-        v1 = crystal_subt_pose - self.measurements['subt_base']
-        v1 = normalize(v1)
-        angle_z = np.arctan2(v1[1], v1[0]) - np.pi/2
-        self.board_angle = angle_z
-        q = quaternion_from_euler(0, 0, angle_z)
-
-        tr.transform.rotation.x = q[0]
-        tr.transform.rotation.y = q[1]
-        tr.transform.rotation.z = q[2]
-        tr.transform.rotation.w = q[3]
-        self.tf_br.sendTransform(tr)
-
-        # plane normal arrow
-        arrow = create_marker(p=[0, 0, 0], q=q, scale=[1, 0.1, 0.1])
-        arrow.header.stamp = crystal_point_msg.header.stamp
-        arrow.header.frame_id = 'base'
-        self.marker_pub.publish(arrow)
-
-        # base_marker -> UR marker
-        for transf in self.static_transforms:
+        with self.ouster_lock:
+            # map (subt) -> ouster lidar
             tr = TransformStamped()
-            tr.header.stamp = crystal_point_msg.header.stamp
-            tr.header.frame_id = transf.frame
-            tr.child_frame_id = transf.child_frame
-            tr.transform.translation.x = transf.translation[0]
-            tr.transform.translation.y = transf.translation[1]
-            tr.transform.translation.z = transf.translation[2]
-            tr.transform.rotation.x = transf.rotation[0]
-            tr.transform.rotation.y = transf.rotation[1]
-            tr.transform.rotation.z = transf.rotation[2]
-            tr.transform.rotation.w = transf.rotation[3]
+            tr.header.stamp = ouster_msg.header.stamp
+            tr.header.frame_id = self.static_frame
+            tr.child_frame_id = ouster_msg.header.frame_id
+            tr.transform.translation.x = 0
+            tr.transform.translation.y = 0
+            tr.transform.translation.z = -0.10
+            # estimate orientation
+            angle_z = 0.055
+            q = quaternion_from_euler(0, 0, angle_z)
+            tr.transform.rotation.x = q[0]
+            tr.transform.rotation.y = q[1]
+            tr.transform.rotation.z = q[2]
+            tr.transform.rotation.w = q[3]
             self.tf_br.sendTransform(tr)
 
-        # # publish board cloud
-        # cloud_msg = msgify(PointCloud2, self.board_cloud)
-        # cloud_msg.header.frame_id = 'base_marker'
-        # cloud_msg.header.stamp = crystal_point_msg.header.stamp
-        # self.cloud_pub.publish(cloud_msg)
+            # cloud poses in static frame
+            self.ouster_pose = numpify(tr.transform)
+            self.ouster_msg = ouster_msg
+
+    def leica_process(self, crystal_point_msg):
+        with self.leica_lock:
+            # subt -> base
+            tr = TransformStamped()
+            tr.header.stamp = crystal_point_msg.header.stamp
+            tr.header.frame_id = self.static_frame
+            tr.child_frame_id = 'base'
+            # assume base is not moving
+            tr.transform.translation.x = self.measurements['subt_base'][0]
+            tr.transform.translation.y = self.measurements['subt_base'][1]
+            tr.transform.translation.z = self.measurements['subt_base'][2]
+            tr.transform.rotation.x = 0
+            tr.transform.rotation.y = 0
+            tr.transform.rotation.z = 0
+            tr.transform.rotation.w = 1
+            self.tf_br.sendTransform(tr)
+
+            # base -> base_marker
+            tr = TransformStamped()
+            tr.header.stamp = crystal_point_msg.header.stamp
+            tr.header.frame_id = 'base'
+            tr.child_frame_id = 'base_marker'
+            # assume base is not moving
+            tr.transform.translation.x = 0
+            tr.transform.translation.y = 0
+            tr.transform.translation.z = 0
+
+            # compute from 3 points (orientation of base marker in origin/fixed frame (subt))
+            crystal_subt_pose = np.asarray([crystal_point_msg.point.x,
+                                            crystal_point_msg.point.y,
+                                            crystal_point_msg.point.z])
+            v1 = crystal_subt_pose - self.measurements['subt_base']
+            v1 = normalize(v1)
+            angle_z = np.arctan2(v1[1], v1[0]) + np.pi/2
+            self.board_normal = normalize(np.cross(v1, np.array([0, 0, 1])))
+            self.board_angle = angle_z - np.pi
+            q = quaternion_from_euler(0, 0, angle_z)
+
+            tr.transform.rotation.x = q[0]
+            tr.transform.rotation.y = q[1]
+            tr.transform.rotation.z = q[2]
+            tr.transform.rotation.w = q[3]
+            self.tf_br.sendTransform(tr)
+
+            # plane normal arrow
+            arrow = create_marker(p=[0, 0, self.board_height / 2], q=q, scale=[0.4, 0.05, 0.05])
+            arrow.header.stamp = crystal_point_msg.header.stamp
+            arrow.header.frame_id = 'base'
+            self.marker_pub.publish(arrow)
+
+            # base_marker -> UR marker
+            for transf in self.static_transforms:
+                tr = TransformStamped()
+                tr.header.stamp = crystal_point_msg.header.stamp
+                tr.header.frame_id = transf.frame
+                tr.child_frame_id = transf.child_frame
+                tr.transform.translation.x = transf.translation[0]
+                tr.transform.translation.y = transf.translation[1]
+                tr.transform.translation.z = transf.translation[2]
+                tr.transform.rotation.x = transf.rotation[0]
+                tr.transform.rotation.y = transf.rotation[1]
+                tr.transform.rotation.z = transf.rotation[2]
+                tr.transform.rotation.w = transf.rotation[3]
+                self.tf_br.sendTransform(tr)
 
 
 def main():

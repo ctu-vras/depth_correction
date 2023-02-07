@@ -18,7 +18,9 @@ from matplotlib import pyplot as plt
 from threading import RLock
 
 
-def create_marker(p=None, q=None, scale=None):
+def create_marker(p=None, q=None, scale=None, color=None, alpha=0.8, type=Marker.ARROW):
+    if color is None:
+        color = [0, 1, 0]
     if scale is None:
         scale = [1, 1, 1]
     if q is None:
@@ -26,7 +28,7 @@ def create_marker(p=None, q=None, scale=None):
     if p is None:
         p = [0, 0, 0]
     marker = Marker()
-    marker.type = Marker.ARROW
+    marker.type = type
     marker.action = Marker.ADD
     marker.pose.position.x = p[0]
     marker.pose.position.y = p[1]
@@ -38,10 +40,10 @@ def create_marker(p=None, q=None, scale=None):
     marker.scale.x = scale[0]
     marker.scale.y = scale[1]
     marker.scale.z = scale[2]
-    marker.color.a = 0.8
-    marker.color.r = 0.0
-    marker.color.g = 1.0
-    marker.color.b = 0.0
+    marker.color.a = alpha
+    marker.color.r = color[0]
+    marker.color.g = color[1]
+    marker.color.b = color[2]
     return marker
 
 
@@ -122,7 +124,8 @@ class Process(object):
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration.from_sec(1.0))
         self.tf_listerner = tf2_ros.TransformListener(self.tf_buffer)
 
-        self.marker_pub = rospy.Publisher('normal', Marker, queue_size=1)
+        self.arrow_pub = rospy.Publisher('normal', Marker, queue_size=1)
+        self.plane_pub = rospy.Publisher('plane', Marker, queue_size=1)
         self.cloud_pub = rospy.Publisher('board_cloud', PointCloud2, queue_size=1)
         self.filtered_cloud_pub = rospy.Publisher('ouster_board_cloud', PointCloud2, queue_size=1)
 
@@ -189,11 +192,10 @@ class Process(object):
 
                 angles.append(np.rad2deg(self.board_angle))
                 icp_errs.append(icp_dist)
-
-                plt.plot(angles, icp_errs, color='b')
-                plt.grid(visible=True)
-                plt.pause(0.01)
-                plt.draw()
+                # plt.plot(angles, icp_errs, color='b')
+                # plt.grid(visible=True)
+                # plt.pause(0.01)
+                # plt.draw()
             else:
                 rospy.logwarn('No board points measured with lidar')
 
@@ -288,9 +290,9 @@ class Process(object):
                                             crystal_point_msg.point.z])
             v1 = crystal_subt_pose - self.measurements['subt_base']
             v1 = normalize(v1)
-            angle_z = np.arctan2(v1[1], v1[0]) + np.pi/2
+            angle_z = np.arctan2(v1[1], v1[0]) - np.pi/2
             self.board_normal = normalize(np.cross(v1, np.array([0, 0, 1])))
-            self.board_angle = angle_z - np.pi
+            self.board_angle = angle_z
             q = quaternion_from_euler(0, 0, angle_z)
 
             tr.transform.rotation.x = q[0]
@@ -300,10 +302,16 @@ class Process(object):
             self.tf_br.sendTransform(tr)
 
             # plane normal arrow
-            arrow = create_marker(p=[0, 0, self.board_height / 2], q=q, scale=[0.4, 0.05, 0.05])
+            arrow = create_marker(p=[0, 0, self.board_height / 2], q=q, scale=[0.4, 0.05, 0.05], type=Marker.ARROW)
             arrow.header.stamp = crystal_point_msg.header.stamp
             arrow.header.frame_id = 'base'
-            self.marker_pub.publish(arrow)
+            self.arrow_pub.publish(arrow)
+
+            plane = create_marker(p=[0, 0, self.board_height / 2], q=q,
+                                  scale=[self.board_width, self.board_length, self.board_height], type=Marker.CUBE)
+            plane.header.stamp = crystal_point_msg.header.stamp
+            plane.header.frame_id = 'base'
+            self.plane_pub.publish(plane)
 
             # base_marker -> UR marker
             for transf in self.static_transforms:

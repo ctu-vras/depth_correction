@@ -12,10 +12,17 @@ from visualization_msgs.msg import Marker
 from numpy.lib.recfunctions import unstructured_to_structured, structured_to_unstructured
 from ros_numpy import msgify, numpify
 from depth_correction.loss import point_to_point_dist, point_to_plane_dist
+from depth_correction.io import append, write
 from depth_correction.filters import filter_box
+from depth_correction.model import load_model
+from depth_correction.config import Config
+from depth_correction.preproc import local_feature_cloud, filtered_cloud
+from depth_correction.config import Model
 import open3d as o3d
 from matplotlib import pyplot as plt
 from threading import RLock
+import torch
+from time import time
 
 
 def create_marker(p=None, q=None, scale=None, color=None, alpha=0.8, type=Marker.ARROW):
@@ -105,11 +112,21 @@ class Process(object):
         #                      'subt_base': np.asarray([5.2603, -0.0051, -0.3578]),
         #                      'subt_crystal': np.asarray([5.2441, -0.5964, 0.1509])}
 
+        self.gt_dist_to_board = self.measurements['subt_base'][0]
+
+        self.cfg = Config()
+        self.cfg.model_class = Model.ScaledPolynomial
+        self.cfg.model_kwargs = {'w': [-0.0011], 'exponent': [4]}
+        self.cfg.eigenvalue_ratio_bounds = []
+        self.cfg.log_filters = True
+        self.depth_correction = rospy.get_param('~depth_correction', False)
+        self.model = load_model(cfg=self.cfg)
+
         # for point cloud filtering
         self.board_height = self.measurements['subt_corner'][2] - self.measurements['subt_base'][2] - 0.01  # Z
         self.board_length = self.measurements['subt_crystal'][1] - self.measurements['subt_corner'][1]  # Y
         self.board_width = 0.015  # X
-        self.board_box_size = 0.6 * np.asarray([self.board_length, self.board_length, self.board_height])
+        self.board_box_size = 0.4 * np.asarray([self.board_length, self.board_length, self.board_height])
 
         self.static_frame = 'subt'
         self.ouster_pose = None
@@ -119,6 +136,7 @@ class Process(object):
         self.board_normal = None
         self.static_transforms = self.measurements_to_transforms()
         self.board_cloud = self.generate_board_cloud()
+        self.max_age = rospy.get_param('~max_age', 0.1)
 
         self.tf_br = tf2_ros.TransformBroadcaster()
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration.from_sec(1.0))
@@ -136,17 +154,32 @@ class Process(object):
         self.ouster_sub = rospy.Subscriber('cloud', PointCloud2, callback=self.ouster_process, queue_size=1)
         self.spin()
 
+    def correction(self, cloud):
+        with torch.no_grad():
+            # Assume that depth and grid filters are run earlier.
+            cloud = local_feature_cloud(cloud, self.cfg)
+
+            cloud = self.model(cloud)
+            cloud.update_points()
+        output_cloud = cloud.to_structured_array()
+        return output_cloud
+
     def spin(self):
         """
         compute ouster point cloud error wrt ground truth
         """
-        fig = plt.figure()
+        # fig = plt.figure()
         icp_errs = []
         angles = []
+        fpath = '/home/ruslan/Desktop/bias_estimation-point-to-point_depth_correction_%s.csv' % self.depth_correction
+        write(fpath, 'Incidence angle [deg], ICP distance [m], Distance to board error [m]\n')
+        prev_angle = None
         while not rospy.is_shutdown():
+
             if self.ouster_pose is None:
                 rospy.logwarn_once('Ouster pose is not yet available')
                 continue
+
             try:
                 tf = self.tf_buffer.lookup_transform(self.static_frame, 'base_marker',
                                                      rospy.Time.now())
@@ -167,37 +200,55 @@ class Process(object):
             ouster_cloud = transform_cloud(ouster_cloud, self.ouster_pose)
 
             # filter clouds
-            # board_cloud = filter_box(board_cloud,
-            #                          pose=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
-            #                          size=self.board_box_size)
+            board_cloud = filter_box(board_cloud,
+                                     pose=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
+                                     size=self.board_box_size)
             ouster_cloud = filter_box(ouster_cloud,
                                       pose=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
                                       size=self.board_box_size)
 
-            ouster_points = structured_to_unstructured(ouster_cloud[['x', 'y', 'z']])
-            board_points = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
-            assert ouster_points.ndim == board_points.ndim == 2
-            assert ouster_points.shape[1] == board_points.shape[1] == 3  # (N, 3)
-
             # compute ICP distance between clouds
-            if len(ouster_points) > 0:
-                # icp_dist = point_to_point_dist([board_points, ouster_points],
-                #                                icp_inlier_ratio=0.9, differentiable=False)
+            if len(ouster_cloud) > 0:
+                if self.depth_correction:
+                    t0 = time()
+                    ouster_cloud = self.correction(ouster_cloud)
+                    rospy.logdebug('Depth correction took: %f [sec]' % (time() - t0))
 
-                # point to plane distance
-                v_diff = ouster_points - self.board_pose[:3, 3]
-                icp_dist = np.abs(v_diff @ self.board_normal[None].T).mean()
-                rospy.loginfo('ICP distance between clouds: %.3f for estimated angle [deg]: %.1f' %
-                              (icp_dist.item(), np.rad2deg(self.board_angle)))
+                ouster_points = structured_to_unstructured(ouster_cloud[['x', 'y', 'z']])
+                board_points = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+                assert ouster_points.ndim == board_points.ndim == 2
+                assert ouster_points.shape[1] == board_points.shape[1] == 3  # (N, 3)
 
-                angles.append(np.rad2deg(self.board_angle))
-                icp_errs.append(icp_dist)
-                # plt.plot(angles, icp_errs, color='b')
-                # plt.grid(visible=True)
-                # plt.pause(0.01)
-                # plt.draw()
+                # write data
+                if prev_angle is None:
+                    prev_angle = self.board_angle
+                if np.abs(self.board_angle - prev_angle) > np.deg2rad(2.0):
+                    # point to POINT distance
+                    icp_dist = point_to_point_dist([board_points, ouster_points],
+                                                   icp_inlier_ratio=0.9, differentiable=False)
+
+                    # point to PLANE distance
+                    # v_diff = ouster_points - self.board_pose[:3, 3]
+                    # icp_dist = np.abs(v_diff @ self.board_normal[None].T).mean()
+                    rospy.loginfo('ICP distance between clouds: %.3f for estimated angle [deg]: %.1f' %
+                                  (icp_dist.item(), np.rad2deg(self.board_angle)))
+
+                    angles.append(np.rad2deg(self.board_angle))
+                    icp_errs.append(icp_dist)
+                    rospy.loginfo('Mean ICP error: %f [m]' % np.mean(icp_errs).item())
+
+                    # plt.plot(angles, icp_errs, color='b')
+                    # plt.grid(visible=True)
+                    # plt.pause(0.01)
+                    # plt.draw()
+
+                    prev_angle = self.board_angle
+                    dist_err = ouster_points[:, 0].mean() - self.gt_dist_to_board
+                    append(fpath, ', '.join(['%.3f' % s for s in [np.rad2deg(self.board_angle).item(),
+                                                                  icp_dist.item(),
+                                                                  dist_err]]) + '\n')
             else:
-                rospy.logwarn('No board points measured with lidar')
+                rospy.logwarn_once('No board points measured with lidar')
 
             # publish clouds
             board_cloud_msg = msgify(PointCloud2, board_cloud)
@@ -302,13 +353,17 @@ class Process(object):
             self.tf_br.sendTransform(tr)
 
             # plane normal arrow
-            arrow = create_marker(p=[0, 0, self.board_height / 2], q=q, scale=[0.4, 0.05, 0.05], type=Marker.ARROW)
+            q = quaternion_from_euler(0, 0, angle_z - np.pi)
+            arrow = create_marker(p=[0, 0, self.board_height / 2], q=q, scale=[0.25, 0.05, 0.05], type=Marker.ARROW)
             arrow.header.stamp = crystal_point_msg.header.stamp
             arrow.header.frame_id = 'base'
             self.arrow_pub.publish(arrow)
 
             plane = create_marker(p=[0, 0, self.board_height / 2], q=q,
-                                  scale=[self.board_width, self.board_length, self.board_height], type=Marker.CUBE)
+                                  scale=[self.board_width, self.board_length, self.board_height],
+                                  alpha=1.0,
+                                  color=[0, 0, 1],
+                                  type=Marker.CUBE)
             plane.header.stamp = crystal_point_msg.header.stamp
             plane.header.frame_id = 'base'
             self.plane_pub.publish(plane)

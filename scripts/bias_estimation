@@ -1,0 +1,151 @@
+#!/usr/bin/env python
+"""
+"""
+
+from __future__ import absolute_import, division, print_function
+from argparse import ArgumentParser
+import numpy as np
+import os
+from rosbag import Bag, ROSBagException
+from ros_numpy import numpify
+import rospy
+from tf2_ros import BufferCore, TransformException
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import PointStamped
+
+
+def get_arg_parser():
+    parser = ArgumentParser(description='Compute localization accuracy from SLAM and data set data.')
+    # parser.add_argument('bag_paths', nargs='+', default=None, help='Input bag files.')
+    return parser
+
+def str_to_sec(stamp):
+    sec = float(stamp.split('_')[0])
+    nsec = float(stamp.split('_')[1])
+    t = sec + nsec / float(1e9)
+    return t
+
+def load_buffer(bag_path):
+    tf_topics = ['/tf', '/tf_static']
+    buffer = BufferCore(rospy.Duration(24 * 60 * 60))
+    stamps = []
+
+    try:
+        with Bag(bag_path, 'r') as bag:
+            # i = 0
+            n = bag.get_message_count(topic_filters=tf_topics)
+            for topic, msg, stamp in tqdm(bag.read_messages(topics=tf_topics),
+                                          desc='%s: reading transforms' % bag_path.split('/')[-1],
+                                          total=n):
+                # i += 1
+                # if i / n > 0.05:
+                #     print('Only reading first 5% of transforms.')
+                #     break
+                if topic == '/tf':
+                    for tf in msg.transforms:
+                        buffer.set_transform(tf, 'bag')
+                        stamps.append(tf.header.stamp.to_sec())
+                elif topic == '/tf_static':
+                    for tf in msg.transforms:
+                        buffer.set_transform_static(tf, 'bag')
+                        stamps.append(tf.header.stamp.to_sec())
+    except ROSBagException as ex:
+        print('Could not read %s: %s' % (bag_path, ex))
+
+    stamps = sorted(stamps)
+    return buffer, stamps
+
+
+def slots(msg):
+    return [getattr(msg, var) for var in msg.__slots__]
+
+def get_poses(bag_path, leica_topic = '/total_station_driver/ts_points'):
+    poses = []
+    stamps = []
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in bag.read_messages(topics=[leica_topic]):
+            msg = PointStamped(*slots(msg))
+            pose = np.array([msg.point.x, msg.point.y, msg.point.z])
+            poses.append(pose)
+            stamps.append(stamp)
+    return poses, stamps
+
+def get_static_poses(poses, stamps, pose_th=0.001, static_window_size=10):
+    i = 0
+    static_poses = []
+    static_stamps = []
+    while True:
+        window_size = 0
+        for p in poses[i:]:
+            if np.linalg.norm(poses[i] - p) > pose_th:
+                break
+            window_size += 1
+        # print('Pose %i / %i is static for %i iters' % (i, len(poses), window_size))
+
+        i += window_size
+        if i >= len(poses):
+            break
+
+        if window_size > static_window_size:
+            static_poses.append(poses[i])
+            static_stamps.append(stamps[i])
+
+    return static_poses, static_stamps
+
+
+def bias_estimation():
+    data_path = '/home/ruslan/data/bags/depth_correction/'
+    bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
+    # buffer, stamps = load_buffer(bag_path=bag_path)
+
+    # get all crystal poses
+    poses, stamps = get_poses(bag_path)
+    print('Found %i poses' % len(poses))
+
+    # get static poses
+    static_poses, static_stamps = get_static_poses(poses, stamps)
+    print('Found %i static poses' % len(static_poses))
+
+    # poses = np.asarray(poses) - poses[0]
+    # static_poses = np.asarray(static_poses) - static_poses[0]
+    # plt.plot(poses[:, 0], poses[:, 1], '.')
+    # plt.plot(static_poses[:, 0], static_poses[:, 1], 'o')
+    # plt.grid()
+    # plt.axis('equal')
+    # plt.show()
+
+    # get corresponding static point clouds
+    static_clouds = []
+    ouster_topic = '/ouster/points'
+    i = 0
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in tqdm(bag.read_messages(topics=[ouster_topic])):
+
+            if i >= len(static_stamps):
+                break
+
+            if 0 < (stamp.to_sec() - static_stamps[i].to_sec()) < 0.1:
+                i += 1
+
+                msg = PointCloud2(*slots(msg))
+                cloud = numpify(msg)
+                static_clouds.append(cloud)
+
+    print('Found %i static clouds' % len(static_clouds))
+    assert len(static_clouds) == len(static_poses) == len(static_stamps)
+
+
+def main():
+    args = get_arg_parser().parse_args()
+
+    kwargs = vars(args)
+    for k in sorted(kwargs):
+        print('%s: %s' % (k, kwargs[k]))
+
+    bias_estimation(**kwargs)
+
+
+if __name__ == '__main__':
+    main()

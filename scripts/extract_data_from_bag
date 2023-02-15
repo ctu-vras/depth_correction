@@ -277,5 +277,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    localization_accuracy()
+    main()

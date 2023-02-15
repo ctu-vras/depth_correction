@@ -5,16 +5,28 @@
 from __future__ import absolute_import, division, print_function
 from argparse import ArgumentParser
 import numpy as np
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 import os
 from rosbag import Bag, ROSBagException
 from ros_numpy import numpify
 import rospy
 from tf2_ros import BufferCore, TransformException
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import PointStamped
+import matplotlib.pyplot as plt
+import open3d as o3d
+from scipy.spatial.transform import Rotation
+from depth_correction.filters import filter_box
+from depth_correction.loss import point_to_point_dist
 
+
+measurements = {'subt_corner': np.asarray([5.2622, -0.5873, 0.1312]),
+                'subt_base': np.asarray([5.2620, -0.0084, -0.3582]),
+                'subt_crystal': np.asarray([5.2567, 0.5753, 0.1589])}
+board_height = measurements['subt_corner'][2] - measurements['subt_base'][2] - 0.01  # Z
+board_length = measurements['subt_crystal'][1] - measurements['subt_corner'][1]  # Y
+board_width = 0.015  # X
 
 def get_arg_parser():
     parser = ArgumentParser(description='Compute localization accuracy from SLAM and data set data.')
@@ -61,7 +73,8 @@ def load_buffer(bag_path):
 def slots(msg):
     return [getattr(msg, var) for var in msg.__slots__]
 
-def get_poses(bag_path, leica_topic = '/total_station_driver/ts_points'):
+
+def get_crystal_poses(bag_path, leica_topic='/total_station_driver/ts_points'):
     poses = []
     stamps = []
     with Bag(bag_path, 'r') as bag:
@@ -72,7 +85,8 @@ def get_poses(bag_path, leica_topic = '/total_station_driver/ts_points'):
             stamps.append(stamp)
     return poses, stamps
 
-def get_static_poses(poses, stamps, pose_th=0.001, static_window_size=10):
+
+def get_static_crystal_poses(poses, stamps, pose_th=0.001, static_window_size=10):
     i = 0
     static_poses = []
     static_stamps = []
@@ -95,30 +109,9 @@ def get_static_poses(poses, stamps, pose_th=0.001, static_window_size=10):
     return static_poses, static_stamps
 
 
-def bias_estimation():
-    data_path = '/home/ruslan/data/bags/depth_correction/'
-    bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
-    # buffer, stamps = load_buffer(bag_path=bag_path)
-
-    # get all crystal poses
-    poses, stamps = get_poses(bag_path)
-    print('Found %i poses' % len(poses))
-
-    # get static poses
-    static_poses, static_stamps = get_static_poses(poses, stamps)
-    print('Found %i static poses' % len(static_poses))
-
-    # poses = np.asarray(poses) - poses[0]
-    # static_poses = np.asarray(static_poses) - static_poses[0]
-    # plt.plot(poses[:, 0], poses[:, 1], '.')
-    # plt.plot(static_poses[:, 0], static_poses[:, 1], 'o')
-    # plt.grid()
-    # plt.axis('equal')
-    # plt.show()
-
-    # get corresponding static point clouds
+def get_static_clouds(bag_path, static_stamps, time_th=0.1, ouster_topic='/ouster/points'):
     static_clouds = []
-    ouster_topic = '/ouster/points'
+
     i = 0
     with Bag(bag_path, 'r') as bag:
         for topic, msg, stamp in tqdm(bag.read_messages(topics=[ouster_topic])):
@@ -126,16 +119,173 @@ def bias_estimation():
             if i >= len(static_stamps):
                 break
 
-            if 0 < (stamp.to_sec() - static_stamps[i].to_sec()) < 0.1:
+            if 0 < (stamp.to_sec() - static_stamps[i].to_sec()) < time_th:
                 i += 1
 
                 msg = PointCloud2(*slots(msg))
                 cloud = numpify(msg)
+                if cloud.ndim == 2:
+                    cloud = cloud.reshape((-1,))
                 static_clouds.append(cloud)
 
-    print('Found %i static clouds' % len(static_clouds))
-    assert len(static_clouds) == len(static_poses) == len(static_stamps)
+    return static_clouds
 
+
+def visualize_clouds(clouds):
+    pcds = []
+    np.random.seed(135)
+    for cloud in clouds:
+        pcd = o3d.geometry.PointCloud()
+        points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        if points.ndim == 3:
+            points = points.reshape((-1, 3))
+        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.colors = o3d.utility.Vector3dVector(np.random.uniform(0, 1, 3) + np.zeros_like(points))
+        pcds.append(pcd)
+    o3d.visualization.draw_geometries(pcds)
+
+
+def generate_board_cloud(n_pts=1000):
+    x0, y0, z0 = measurements['subt_corner'] - measurements['subt_base']
+    z0 -= board_height
+    origin = np.asarray([x0, y0, z0])  # in base frame
+    points = (board_width, board_length, board_height) * np.random.uniform(0, 1, (n_pts, 3)) + origin
+    cloud = unstructured_to_structured(np.asarray(points, dtype=np.float32), names=['x', 'y', 'z'])
+    return cloud
+
+
+def transform_cloud(cloud, Tr):
+    assert isinstance(cloud, np.ndarray)
+    if cloud.dtype.names:
+        pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    else:
+        pts = cloud
+    R, t = Tr[:-1, :-1], Tr[:-1, -1:]
+    pts_tr = pts @ R.T + t.T
+    if cloud.dtype.names:
+        cloud_tr = cloud.copy()
+        cloud_tr[['x', 'y', 'z']] = unstructured_to_structured(pts_tr, names=['x', 'y', 'z'])
+    else:
+        cloud_tr = pts_tr
+    return cloud_tr
+
+
+def normalize(v):
+    norm = np.linalg.norm(v)
+    if norm == 0:
+        return v
+    return v / norm
+
+
+def bias_estimation():
+    data_path = '/home/ruslan/data/bags/depth_correction/leica_ouster/small_board/'
+    bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
+    # buffer, stamps = load_buffer(bag_path=bag_path)
+
+    # get all crystal poses
+    crystal_poses, stamps = get_crystal_poses(bag_path)
+    print('Found %i poses' % len(crystal_poses))
+
+    # get static poses
+    static_crystal_poses, static_stamps = get_static_crystal_poses(crystal_poses, stamps)
+    print('Found %i static poses' % len(static_crystal_poses))
+    # plt.figure()
+    # plt.plot([s.to_sec() - static_stamps[0].to_sec() for s in static_stamps], '.')
+
+    # poses = np.asarray(poses) - poses[0]
+    # static_crystal_poses = np.asarray(static_crystal_poses) - static_crystal_poses[0]
+    # plt.figure()
+    # plt.plot(poses[:, 0], poses[:, 1], '.')
+    # plt.plot(static_crystal_poses[:, 0], static_crystal_poses[:, 1], 'o')
+    # plt.grid()
+    # plt.axis('equal')
+    # plt.show()
+
+    # get corresponding static point clouds
+    static_clouds = get_static_clouds(bag_path, static_stamps)
+    print('Found %i static clouds' % len(static_clouds))
+
+    assert len(static_clouds) == len(static_crystal_poses) == len(static_stamps)
+
+    # create board mesh
+    board_cloud = generate_board_cloud()
+    board_cloud0 = board_cloud.copy()
+
+    def angle_from_leica(pose):
+        v1 = pose - measurements['subt_base']
+        v1 = normalize(v1)
+        angle_z = np.arctan2(v1[1], v1[0]) - np.pi / 2
+        normal = normalize(np.cross(np.array([0, 0, 1]), v1))
+        return angle_z, normal
+
+    # transformation between ouster lidar and world frame (subt)
+    Tr_subt_ouster = np.eye(4)
+    Tr_subt_ouster[:3, :3] = Rotation.from_euler('z', 0.055, degrees=False).as_matrix()
+    Tr_subt_ouster[:3, 3] = np.array([0, 0, -0.10])
+
+    Tr_base_subt = np.eye(4)
+    Tr_base_subt[:3, 3] = -measurements['subt_base']
+
+    plt.figure(figsize=(14, 7))
+    icp_dists = []
+    board_angles = []
+    for id in range(len(static_crystal_poses)):
+
+        board_angle, board_normal = angle_from_leica(static_crystal_poses[id])
+        board_angles.append(np.rad2deg(board_angle))
+
+        # orient board cloud using tracked crystal pose
+        Tr_base_board = np.eye(4)
+        Tr_base_board[:3, :3] = Rotation.from_euler('z', board_angle, degrees=False).as_matrix()
+        board_cloud = transform_cloud(board_cloud0, Tr_base_board)
+
+        # transform ouster cloud to board base frame
+        cloud = static_clouds[id]
+        cloud = transform_cloud(cloud, Tr_base_subt @ Tr_subt_ouster)
+
+        # filter board box from cloud
+        board_box_size = 0.4 * np.array([board_length, board_length, board_height])
+        cloud = filter_box(cloud, pose=np.asarray([0, 0, board_height / 2]), size=board_box_size)
+        board_cloud = filter_box(board_cloud, pose=np.asarray([0, 0, board_height / 2]), size=board_box_size)
+
+        # compute point cloud to mesh distance
+        icp_dist = np.nan
+        if len(cloud) > 0:
+            ouster_points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+            board_points = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+            # point to PLANE
+            # v_diff = ouster_points - np.array([0, 0, 0])
+            # icp_dist = (v_diff @ board_normal[None].T).mean()
+            # point to POINT distance
+            icp_dist = point_to_point_dist([board_points, ouster_points],
+                                           icp_inlier_ratio=0.9, differentiable=False)
+        icp_dists.append(icp_dist)
+
+        # visualize_clouds([cloud, board_cloud])
+        plt.subplot(1, 2, 1)
+        plt.cla()
+        plt.title('Board angle: %.1f [deg]. ICP distance: %.3f' % (np.rad2deg(board_angle), icp_dist))
+        plt.plot(cloud['x'], cloud['y'], '.', label='ouster cloud')
+        plt.plot(board_cloud['x'], board_cloud['y'], '.', label='gt cloud')
+        plt.plot(0, 0, 'k+', markersize=10, label='origin')
+        plt.legend()
+        plt.xlim([-1.0, 1.0])
+        plt.ylim([-1.0, 1.0])
+        plt.xlabel('X [m]')
+        plt.ylabel('Y [m]')
+        plt.grid()
+
+        plt.subplot(1, 2, 2)
+        plt.cla()
+        plt.plot(board_angles, icp_dists)
+        plt.grid()
+        plt.xlabel('Board angle [deg]')
+        plt.ylabel('ICP distance [m]')
+
+        plt.draw()
+        plt.pause(0.01)
+
+    plt.show()
 
 def main():
     args = get_arg_parser().parse_args()
@@ -144,7 +294,7 @@ def main():
     for k in sorted(kwargs):
         print('%s: %s' % (k, kwargs[k]))
 
-    bias_estimation(**kwargs)
+    bias_estimation()
 
 
 if __name__ == '__main__':

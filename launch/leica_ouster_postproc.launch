@@ -2,8 +2,8 @@
 <launch>
     <arg name="config" default="''"/>
     <arg name="rviz" default="true"/>
-    <arg name="bag" default="$(dirname)/../data/bags/leica_ouster/depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag"/>
-<!--    <arg name="bag" default="$(dirname)/../data/bags/leica_ouster/depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag"/>-->
+    <arg name="bag" default="$(dirname)/../data/bags/leica_ouster/small_board/depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag"/>
+<!--    <arg name="bag" default="$(dirname)/../data/bags/leica_ouster/small_board/depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag"/>-->
     <!-- Cloud filter -->
     <arg name="min_depth" default="1.0"/>
     <arg name="max_depth" default="10.0"/>

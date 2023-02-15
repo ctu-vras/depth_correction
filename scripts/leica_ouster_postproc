@@ -168,7 +168,7 @@ class Process(object):
         """
         compute ouster point cloud error wrt ground truth
         """
-        # fig = plt.figure()
+        fig = plt.figure()
         icp_errs = []
         angles = []
         fpath = '/home/ruslan/Desktop/bias_estimation-point-to-point_depth_correction_%s.csv' % self.depth_correction
@@ -224,12 +224,13 @@ class Process(object):
                     prev_angle = self.board_angle
                 if np.abs(self.board_angle - prev_angle) > np.deg2rad(2.0):
                     # point to POINT distance
-                    icp_dist = point_to_point_dist([board_points, ouster_points],
-                                                   icp_inlier_ratio=0.9, differentiable=False)
+                    # icp_dist = point_to_point_dist([board_points, ouster_points],
+                    #                                icp_inlier_ratio=0.9, differentiable=False)
 
                     # point to PLANE distance
-                    # v_diff = ouster_points - self.board_pose[:3, 3]
+                    v_diff = ouster_points - self.board_pose[:3, 3]
                     # icp_dist = np.abs(v_diff @ self.board_normal[None].T).mean()
+                    icp_dist = (v_diff @ self.board_normal[None].T).mean()
                     rospy.loginfo('ICP distance between clouds: %.3f for estimated angle [deg]: %.1f' %
                                   (icp_dist.item(), np.rad2deg(self.board_angle)))
 
@@ -237,10 +238,10 @@ class Process(object):
                     icp_errs.append(icp_dist)
                     rospy.loginfo('Mean ICP error: %f [m]' % np.mean(icp_errs).item())
 
-                    # plt.plot(angles, icp_errs, color='b')
-                    # plt.grid(visible=True)
-                    # plt.pause(0.01)
-                    # plt.draw()
+                    plt.plot(angles, icp_errs, color='b')
+                    plt.grid(visible=True)
+                    plt.pause(0.01)
+                    plt.draw()
 
                     prev_angle = self.board_angle
                     dist_err = ouster_points[:, 0].mean() - self.gt_dist_to_board

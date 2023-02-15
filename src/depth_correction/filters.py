@@ -152,6 +152,8 @@ def filter_box(cloud, pose, size, only_mask=False):
             pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
         else:
             pts = cloud
+        assert pts.ndim == 2, "Input points tensor dimensions is %i (only 2 is supported)" % pts.ndim
+        pts = torch.from_numpy(pts)
 
     x = pts[:, 0]
     y = pts[:, 1]

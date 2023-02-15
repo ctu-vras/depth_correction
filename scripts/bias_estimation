@@ -1,16 +1,12 @@
 #!/usr/bin/env python
-"""
-"""
 
 from __future__ import absolute_import, division, print_function
 from argparse import ArgumentParser
 import numpy as np
 from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 import os
-from rosbag import Bag, ROSBagException
+from rosbag import Bag
 from ros_numpy import numpify
-import rospy
-from tf2_ros import BufferCore, TransformException
 from tqdm import tqdm
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import PointStamped
@@ -19,6 +15,12 @@ import open3d as o3d
 from scipy.spatial.transform import Rotation
 from depth_correction.filters import filter_box
 from depth_correction.loss import point_to_point_dist
+import torch
+from depth_correction.preproc import local_feature_cloud
+from depth_correction.config import Config, Model
+from depth_correction.model import load_model
+from depth_correction.utils import absolute_orientation
+from scipy.spatial import cKDTree
 
 
 measurements = {'subt_corner': np.asarray([5.2622, -0.5873, 0.1312]),
@@ -32,42 +34,6 @@ def get_arg_parser():
     parser = ArgumentParser(description='Compute localization accuracy from SLAM and data set data.')
     # parser.add_argument('bag_paths', nargs='+', default=None, help='Input bag files.')
     return parser
-
-def str_to_sec(stamp):
-    sec = float(stamp.split('_')[0])
-    nsec = float(stamp.split('_')[1])
-    t = sec + nsec / float(1e9)
-    return t
-
-def load_buffer(bag_path):
-    tf_topics = ['/tf', '/tf_static']
-    buffer = BufferCore(rospy.Duration(24 * 60 * 60))
-    stamps = []
-
-    try:
-        with Bag(bag_path, 'r') as bag:
-            # i = 0
-            n = bag.get_message_count(topic_filters=tf_topics)
-            for topic, msg, stamp in tqdm(bag.read_messages(topics=tf_topics),
-                                          desc='%s: reading transforms' % bag_path.split('/')[-1],
-                                          total=n):
-                # i += 1
-                # if i / n > 0.05:
-                #     print('Only reading first 5% of transforms.')
-                #     break
-                if topic == '/tf':
-                    for tf in msg.transforms:
-                        buffer.set_transform(tf, 'bag')
-                        stamps.append(tf.header.stamp.to_sec())
-                elif topic == '/tf_static':
-                    for tf in msg.transforms:
-                        buffer.set_transform_static(tf, 'bag')
-                        stamps.append(tf.header.stamp.to_sec())
-    except ROSBagException as ex:
-        print('Could not read %s: %s' % (bag_path, ex))
-
-    stamps = sorted(stamps)
-    return buffer, stamps
 
 
 def slots(msg):
@@ -136,7 +102,10 @@ def visualize_clouds(clouds):
     np.random.seed(135)
     for cloud in clouds:
         pcd = o3d.geometry.PointCloud()
-        points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        if cloud.dtype.names:
+            points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        else:
+            points = cloud
         if points.ndim == 3:
             points = points.reshape((-1, 3))
         pcd.points = o3d.utility.Vector3dVector(points)
@@ -146,8 +115,10 @@ def visualize_clouds(clouds):
 
 
 def generate_board_cloud(n_pts=1000):
+    np.random.seed(135)
     x0, y0, z0 = measurements['subt_corner'] - measurements['subt_base']
     z0 -= board_height
+    x0 -= board_width / 2.
     origin = np.asarray([x0, y0, z0])  # in base frame
     points = (board_width, board_length, board_height) * np.random.uniform(0, 1, (n_pts, 3)) + origin
     cloud = unstructured_to_structured(np.asarray(points, dtype=np.float32), names=['x', 'y', 'z'])
@@ -176,11 +147,66 @@ def normalize(v):
         return v
     return v / norm
 
+def correction(cloud, model, cfg):
+    with torch.no_grad():
+        # Assume that depth and grid filters are run earlier.
+        cloud = local_feature_cloud(cloud, cfg)
+
+        cloud = model(cloud)
+        cloud.update_points()
+    output_cloud = cloud.to_structured_array()
+    return output_cloud
+
+def angle_from_leica(pose):
+    v1 = pose - measurements['subt_base']
+    v1 = normalize(v1)
+    angle_z = np.arctan2(v1[1], v1[0]) - np.pi / 2
+    normal = normalize(np.cross(np.array([0, 0, 1]), v1))
+    return angle_z, normal
+
+def icp_alignment(x, y, Tr_init=np.eye(4), inl_ratio=1.0, n_iters=100):
+    y_index = cKDTree(y)
+    Tr_res = Tr_init
+
+    d0, _ = y_index.query(x)
+    for _ in tqdm(range(n_iters)):
+        d, idx = y_index.query(x)
+        dist_th = np.percentile(d, 100 * inl_ratio)
+        inl_mask = d <= dist_th
+        x_inl = x[inl_mask]
+        y_inl = y[idx[inl_mask]]
+        Tr = absolute_orientation(x_inl.T, y_inl.T)
+        x = transform_cloud(x, Tr)
+
+        Tr_res = Tr_res @ Tr
+
+    print('Alignment error: %.3f / %.3f' % (d.mean(), d0.mean()))
+    # visualize_clouds([x, y])
+    return Tr_res
+
+def eval(cloud, board_cloud, board_normal):
+    ouster_points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    board_points = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+
+    # point to PLANE
+    v_diff = ouster_points - np.array([0, 0, 0])
+    point_to_plane = (v_diff @ board_normal[None].T).mean()
+
+    # point to POINT distance
+    point_to_point = point_to_point_dist([board_points, ouster_points],
+                                         icp_inlier_ratio=0.9, differentiable=False)
+    return point_to_point, point_to_plane
 
 def bias_estimation():
     data_path = '/home/ruslan/data/bags/depth_correction/leica_ouster/small_board/'
     bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
-    # buffer, stamps = load_buffer(bag_path=bag_path)
+
+    cfg = Config()
+    cfg.model_class = Model.ScaledPolynomial
+    cfg.model_kwargs = {'w': [-0.0011], 'exponent': [4]}
+    cfg.eigenvalue_ratio_bounds = []
+    cfg.log_filters = True
+    model = load_model(cfg=cfg)
 
     # get all crystal poses
     crystal_poses, stamps = get_crystal_poses(bag_path)
@@ -211,23 +237,25 @@ def bias_estimation():
     board_cloud = generate_board_cloud()
     board_cloud0 = board_cloud.copy()
 
-    def angle_from_leica(pose):
-        v1 = pose - measurements['subt_base']
-        v1 = normalize(v1)
-        angle_z = np.arctan2(v1[1], v1[0]) - np.pi / 2
-        normal = normalize(np.cross(np.array([0, 0, 1]), v1))
-        return angle_z, normal
-
     # transformation between ouster lidar and world frame (subt)
+    Tr_base_subt = np.eye(4)
+    Tr_base_subt[:3, 3] = -measurements['subt_base']
+
+    # initial estimate
     Tr_subt_ouster = np.eye(4)
     Tr_subt_ouster[:3, :3] = Rotation.from_euler('z', 0.055, degrees=False).as_matrix()
     Tr_subt_ouster[:3, 3] = np.array([0, 0, -0.10])
 
-    Tr_base_subt = np.eye(4)
-    Tr_base_subt[:3, 3] = -measurements['subt_base']
+    # find transformation between lidar and world frames from ICP alignment
+    x = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+    y = structured_to_unstructured(static_clouds[0][['x', 'y', 'z']])
+    y = transform_cloud(y, Tr_base_subt)
+    Tr_subt_ouster = icp_alignment(x, y, Tr_init=Tr_subt_ouster, inl_ratio=0.6, n_iters=50)
+    print('Found transformation between lidar and world frames:\n%s\n' % Tr_subt_ouster)
 
-    plt.figure(figsize=(14, 7))
-    icp_dists = []
+    plt.figure(figsize=(21, 7))
+    icp_dists = {'point_to_point': [], 'point_to_plane': []}
+    icp_dists_corr = {'point_to_point': [], 'point_to_plane': []}
     board_angles = []
     for id in range(len(static_crystal_poses)):
 
@@ -244,48 +272,69 @@ def bias_estimation():
         cloud = transform_cloud(cloud, Tr_base_subt @ Tr_subt_ouster)
 
         # filter board box from cloud
-        board_box_size = 0.4 * np.array([board_length, board_length, board_height])
+        box_scale = 0.4
+        board_box_size = box_scale * np.array([board_length, board_length, board_height])
         cloud = filter_box(cloud, pose=np.asarray([0, 0, board_height / 2]), size=board_box_size)
         board_cloud = filter_box(board_cloud, pose=np.asarray([0, 0, board_height / 2]), size=board_box_size)
 
         # compute point cloud to mesh distance
-        icp_dist = np.nan
+        point_to_point = np.nan
+        point_to_point_corr = np.nan
+        point_to_plane = np.nan
+        point_to_plane_corr = np.nan
+        cloud_corr = cloud
         if len(cloud) > 0:
-            ouster_points = structured_to_unstructured(cloud[['x', 'y', 'z']])
-            board_points = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
-            # point to PLANE
-            # v_diff = ouster_points - np.array([0, 0, 0])
-            # icp_dist = (v_diff @ board_normal[None].T).mean()
-            # point to POINT distance
-            icp_dist = point_to_point_dist([board_points, ouster_points],
-                                           icp_inlier_ratio=0.9, differentiable=False)
-        icp_dists.append(icp_dist)
+            # correction
+            cloud_corr = correction(cloud, model, cfg)
+
+            point_to_point, point_to_plane = eval(cloud, board_cloud, board_normal)
+            point_to_point_corr, point_to_plane_corr = eval(cloud_corr, board_cloud, board_normal)
+
+        icp_dists['point_to_point'].append(point_to_point)
+        icp_dists['point_to_plane'].append(point_to_plane)
+        icp_dists_corr['point_to_point'].append(point_to_point_corr)
+        icp_dists_corr['point_to_plane'].append(point_to_plane_corr)
 
         # visualize_clouds([cloud, board_cloud])
-        plt.subplot(1, 2, 1)
+        plt.subplot(1, 3, 1)
         plt.cla()
-        plt.title('Board angle: %.1f [deg]. ICP distance: %.3f' % (np.rad2deg(board_angle), icp_dist))
-        plt.plot(cloud['x'], cloud['y'], '.', label='ouster cloud')
+        plt.title('Board angle: %.1f [deg].' % np.rad2deg(board_angle))
+        # plt.plot(cloud['x'], cloud['y'], '.', label='ouster cloud')
+        plt.plot(cloud_corr['x'], cloud_corr['y'], '.', label='ouster cloud corrected')
         plt.plot(board_cloud['x'], board_cloud['y'], '.', label='gt cloud')
         plt.plot(0, 0, 'k+', markersize=10, label='origin')
         plt.legend()
-        plt.xlim([-1.0, 1.0])
-        plt.ylim([-1.0, 1.0])
+        plt.xlim([-0.6, 0.6])
+        plt.ylim([-0.6, 0.6])
         plt.xlabel('X [m]')
         plt.ylabel('Y [m]')
         plt.grid()
 
-        plt.subplot(1, 2, 2)
+        plt.subplot(1, 3, 2)
         plt.cla()
-        plt.plot(board_angles, icp_dists)
+        plt.title('ICP distance: %.3f' % point_to_point)
+        plt.plot(board_angles, icp_dists['point_to_point'], '--', label='ICP distance')
+        plt.plot(board_angles, icp_dists_corr['point_to_point'], label='ICP distance corrected')
+        plt.legend()
         plt.grid()
         plt.xlabel('Board angle [deg]')
-        plt.ylabel('ICP distance [m]')
+        plt.ylabel('ICP point to POINT distance [m]')
+
+        plt.subplot(1, 3, 3)
+        plt.cla()
+        plt.title('ICP distance: %.3f' % point_to_plane)
+        plt.plot(board_angles, icp_dists['point_to_plane'], '--', label='ICP distance')
+        plt.plot(board_angles, icp_dists_corr['point_to_plane'], label='ICP distance corrected')
+        plt.legend()
+        plt.grid()
+        plt.xlabel('Board angle [deg]')
+        plt.ylabel('ICP point to PLANE distance [m]')
 
         plt.draw()
-        plt.pause(0.01)
+        plt.pause(0.5)
 
     plt.show()
+
 
 def main():
     args = get_arg_parser().parse_args()

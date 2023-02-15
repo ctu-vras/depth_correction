@@ -245,3 +245,57 @@ def load_mesh(mesh_path):
     else:
         raise ValueError('Supported mesh formats are *.obj or *.ply')
     return mesh
+
+
+def absolute_orientation(x, y):
+    """Find transform R, t between x and y, such that the sum of squared
+    distances ||R * x[:, i] + t - y[:, i]|| is minimum.
+
+    :param x: Points to align, D-by-M array.
+    :param y: Reference points to align to, D-by-M array.
+
+    :return: Optimized transform from SE(D) as (D+1)-by-(D+1) array,
+        T = [R t; 0... 1].
+    """
+    def nearest_orthonormal(M):
+        assert M.ndim == 2
+        assert M.shape[0] == M.shape[1]
+        U, s, V = np.linalg.svd(M, full_matrices=False)
+        # NB: Numpy returns H = U * diag(s) * V, not U * diag(s) * V'.
+        # assert np.allclose(M, U @ np.diag(s) @ V)
+        # assert np.allclose(M, np.matmul(np.matmul(U, np.diag(s)), V))
+        R = np.matmul(U, V)
+        return R
+
+    assert x.shape == y.shape, 'Inputs must be same size.'
+    assert x.shape[1] > 0
+    assert y.shape[1] > 0
+    d = x.shape[0]
+    T = np.eye(d + 1)
+
+    # Center points.
+    x_mean = x.mean(axis=1, keepdims=True)
+    y_mean = y.mean(axis=1, keepdims=True)
+    x_centered = x - x_mean
+    y_centered = y - y_mean
+
+    # Avoid loop through individual vectors.
+    # M = x_centered @ y_centered.T
+    M = np.matmul(x_centered, y_centered.T)
+    R = nearest_orthonormal(M).T
+
+    # assert np.allclose(R @ R.T, np.eye(k))
+    # assert np.allclose(np.matmul(R, R.T), np.eye(d))
+    if d == 3 and not np.isclose(np.linalg.det(R), 1.0):
+        # print('Determinant is not close to 1.0: %.3f' % np.linalg.det(R))
+        raise ValueError("Rotation R, R'*R = I, det(R) = 1, could not be found.")
+
+    # t = y_mean - R @ x_mean
+    t = y_mean - np.matmul(R, x_mean)
+    # return np.block([[R, t], [np.zeros((1, k)), 1]])
+    # T = np.zeros((d + 1, d + 1))
+    # T[-1, -1] = 1.
+    T[:-1, :-1] = R
+    T[:-1, -1:] = t
+
+    return T

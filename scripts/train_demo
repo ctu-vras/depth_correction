@@ -127,9 +127,9 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.model_kwargs['learnable_exponents'] = False
         self.cfg.model_state_dict = None
 
-        # self.cfg.loss = Loss.min_eigval_loss
+        self.cfg.loss = Loss.min_eigval_loss
         # self.cfg.loss = Loss.trace_loss
-        self.cfg.loss = Loss.icp_loss
+        # self.cfg.loss = Loss.icp_loss
         self.cfg.loss_kwargs['sqrt'] = False
         # self.cfg.loss_kwargs['sqrt'] = True
         # self.cfg.loss_kwargs['normalization'] = False
@@ -423,7 +423,6 @@ class TrainingDemo(TrainCallbacks):
         # plt.subplots_adjust(left=0.15, top=0.975, right=0.975, bottom=0.05, hspace=0.5, wspace=0.75)
         # plt.subplots_adjust(left=0.05, top=0.975, right=0.975, bottom=0.05, hspace=0.25, wspace=0.5)
         plt.pause(0.001)
-        # plt.show()
 
         print(self.cfg.log_dir)
         path = os.path.join(self.cfg.log_dir, 'train_demo.png')

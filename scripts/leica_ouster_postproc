@@ -4,7 +4,7 @@ from __future__ import absolute_import, division, print_function
 import rospy
 from geometry_msgs.msg import PointStamped
 import numpy as np
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, Transform
 from sensor_msgs.msg import PointCloud2
 import tf2_ros
 from tf.transformations import quaternion_from_euler, quaternion_matrix
@@ -54,7 +54,7 @@ def create_marker(p=None, q=None, scale=None, color=None, alpha=0.8, type=Marker
     return marker
 
 
-class Transform(object):
+class Transformation(object):
     def __init__(self, frame, child_frame, translation=None, rotation=None):
         if translation is None:
             translation = [0, 0, 0]
@@ -127,6 +127,11 @@ class Process(object):
         self.board_length = self.measurements['subt_crystal'][1] - self.measurements['subt_corner'][1]  # Y
         self.board_width = 0.015  # X
         self.board_box_size = 0.4 * np.asarray([self.board_length, self.board_length, self.board_height])
+
+        self.Tr_world_ouster = np.array([[0.99832296, -0.05795125, -0.0035224, 0.],
+                                         [0.05796774, 0.99802342, 0.02213984, 0.],
+                                         [0.0023, -0.0223, 0.9997, -0.1],
+                                         [0., 0., 0., 1.]])
 
         self.static_frame = 'subt'
         self.ouster_pose = None
@@ -274,11 +279,11 @@ class Process(object):
         return cloud
 
     def measurements_to_transforms(self):
-        t1 = Transform(frame='base_marker', child_frame='crystal')
+        t1 = Transformation(frame='base_marker', child_frame='crystal')
         t1.translation = self.measurements['subt_crystal'] - self.measurements['subt_base']
         t1.rotation = np.asarray([0, 0, 0, 1])
 
-        t2 = Transform(frame='base_marker', child_frame='corner_marker')
+        t2 = Transformation(frame='base_marker', child_frame='corner_marker')
         t2.translation = self.measurements['subt_corner'] - self.measurements['subt_base']
         t2.rotation = np.asarray([0, 0, 0, 1])
         return [t1, t2]
@@ -293,16 +298,7 @@ class Process(object):
             tr.header.stamp = ouster_msg.header.stamp
             tr.header.frame_id = self.static_frame
             tr.child_frame_id = ouster_msg.header.frame_id
-            tr.transform.translation.x = 0
-            tr.transform.translation.y = 0
-            tr.transform.translation.z = -0.10
-            # estimate orientation
-            angle_z = 0.055
-            q = quaternion_from_euler(0, 0, angle_z)
-            tr.transform.rotation.x = q[0]
-            tr.transform.rotation.y = q[1]
-            tr.transform.rotation.z = q[2]
-            tr.transform.rotation.w = q[3]
+            tr.transform = msgify(Transform, self.Tr_world_ouster)
             self.tf_br.sendTransform(tr)
 
             # cloud poses in static frame

@@ -4,10 +4,11 @@ from .depth_cloud import DepthCloud
 from .filters import filter_eigenvalue, filter_depth, filter_grid
 from .nearest_neighbors import nearest_neighbors
 from .point_cloud import PointCloud
-from .utils import timing, trace
+from .utils import timing, trace, normalize
 from enum import Enum
 import numpy as np
 from numpy.polynomial import Polynomial
+from numpy.lib.recfunctions import structured_to_unstructured
 import torch
 from scipy.spatial import cKDTree
 from pytorch3d.ops.knn import knn_points
@@ -23,6 +24,9 @@ __all__ = [
     'neighbor_fun',
     'reduce',
     'trace_loss',
+    'icp_loss',
+    'point_to_point_dist',
+    'point_to_plane_dist'
 ]
 
 

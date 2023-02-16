@@ -14,13 +14,15 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 from scipy.spatial.transform import Rotation
 from depth_correction.filters import filter_box
-from depth_correction.loss import point_to_point_dist
+from depth_correction.loss import point_to_point_dist, point_to_plane_dist, min_eigval_loss, trace_loss
 import torch
 from depth_correction.preproc import local_feature_cloud
 from depth_correction.config import Config, Model
 from depth_correction.model import load_model
 from depth_correction.utils import absolute_orientation
+from depth_correction.depth_cloud import DepthCloud
 from scipy.spatial import cKDTree
+from pytorch3d.loss import chamfer_distance
 
 
 measurements = {'subt_corner': np.asarray([5.2622, -0.5873, 0.1312]),
@@ -197,13 +199,17 @@ def eval(cloud, board_cloud, board_normal):
                                          icp_inlier_ratio=0.9, differentiable=False)
     return point_to_point, point_to_plane
 
-def bias_estimation():
+def demo():
     data_path = '/home/ruslan/data/bags/depth_correction/leica_ouster/small_board/'
     bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
+    # bag_path = os.path.join(data_path, 'depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag')
 
     cfg = Config()
     cfg.model_class = Model.ScaledPolynomial
-    cfg.model_kwargs = {'w': [-0.0011], 'exponent': [4]}
+    # ScaledPolynomial(0.0481991x^2, 0.0205413x^4, -0.00932569x^6)
+    # cfg.model_kwargs = {'w': [0.0481991, 0.0205413, -0.00932569], 'exponent': [2, 4, 6]}
+    # cfg.model_kwargs = {'w': [0.0481991, 0.0205413], 'exponent': [2, 4]}
+    cfg.model_kwargs = {'w': [0.0481991], 'exponent': [2]}
     cfg.eigenvalue_ratio_bounds = []
     cfg.log_filters = True
     model = load_model(cfg=cfg)
@@ -218,10 +224,10 @@ def bias_estimation():
     # plt.figure()
     # plt.plot([s.to_sec() - static_stamps[0].to_sec() for s in static_stamps], '.')
 
-    # poses = np.asarray(poses) - poses[0]
+    # crystal_poses = np.asarray(crystal_poses) - crystal_poses[0]
     # static_crystal_poses = np.asarray(static_crystal_poses) - static_crystal_poses[0]
     # plt.figure()
-    # plt.plot(poses[:, 0], poses[:, 1], '.')
+    # plt.plot(crystal_poses[:, 0], crystal_poses[:, 1], '.')
     # plt.plot(static_crystal_poses[:, 0], static_crystal_poses[:, 1], 'o')
     # plt.grid()
     # plt.axis('equal')
@@ -247,11 +253,11 @@ def bias_estimation():
     Tr_subt_ouster[:3, 3] = np.array([0, 0, -0.10])
 
     # find transformation between lidar and world frames from ICP alignment
-    x = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
-    y = structured_to_unstructured(static_clouds[0][['x', 'y', 'z']])
-    y = transform_cloud(y, Tr_base_subt)
-    Tr_subt_ouster = icp_alignment(x, y, Tr_init=Tr_subt_ouster, inl_ratio=0.6, n_iters=50)
-    print('Found transformation between lidar and world frames:\n%s\n' % Tr_subt_ouster)
+    # x = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+    # y = structured_to_unstructured(static_clouds[0][['x', 'y', 'z']])
+    # y = transform_cloud(y, Tr_base_subt)
+    # Tr_subt_ouster = icp_alignment(x, y, Tr_init=Tr_subt_ouster, inl_ratio=0.6, n_iters=50)
+    # print('Found transformation between lidar and world frames:\n%s\n' % Tr_subt_ouster)
 
     plt.figure(figsize=(21, 7))
     icp_dists = {'point_to_point': [], 'point_to_plane': []}
@@ -336,6 +342,144 @@ def bias_estimation():
     plt.show()
 
 
+def train():
+    data_path = '/home/ruslan/data/bags/depth_correction/leica_ouster/small_board/'
+    bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
+    # bag_path = os.path.join(data_path, 'depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag')
+
+    cfg = Config()
+    cfg.model_class = Model.ScaledPolynomial
+    cfg.model_kwargs = {'w': [0.0, 0.0], 'exponent': [2, 4]}
+    cfg.eigenvalue_ratio_bounds = []
+    cfg.log_filters = True
+    cfg.lr = 0.001
+    cfg.n_opt_iters = 50
+
+    model = load_model(cfg=cfg)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+
+    # get all crystal poses
+    crystal_poses, stamps = get_crystal_poses(bag_path)
+    print('Found %i poses' % len(crystal_poses))
+
+    # get static poses
+    static_crystal_poses, static_stamps = get_static_crystal_poses(crystal_poses, stamps)
+    print('Found %i static poses' % len(static_crystal_poses))
+
+    # get corresponding static point clouds
+    static_clouds = get_static_clouds(bag_path, static_stamps)
+    print('Found %i static clouds' % len(static_clouds))
+
+    assert len(static_clouds) == len(static_crystal_poses) == len(static_stamps)
+
+    # create board mesh
+    board_cloud = generate_board_cloud()
+    board_cloud0 = board_cloud.copy()
+
+    # transformation between ouster lidar and world frame (subt)
+    Tr_base_subt = np.eye(4)
+    Tr_base_subt[:3, 3] = -measurements['subt_base']
+
+    # initial estimate
+    Tr_subt_ouster = np.eye(4)
+    Tr_subt_ouster[:3, :3] = Rotation.from_euler('z', 0.055, degrees=False).as_matrix()
+    Tr_subt_ouster[:3, 3] = np.array([0, 0, -0.10])
+
+    # find transformation between lidar and world frames from ICP alignment
+    # x = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+    # y = structured_to_unstructured(static_clouds[0][['x', 'y', 'z']])
+    # y = transform_cloud(y, Tr_base_subt)
+    # Tr_subt_ouster = icp_alignment(x, y, Tr_init=Tr_subt_ouster, inl_ratio=0.6, n_iters=50)
+    # print('Found transformation between lidar and world frames:\n%s\n' % Tr_subt_ouster)
+
+    board_angles = []
+    plt.figure(figsize=(24, 8))
+    for id in range(len(static_crystal_poses)):
+
+        board_angle, board_normal = angle_from_leica(static_crystal_poses[id])
+        board_angles.append(np.rad2deg(board_angle))
+
+        # orient board cloud using tracked crystal pose
+        Tr_base_board = np.eye(4)
+        Tr_base_board[:3, :3] = Rotation.from_euler('z', board_angle, degrees=False).as_matrix()
+        board_cloud = transform_cloud(board_cloud0, Tr_base_board)
+
+        # transform ouster cloud to board base frame
+        cloud = static_clouds[id]
+        cloud = transform_cloud(cloud, Tr_base_subt @ Tr_subt_ouster)
+
+        # filter board box from cloud
+        box_scale = 0.4
+        board_box_size = box_scale * np.array([board_length, board_length, board_height])
+        cloud = filter_box(cloud, pose=np.asarray([0, 0, board_height / 2]), size=board_box_size)
+        board_cloud = filter_box(board_cloud, pose=np.asarray([0, 0, board_height / 2]), size=board_box_size)
+
+        board_cloud = DepthCloud.from_structured_array(board_cloud)
+        # TODO: normals from ground truth
+        board_cloud.update_all(r=cfg.nn_r)
+
+        # compute point cloud to mesh distance
+        if len(cloud) > 0:
+            losses = []
+            for _ in range(cfg.n_opt_iters):
+                cloud = local_feature_cloud(cloud, cfg)
+
+                cloud_corr = model(cloud)
+                cloud_corr.update_points()
+
+                # cloud_corr.update_all(r=cfg.nn_r)
+                # loss = point_to_point_dist(clouds=[cloud_corr, board_cloud])
+                # loss = point_to_plane_dist(clouds=[cloud_corr, board_cloud], icp_inlier_ratio=1.0)
+
+                # vectors = cloud_corr.points - torch.tensor([0, 0, board_height / 2])
+                # vectors = vectors / torch.linalg.norm(vectors, dim=-1, keepdims=True)
+                # normal = torch.as_tensor(board_normal[None].T)
+                # loss = (vectors @ normal).abs().sum()
+                loss, _ = chamfer_distance(cloud_corr.points[None].float(), board_cloud.points[None].float())
+
+                # global_cloud = DepthCloud.concatenate([cloud_corr, board_cloud])
+                # global_cloud.update_all(r=cfg.nn_r)
+                # # loss, _ = min_eigval_loss(global_cloud)
+                # loss, _ = trace_loss(global_cloud)
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                print(model)
+                losses.append(loss.item())
+
+                with torch.no_grad():
+                    plt.subplot(1, 3, 1)
+                    plt.cla()
+                    plt.title('Board angle: %.1f [deg].' % np.rad2deg(board_angle))
+                    plt.arrow(0, 0, 0.4*board_normal[0], 0.4*board_normal[1])
+                    plt.plot(cloud_corr.points[:, 0], cloud_corr.points[:, 1], '.', label='ouster cloud corrected')
+                    plt.plot(board_cloud.points[:, 0], board_cloud.points[:, 1], '.', label='gt cloud')
+                    plt.plot(0, 0, 'k+', markersize=10, label='origin')
+                    plt.legend()
+                    plt.xlim([-0.6, 0.6])
+                    plt.ylim([-0.6, 0.6])
+                    plt.xlabel('X [m]')
+                    plt.ylabel('Y [m]')
+                    plt.grid()
+
+                    plt.subplot(1, 3, 2)
+                    plt.cla()
+                    plt.title('Loss: %.3f' % loss.item())
+                    plt.plot(losses, '--', label='ICP distance')
+                    plt.legend()
+                    plt.grid()
+
+                    plt.subplot(1, 3, 3)
+                    plt.cla()
+                    model.plot(plt.gca())
+                    plt.grid()
+
+                    plt.draw()
+                    plt.pause(0.01)
+
+
 def main():
     args = get_arg_parser().parse_args()
 
@@ -343,7 +487,8 @@ def main():
     for k in sorted(kwargs):
         print('%s: %s' % (k, kwargs[k]))
 
-    bias_estimation()
+    # demo()
+    train()
 
 
 if __name__ == '__main__':

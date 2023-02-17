@@ -33,12 +33,6 @@ board_length = measurements['subt_crystal'][1] - measurements['subt_corner'][1] 
 board_width = 0.015  # X
 
 
-def get_arg_parser():
-    parser = ArgumentParser(description='Compute localization accuracy from SLAM and data set data.')
-    # parser.add_argument('bag_paths', nargs='+', default=None, help='Input bag files.')
-    return parser
-
-
 def slots(msg):
     return [getattr(msg, var) for var in msg.__slots__]
 
@@ -197,7 +191,7 @@ def eval(cloud, board_cloud, board_normal, board_center=np.array([0, 0, 0])):
 
     # point to PLANE
     v_diff = ouster_points - board_center
-    point_to_plane = (-v_diff @ board_normal[None].T).mean()
+    point_to_plane = np.mean(np.abs(v_diff @ board_normal[None].T))
 
     dist_to_board = np.linalg.norm(ouster_points.mean(axis=0)[:2])
 
@@ -322,9 +316,9 @@ def eval_model():
             plt.subplot(2, 2, 1)
             plt.cla()
             plt.title('Board angle: %.1f [deg].' % np.rad2deg(board_angle))
-            # plt.plot(cloud['x'], cloud['y'], 'o', label='ouster cloud')
-            plt.plot(cloud_corr['x'], cloud_corr['y'], 'x', label='ouster cloud corrected')
-            plt.plot(board_cloud['x'], board_cloud['y'], '.', label='gt cloud')
+            plt.plot(board_cloud['x'], board_cloud['y'], 'x', label='gt cloud')
+            plt.plot(cloud['x'], cloud['y'], 'o', label='ouster cloud')
+            plt.plot(cloud_corr['x'], cloud_corr['y'], '.', label='ouster cloud corrected')
             plt.plot(0, 0, 'k+', markersize=10, label='origin')
             plt.legend()
             plt.xlabel('X [m]')
@@ -343,9 +337,11 @@ def eval_model():
 
             plt.subplot(2, 2, 3)
             plt.cla()
-            plt.title('Estimated distance to board')
-            plt.plot(board_angles, metrics['distance_to_board'], label='distance to board')
-            plt.plot(board_angles, metrics_corr['distance_to_board'], label='distance to board corrected')
+            gt_distance = board_center[0]
+            plt.title('Distance to board error [m]')
+            plt.plot(board_angles, np.asarray(metrics['distance_to_board']) - gt_distance, label='distance to board')
+            plt.plot(board_angles, np.asarray(metrics_corr['distance_to_board']) - gt_distance, label='distance to board corrected')
+            # plt.plot(board_angles, board_center[0] * np.ones_like(board_angles), '--', label='GT distance')
             plt.legend()
             plt.grid()
 
@@ -745,15 +741,106 @@ def train():
     plt.show()
 
 
+def filter_window_outliers(cloud: np.ndarray, y_min=-2.5, y_max=2.5, phi_deg=10.0):
+    """
+    Filter outliers related to lidar beams going through windows
+
+    :param y_max:
+    :param y_min:
+    :param cloud:
+    :para phi_deg
+    :return:
+    """
+    phi = np.deg2rad(phi_deg)
+    Rot = np.array([[np.cos(phi), -np.sin(phi), 0],
+                    [np.sin(phi), np.cos(phi), 0],
+                    [0, 0, 1]])
+    if cloud.dtype.names:
+        pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    else:
+        pts = cloud
+    pts = (Rot @ pts.T).T
+    y = pts[:, 1]
+    mask = np.logical_and(y > y_min, y < y_max)
+
+    return cloud[mask]
+
+
+def global_map_bias(map_topic='/point_map'):
+    bag_path = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_seq2.bag'
+    # bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w-0.00068_exp4_seq2_half.bag'
+    # bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w-0.0011_exp4_seq2.bag'
+    bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w-0.00618152_0.00410526_exp2_4_seq2_half.bag'
+    # bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w0.00410526_exp4_seq2_half.bag'
+
+    bag_paths = [bag_path_corr, bag_path]
+    plt.figure(figsize=(24, 4))
+
+    for path in bag_paths:
+
+        print('Processing bag: %s' % path)
+        poses, stamps = get_crystal_poses(path)
+        # ts = np.asarray([t.to_sec() for t in stamps])
+        poses = np.asarray(poses)
+        farest_id = np.argmax(poses[:, 0])
+        search_window_size = 6
+        map_step = 1
+
+        with Bag(path, 'r') as bag:
+            cloud = None
+            for topic, msg, stamp in bag.read_messages(topics=[map_topic],
+                                                       start_time=stamps[int(farest_id-search_window_size/2)],
+                                                       end_time=stamps[int(farest_id+search_window_size/2)]):
+                if cloud is not None:
+                    break
+
+                msg = PointCloud2(*slots(msg))
+                cloud = numpify(msg)
+                print('Found global cloud with N points: %i' % len(cloud))
+
+                phi = 9.5 if 'seq2' in path else 8.2
+                cloud_corridor = filter_window_outliers(cloud, y_min=-2.0, y_max=2.0, phi_deg=phi)
+                # visualize_clouds([cloud, cloud_corridor])
+
+                Tr = np.eye(4)
+                Tr[:3, :3] = Rotation.from_euler('z', phi, degrees=True).as_matrix()
+                Tr[:3, :3] = Rotation.from_euler('y', -0.5, degrees=True).as_matrix() @ Tr[:3, :3]
+                cloud_corridor_aligned = transform_cloud(cloud_corridor, Tr)
+                poses_aligned = poses[:farest_id]
+
+                # # pts = structured_to_unstructured(cloud_corridor_aligned[['x', 'y', 'z']])
+                plt.subplot(2, 1, 1)
+                plt.plot(cloud_corridor_aligned['x'][::map_step], cloud_corridor_aligned['y'][::map_step],
+                         '.', markersize=0.1, color='b' if 'depth_correction' in path.split('/')[-1] else 'r',
+                         label='corrected' if 'depth_correction' in path.split('/')[-1] else 'initial')
+                plt.plot(poses_aligned[:, 0], poses_aligned[:, 1], 'k', label='robot path')
+                plt.xlabel('X [m]')
+                plt.ylabel('Y [m]')
+                # plt.axis('equal')
+                plt.grid(visible=True)
+                # plt.legend()
+
+                plt.subplot(2, 1, 2)
+                plt.plot(cloud_corridor_aligned['x'][::map_step], cloud_corridor_aligned['z'][::map_step],
+                         '.', markersize=0.1, color='b' if 'depth_correction' in path.split('/')[-1] else 'r',
+                         label='corrected' if 'depth_correction' in path.split('/')[-1] else 'initial')
+                plt.plot(poses_aligned[:, 0], poses_aligned[:, 2], 'k')
+                plt.xlabel('X [m]')
+                plt.ylabel('Z [m]')
+                # plt.axis('equal')
+                plt.grid(visible=True)
+                # plt.legend()
+
+                plt.draw()
+                plt.pause(0.01)
+
+    plt.show()
+
+
 def main():
-    args = get_arg_parser().parse_args()
-
-    kwargs = vars(args)
-    for k in sorted(kwargs):
-        print('%s: %s' % (k, kwargs[k]))
-
-    eval_model()
+    # eval_model()
     # train()
+    global_map_bias()
 
 
 if __name__ == '__main__':

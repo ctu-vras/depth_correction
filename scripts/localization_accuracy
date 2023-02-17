@@ -32,7 +32,7 @@ from depth_correction.utils import delta_transform, rotation_angle, translation_
 
 def get_arg_parser():
     parser = ArgumentParser(description='Compute localization accuracy from SLAM and data set data.')
-    parser.add_argument('bag_paths', nargs='+', default=None, help='Input bag files.')
+    # parser.add_argument('bag_paths', nargs='+', default=None, help='Input bag files.')
     return parser
 
 def str_to_sec(stamp):
@@ -81,18 +81,14 @@ def load_buffer(bag_path):
     return buffer, stamps
 
 
-def localization_accuracy(bag_paths, fixed_frame='map', pose_frame_id='os_sensor'):
-    data_path = '/home/ruslan/data/datasets/depth_correction/22-11-24-kn_e2_corridor/'
-    # if bag_paths is None:
-    bag_paths = os.listdir(os.path.join(data_path, 'bags/postprocessing/'))
-    bag_paths = [os.path.join(data_path, 'bags/postprocessing/', b) for b in bag_paths]
+def localization_accuracy(fixed_frame='map', pose_frame_id='os_sensor'):
+    data_path = '/home/ruslan/data/datasets/fee_corridor/'
+    # bag_paths = os.listdir(os.path.join(data_path, 'bags/postprocessing/'))
+    # bag_paths = [os.path.join(data_path, 'bags/postprocessing/', b) for b in bag_paths]
+    bag_paths = ['/home/ruslan/data/bags/depth_correction/slam_eval/slam_seq2.bag']
     for bag_path in bag_paths:
         if bag_path[-4:] != '.bag':
             print('%s probably is not a bag file' % bag_path)
-            continue
-        if 'ScaledPolynomial' in bag_path:
-            continue
-        if not ('1376' in bag_path):
             continue
         assert os.path.exists(bag_path)
         poses = []

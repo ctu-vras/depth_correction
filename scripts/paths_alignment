@@ -222,7 +222,7 @@ def demo():
 
     seq = 'seq1'
     # seq = 'seq2'
-    path = '/home/ruslan/data/datasets/depth_correction/22-11-24-kn_e2_corridor/sequences/'
+    path = '/home/ruslan/data/datasets/fee_corridor/sequences/'
     poses_leica = np.genfromtxt(os.path.join(path, seq, 'poses', 'static_leica_poses_raw.txt'))
     poses_leica = poses_leica - np.array([0, 0, 0.1])  # crystal is 10 cm above lidar
 

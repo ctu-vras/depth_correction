@@ -201,7 +201,7 @@ Evaluation of baselines.
 
 Compute map consistency metrics on raw data (not corrected with the models):
 ```bash
-python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 -- eval_loss_baselines
+python -m depth_correction.main --dataset fee_corridor --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 -- eval_loss_baselines
 ```
 
 Estimate localization accuracy with
@@ -209,10 +209,10 @@ Estimate localization accuracy with
 using ground truth from a dataset:
 
 ```bash
-python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 --ros-master-port 12311 --rviz true -- eval_slam_baselines
+python -m depth_correction.main --dataset fee_corridor --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 --ros-master-port 12311 --rviz true -- eval_slam_baselines
 ```
 
 Training of depth correction models and evaluation of them on map consistency and localization accuracy (whole pipeline):
 ```bash
-python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 -- train_and_eval_all
+python -m depth_correction.main --dataset fee_corridor --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 -- train_and_eval_all
 ```

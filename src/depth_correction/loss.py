@@ -461,17 +461,17 @@ def point_to_plane_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differen
         # point to plane distance 1 -> 2
         normals1_inters = cloud1.normals[mask1]
         # assert np.allclose(np.linalg.norm(normals1_inters, axis=1), np.ones(len(normals1_inters)))
-        vectors = points2_inters - points1_inters
-        normals = normals1_inters
-        dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
+        k = torch.multiply(normals1_inters, points2_inters - points1_inters).sum(dim=-1, keepdims=True)
+        points2_plane = points2_inters - k * normals1_inters
+        dists_to_plane = torch.linalg.norm(points2_inters - points2_plane, dim=-1)
         dist12 = dists_to_plane.mean()
 
         # point to plane distance 2 -> 1
         normals2_inters = cloud2.normals[mask2]
         # assert np.allclose(np.linalg.norm(normals2_inters, axis=1), np.ones(len(normals2_inters)))
-        vectors = points1_inters - points2_inters
-        normals = normals2_inters
-        dists_to_plane = torch.multiply(vectors, normals).sum(dim=1).abs()
+        k = torch.multiply(normals2_inters, points1_inters - points2_inters).sum(dim=-1, keepdims=True)
+        points1_plane = points1_inters - k * normals2_inters
+        dists_to_plane = torch.linalg.norm(points1_inters - points1_plane, dim=-1)
         dist21 = dists_to_plane.mean()
 
         point2plane_dist += 0.5 * (dist12 + dist21)

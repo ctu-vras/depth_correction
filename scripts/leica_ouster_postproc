@@ -290,7 +290,7 @@ class Process(object):
 
     def ouster_process(self, ouster_msg):
         """
-        manually finding lidar pose relative to origin (fixed frame)
+        publishing static transform: lidar pose relative to origin (fixed frame)
         """
         with self.ouster_lock:
             # map (subt) -> ouster lidar

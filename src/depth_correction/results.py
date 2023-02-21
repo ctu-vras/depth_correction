@@ -16,14 +16,17 @@ path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'gen
 print(path)
 
 # Choose dataset
-dataset = 'asl_laser'
+# dataset = 'asl_laser'
 # dataset = 'semantic_kitti'
+dataset = 'fee_corridor'
 if dataset == 'asl_laser':
     # preproc = '{dataset}*g0.10'.format(dataset=dataset)
     preproc = '{dataset}*s0.0175_0.0873-nan'.format(dataset=dataset)
 elif dataset == 'semantic_kitti':
     # preproc = '{dataset}*g0.20'.format(dataset=dataset)
     preproc = '{dataset}*s0.0175_0.0873-nan'.format(dataset=dataset)
+elif dataset == 'fee_corridor':
+    preproc = f'{dataset}*g0.20'
 else:
     raise ValueError('Unsupported dataset: %s.' % dataset)
 preproc = os.path.join(path, preproc)
@@ -187,7 +190,7 @@ def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='tr
 
 
 def get_mean_loss(preproc=preproc, pose_src='*', model='*', loss='*', eval_loss='*', subset='train'):
-    loss_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_*_{loss}/split_{split}/loss_eval_{eval_loss}_{subset}.csv')
+    loss_eval_format = '{preproc}/{pose_provider}_*_{model}_*_{loss}_*/split_{split}/loss_eval_{eval_loss}_{subset}.csv'
     csv_pattern = loss_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
                                           split='*', eval_loss=eval_loss, subset=subset)
     print(csv_pattern)
@@ -478,8 +481,8 @@ def results_for_individual_sequences_demo(std=False):
 
 def main():
     # slam_localization_error_demo()
-    slam_localization_error_tables()
-    # mean_loss_tables()
+    # slam_localization_error_tables()
+    mean_loss_tables()
     # mean_loss_over_sequences_and_data_splits_demo()
     # results_for_individual_sequences_demo()
 

@@ -675,17 +675,11 @@ def train():
 
                 pose_deltas_mat = xyz_axis_angle_to_matrix(xyza_delta)
                 cloud_corr = cloud_corr.transform(pose_deltas_mat.squeeze())
+                # cloud_corr.update_points()
 
-                cloud_corr.update_points()
-
-                # cloud_corr.update_all(r=cfg.nn_r)
-                # loss_sample = point_to_point_dist(clouds=[cloud_corr, board_cloud])
-                # loss_sample = point_to_plane_dist(clouds=[cloud_corr, board_cloud], icp_inlier_ratio=1.0)
-
-                # vectors = cloud_corr.points - torch.tensor([0, 0, board_height / 2])
-                # vectors = vectors / torch.linalg.norm(vectors, dim=-1, keepdims=True)
-                # normal = torch.as_tensor(board_normal[None].T)
-                # loss_sample = (vectors @ normal).abs().sum()
+                cloud_corr.update_all(r=cfg.nn_r)
+                # loss_icp = point_to_point_dist(clouds=[cloud_corr, board_cloud])
+                loss_icp = point_to_plane_dist(clouds=[cloud_corr, board_cloud], icp_inlier_ratio=1.0)
 
                 # compute sample loss
                 global_cloud = DepthCloud.concatenate([cloud_corr, board_cloud])
@@ -693,15 +687,17 @@ def train():
                 loss_cham = chamfer_distance(cloud_corr.points[None].float(), board_cloud.points[None].float())[0]
                 # loss_Q = trace_loss(global_cloud)[0]
                 loss_lambda1 = min_eigval_loss(global_cloud)[0]
-                loss_sample = loss_lambda1 + 0.1 * loss_cham
+                # loss_sample = loss_lambda1 + 0.1 * loss_cham
+                loss_sample = loss_lambda1 + 0.1 * loss_icp
+                # loss_sample = loss_icp
                 # loss_sample = loss_lambda1
                 # loss_sample = loss_cham
 
                 loss = loss + loss_sample
 
-                # if it % 10 == 0:
-                #     with torch.no_grad():
-                #         visualize_clouds([cloud_corr.points.numpy(), board_cloud.points.numpy()])
+                if it % 50 == 0:
+                    with torch.no_grad():
+                        visualize_clouds([cloud_corr.points.numpy(), board_cloud.points.numpy()])
 
         optimizer.zero_grad()
         loss.backward()

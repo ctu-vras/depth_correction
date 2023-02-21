@@ -743,13 +743,15 @@ def pose_correction_demo():
     from matplotlib import pyplot as plt
 
     cfg = Config()
-    cfg.grid_res = 0.2
+    cfg.grid_res = 0.3
     cfg.min_depth = 1.0
     cfg.max_depth = 25.0
     cfg.nn_r = 0.4
     cfg.device = 'cuda'
-    cfg.loss_kwargs['icp_inliers_ratio'] = 0.5
-    cfg.loss_kwargs['icp_point_to_plane'] = False
+    cfg.lr = 0.02
+    cfg.n_opt_iters = 1000
+    cfg.loss_kwargs['icp_inliers_ratio'] = 0.8
+    cfg.loss_kwargs['icp_point_to_plane'] = True
 
     ds = Dataset(name=dataset_names[0], static_poses=False)
     id = int(np.random.choice(range(len(ds) - 1)))
@@ -768,10 +770,11 @@ def pose_correction_demo():
     pose2 = torch.tensor(pose2, dtype=torch.float32)
     xyza1 = torch.tensor(matrix_to_xyz_axis_angle(pose1[None]), dtype=torch.float32).squeeze()
 
-    xyza1_delta = torch.tensor([-0.01, 0.01, 0.02, 0.01, 0.01, -0.02], dtype=pose1.dtype)
+    # xyza1_delta = torch.tensor([-0.01, 0.01, 0.02, 0.01, 0.01, -0.02], dtype=pose1.dtype)
+    xyza1_delta = torch.tensor([0.5, 0.3, 0.2, 0.01, 0.01, -0.02], dtype=pose1.dtype)
     xyza1_delta.requires_grad = True
 
-    optimizer = torch.optim.Adam([{'params': xyza1_delta, 'lr': 1e-3}])
+    optimizer = torch.optim.Adam([{'params': xyza1_delta, 'lr': cfg.lr}])
 
     cloud2 = cloud2.transform(pose2)
     cloud2.update_points()
@@ -792,7 +795,7 @@ def pose_correction_demo():
     iters = []
     xyza_deltas = []
     # run optimization loop
-    for it in range(1000):
+    for it in range(cfg.n_opt_iters):
         # add noise to poses
         pose_deltas_mat = xyz_axis_angle_to_matrix(xyza1_delta[None]).squeeze()
         pose1_corr = torch.matmul(pose1, pose_deltas_mat)

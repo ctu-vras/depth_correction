@@ -234,8 +234,10 @@ class Process(object):
 
                     # point to PLANE distance
                     v_diff = ouster_points - self.board_pose[:3, 3]
-                    # icp_dist = np.abs(v_diff @ self.board_normal[None].T).mean()
-                    icp_dist = (v_diff @ self.board_normal[None].T).mean()
+                    k = v_diff @ self.board_normal[None].T
+                    ouster_points_plane = ouster_points - (k.squeeze() * self.board_normal[None].T).T
+                    icp_dist = np.mean(np.linalg.norm(ouster_points_plane - ouster_points, axis=-1))
+
                     rospy.loginfo('ICP distance between clouds: %.3f for estimated angle [deg]: %.1f' %
                                   (icp_dist.item(), np.rad2deg(self.board_angle)))
 

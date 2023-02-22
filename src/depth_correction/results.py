@@ -34,6 +34,7 @@ preproc = glob.glob(preproc)
 assert len(preproc) == 1
 preproc = preproc[0]
 slam_eval_baseline_format = '{{preproc}}/{dataset}/*/slam_eval_{{slam}}.csv'.format(dataset=dataset)
+loss_eval_baseline_format = '{{preproc}}/{dataset}/*/loss_eval_{{loss}}.csv'.format(dataset=dataset)
 
 # SLAM eval with depth correction filter from training
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv')
@@ -306,16 +307,22 @@ def slam_localization_error_tables():
 
 
 def mean_loss_tables():
-    # TODO: baseline
-    # slam_eval_baseline_pattern = os.path.join(path, slam_eval_baseline_format.format(preproc=preproc, slam=list(SLAM)[0]))
-    # print('slam_eval_baseline_pattern:', slam_eval_baseline_pattern)
-    # csv_paths = glob.glob(slam_eval_baseline_pattern)
-    # print(*csv_paths, sep='\n')
-    # # cols = [1, 2, 3]
-    # cols = [1, 2]
-    # base_res = slam_error_from_csv(csv_paths, cols)
-    # base_res = list(base_res)
-    # print(base_res)
+    # baselines
+    for loss in list(Loss):
+        if loss == 'icp_loss':
+            continue
+
+        loss_eval_baseline_pattern = os.path.join(path, loss_eval_baseline_format.format(preproc=preproc, loss=loss))
+        # print('loss_eval_baseline_pattern:', loss_eval_baseline_pattern)
+        csv_paths = glob.glob(loss_eval_baseline_pattern)
+        # print(*csv_paths, sep='\n')
+        cols = [0, 1]
+        base_res = stats_from_csv(csv_paths, cols)
+        base_res = list(base_res)
+
+        mean, std = base_res[0]
+
+        print(loss, '$%.3f \\pm %.3f$' % (1000 * mean, 1000 * std))
 
     model_map = {Model.Polynomial: '$\\epsilon_\\mathrm{p}$ (\\ref{eq:polynomial_model})',
                  Model.ScaledPolynomial: '$\\epsilon_\\mathrm{sp}$ (\\ref{eq:scaled_polynomial_model})'}

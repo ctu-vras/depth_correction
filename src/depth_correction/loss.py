@@ -751,7 +751,7 @@ def pose_correction_demo():
     cfg.lr = 0.02
     cfg.n_opt_iters = 1000
     cfg.loss_kwargs['icp_inliers_ratio'] = 0.8
-    cfg.loss_kwargs['icp_point_to_plane'] = True
+    cfg.loss_kwargs['icp_point_to_plane'] = False
 
     ds = Dataset(name=dataset_names[0], static_poses=False)
     id = int(np.random.choice(range(len(ds) - 1)))

@@ -59,13 +59,15 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
+        BL_corner:
+          Value: true
+        TL_corner:
+          Value: true
+        TR_corner:
+          Value: true
         base:
           Value: true
-        base_marker:
-          Value: true
-        corner_marker:
-          Value: true
-        crystal:
+        board_base:
           Value: true
         os_imu:
           Value: true
@@ -84,10 +86,12 @@ Visualization Manager:
       Tree:
         subt:
           base:
-            base_marker:
-              corner_marker:
+            board_base:
+              BL_corner:
                 {}
-              crystal:
+              TL_corner:
+                {}
+              TR_corner:
                 {}
           os_sensor:
             os_imu:
@@ -155,7 +159,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
@@ -170,7 +174,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -204,7 +208,7 @@ Visualization Manager:
       Marker Topic: /plane
       Name: Plane
       Namespaces:
-        "": true
+        {}
       Queue Size: 100
       Value: true
   Enabled: true

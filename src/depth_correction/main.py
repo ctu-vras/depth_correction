@@ -43,7 +43,7 @@ Generated files:
 
 def create_splits(dataset='asl_laser', num_splits=4):
     # TODO: Generate multiple splits.
-    imported_module = importlib.import_module("data.%s" % dataset)
+    imported_module = importlib.import_module("depth_correction.datasets.%s" % dataset)
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (dataset, name) for name in dataset_names]
     shift = len(ds) // num_splits
@@ -83,7 +83,7 @@ def eval_slam_baselines(base_cfg: Config=None):
     :param base_cfg: Config with common parameters.
     """
 
-    imported_module = importlib.import_module("data.%s" % base_cfg.dataset)
+    imported_module = importlib.import_module("depth_correction.datasets.%s" % base_cfg.dataset)
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
 
@@ -172,7 +172,7 @@ def eval_loss_baselines(base_cfg: Config=None):
     :param base_cfg: Config with common parameters.
     """
 
-    imported_module = importlib.import_module("data.%s" % base_cfg.dataset)
+    imported_module = importlib.import_module("depth_correction.datasets.%s" % base_cfg.dataset)
     dataset_names = getattr(imported_module, "dataset_names")
     ds = ['%s/%s' % (base_cfg.dataset, name) for name in dataset_names]
 

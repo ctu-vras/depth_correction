@@ -78,7 +78,7 @@ class RobotData(object):
 
         self.dataset = None
         self.index = None
-        imported_module = importlib.import_module("data.%s" % self.dataset_name.split('/')[0])
+        imported_module = importlib.import_module("depth_correction.datasets.%s" % self.dataset_name.split('/')[0])
         Dataset = getattr(imported_module, "Dataset")
         print(self.dataset_name, self.dataset_path, self.dataset_poses_path)
         if self.dataset_name and self.dataset_path:

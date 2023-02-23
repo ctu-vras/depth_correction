@@ -56,8 +56,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
    [ASL laser](https://projects.asl.ethz.ch/datasets/doku.php?id=laserregistration:laserregistration).
 
    ```bash
-   singularity shell --nv --bind ~/catkin_ws/src/data/:/opt/ros/depthcorr_ws/src/data/ \
-                          --bind ~/catkin_ws/src/depth_correction/:/opt/ros/depthcorr_ws/src/depth_correction/ \
+   singularity shell --nv --bind ~/catkin_ws/src/depth_correction/:/opt/ros/depthcorr_ws/src/depth_correction/ \
                depth_correction.simg
 
    source /opt/ros/noetic/setup.bash

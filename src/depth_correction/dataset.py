@@ -7,7 +7,7 @@ from .model import BaseModel
 from .utils import cached, hashable, timing, transform, transform_inv, load_mesh
 from argparse import ArgumentParser
 from copy import copy
-from data.asl_laser import read_poses
+from .datasets.asl_laser import read_poses
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.lib.recfunctions import merge_arrays, structured_to_unstructured, unstructured_to_structured
@@ -925,7 +925,7 @@ def dataset_by_name(name):
     elif '.obj' in name or '.ply' in name:
         return MeshDataset
     elif name in ['asl_laser', 'semantic_kitti', 'newer_college', 'kitti360', 'fee_corridor']:
-        imported_module = importlib.import_module("data.%s" % name)
+        imported_module = importlib.import_module("depth_correction.datasets.%s" % name)
         return getattr(imported_module, "Dataset")
     raise ValueError('Unknown dataset: %s.' % name)
 
@@ -1185,8 +1185,8 @@ def demo_rendered_mesh():
 
 
 def save_newer_college_poses():
-    from data.newer_college import Dataset, dataset_names
-    from data.asl_laser import write_poses
+    from depth_correction.datasets.newer_college import Dataset, dataset_names
+    from depth_correction.datasets.asl_laser import write_poses
     for i, name in enumerate(dataset_names):
         ds = Dataset(name, zero_origin=False)
         poses = [ds.cloud_pose(id) for id in ds.ids]
@@ -1198,7 +1198,7 @@ def save_newer_college_poses():
 
 
 def demo_rendered_newer_college():
-    from data.newer_college import data_dir, Dataset, dataset_names
+    from depth_correction.datasets.newer_college import data_dir, Dataset, dataset_names
     mesh_path = os.path.join(data_dir,
                              '2020-ouster-os1-64-realsense',
                              '03_new_college_prior_map',

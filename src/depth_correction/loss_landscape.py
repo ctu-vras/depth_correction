@@ -3,7 +3,7 @@ from .config import Config, Loss, Model, NeighborhoodType, PoseCorrection
 from .dataset import NoisyPoseDataset
 from .eval import eval_loss
 from .model import load_model, model_by_name, Polynomial, ScaledPolynomial
-from data.newer_college import dataset_names as newer_college_datasets
+from .datasets.newer_college import dataset_names as newer_college_datasets
 from datetime import datetime
 from itertools import product
 import matplotlib

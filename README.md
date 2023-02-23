@@ -124,10 +124,10 @@ lidar SLAM with alignment to prerecorded ground truth map.
 Additionally robot poses are recorded with the help of
 [Leica Tracker](https://leica-geosystems.com/products/laser-tracker-systems).
 
-To explore the data, simply run (assuming the [data](https://github.com/tpet/data) package is built):
+To explore the data, simply run:
 
 ```bash
-python -m data.depth_correction
+python -m depth_correction.datasets.fee_corridor
 ```
 
 
@@ -138,7 +138,7 @@ Point cloud scans correction with ICP-like point to plane distance as loss funct
 ```python
 # import necessary libraries
 import torch
-from data.fee_corridor import Dataset, dataset_names
+from depth_correction.datasets.fee_corridor import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial
 from depth_correction.preproc import filtered_cloud

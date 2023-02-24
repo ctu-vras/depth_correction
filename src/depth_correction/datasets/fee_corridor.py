@@ -88,23 +88,24 @@ class Dataset(object):
         self.path = path
         self.poses_path = poses_path
         self.prefix = 'static_' if static_poses else ''
-        self.move_to_origin = move_to_origin
+        self.zero_origin = move_to_origin
         self.xyz_from_leica_tracker = xyz_from_leica_tracker
         self.static_poses = static_poses
         # read poses from Leica tracker
         self.leica_xyz = self.read_leica_xyz()
 
-        if self.poses_path or self.path:
+        if self.path:
             self.ids, self.poses = read_poses(self.cloud_poses_path())
             if self.xyz_from_leica_tracker:
                 self.poses[:, :3, 3] = self.leica_xyz
             # move poses to origin to 0:
-            if self.move_to_origin:
+            if self.zero_origin:
                 Tr_inv = np.linalg.inv(self.poses[0])
                 self.poses = np.asarray([np.matmul(Tr_inv, pose) for pose in self.poses])
             self.poses = dict(zip(self.ids, self.poses))
             self.leica_xyz = dict(zip(self.ids, self.leica_xyz))
-            self.ids = self.ids[sub_seq_ids]
+            if not self.poses_path:
+                self.ids = self.ids[sub_seq_ids]
         else:
             self.ids = None
             self.poses = None
@@ -140,7 +141,7 @@ class Dataset(object):
 
         ds = Dataset(name=self.name,
                      path=self.path,
-                     move_to_origin=self.move_to_origin,
+                     move_to_origin=self.zero_origin,
                      static_poses=self.static_poses,
                      xyz_from_leica_tracker=self.xyz_from_leica_tracker)
         ds.poses = self.poses
@@ -168,7 +169,7 @@ class Dataset(object):
     def global_cloud(self, resolution_cm=5):
         assert resolution_cm in (2, 5)
         cloud = read_points_npz(self.global_cloud_path(resolution_cm))
-        if self.move_to_origin:
+        if self.zero_origin:
             cloud_pose = self.global_cloud_pose()
             Tr = np.linalg.inv(cloud_pose)
             pts = structured_to_unstructured(cloud[['x', 'y', 'z']])

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
-from data.fee_corridor import Dataset, dataset_names
+from depth_correction.datasets.fee_corridor import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, ScaledInvCos
 from depth_correction.preproc import filtered_cloud, local_feature_cloud, filter_grid

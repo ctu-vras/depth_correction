@@ -5,7 +5,7 @@ import torch
 import open3d as o3d
 from tqdm import tqdm
 from matplotlib import pyplot as plt
-from data.fee_corridor import Dataset, dataset_names
+from depth_correction.datasets.fee_corridor import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial, Polynomial, ScaledInvCos, InvCos
 from depth_correction.preproc import filtered_cloud

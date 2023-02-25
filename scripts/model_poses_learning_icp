@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 import open3d as o3d
-from data.fee_corridor import Dataset, dataset_names, seq_names
+from depth_correction.datasets.fee_corridor import Dataset, dataset_names, seq_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial
 from depth_correction.preproc import local_feature_cloud

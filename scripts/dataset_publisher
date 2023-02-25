@@ -15,7 +15,7 @@ import numpy as np
 from numpy.lib.recfunctions import unstructured_to_structured, structured_to_unstructured
 from depth_correction.config import Config
 from depth_correction.preproc import filtered_cloud
-from data.fee_corridor import dataset_names, Dataset, seq_names
+from depth_correction.datasets.fee_corridor import dataset_names, Dataset, seq_names
 
 
 def transform_cloud(cloud, Tr):

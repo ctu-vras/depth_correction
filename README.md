@@ -6,7 +6,7 @@ A learnable method that refines lidar measurements based on the local shape of t
 In particular, we introduce two novel point cloud map consistency losses, which facilitate self-supervised learning on real data of lidar depth correction models.
 Complementary to the removal of the bias from lidar measurements, we demonstrate that the depth correction models help to reduce localization drift.
 
-<img src="https://github.com/ctu-vras/depth_correction/blob/main/docs/imgs/bias.png" width="500" />
+[comment]: <> (<img src="https://github.com/ctu-vras/depth_correction/blob/main/docs/imgs/bias.png" width="500" />)
 
 #### Topics
 
@@ -74,12 +74,12 @@ the following publicly available datasets:
 - [Semantic KITTI](http://www.semantic-kitti.org/dataset.html),
 - [Newer College](https://ori-drs.github.io/newer-college-dataset/).
 - [KITTI-360](https://www.cvlibs.net/datasets/kitti-360/)
-- [FEE Corridor](https://drive.google.com/file/d/12jp2iVD54a1ntAB6iXPYOx3mRsKVbNbc/view?usp=share_link)
+- [FEE Corridor](http://ptak.felk.cvut.cz/vras/data/fee_corridor/)
 
 In addition, we provide our dataset (`FEE Corridor`) that contains point cloud data captured in indorr environment
 with precise localization and ground truth mapping information.
-Download the
-[dataset](http://ptak.felk.cvut.cz/vras/data/fee_corridor/fee_corridor.zip)
+Download the dataset from
+[http://ptak.felk.cvut.cz/vras/data/fee_corridor/fee_corridor.zip](http://ptak.felk.cvut.cz/vras/data/fee_corridor/fee_corridor.zip)
 and put it to the `./data` folder (50 Gb).
 It exhibits the following structure:
 
@@ -87,9 +87,6 @@ It exhibits the following structure:
 ```bash
 fee_corridor
 ├── bags
-│   └── seq2
-│       ├── ouster_points
-│       └── static_ouster_points
 ├── maps
 │   ├── blk
 │   ├── e57

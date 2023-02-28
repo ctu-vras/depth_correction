@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 import torch
-from data.fee_corridor import Dataset, dataset_names
+from depth_correction.datasets.fee_corridor import Dataset, dataset_names
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial
 from depth_correction.preproc import filtered_cloud

@@ -270,6 +270,7 @@ class Process(object):
             self.filtered_cloud_pub.publish(ouster_msg_filtered)
 
     def generate_board_cloud(self, n_pts=1000):
+        np.random.seed(135)
         length = self.board_length
         height = self.board_height
         width = self.board_width

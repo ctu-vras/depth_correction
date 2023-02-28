@@ -107,18 +107,19 @@ class Process(object):
                                          [0, 0, 1, -0.10],
                                          [0, 0, 0, 1]])
         # for black board experiment with bag file: depth_correction_black_board_2023-02-06-16-46-40.bag
-        self.Tr_world_ouster[:3, :3] = Rotation.from_euler('y', 0.7, degrees=True).as_matrix()
+        # self.Tr_world_ouster[:3, :3] = Rotation.from_euler('y', 0.7, degrees=True).as_matrix()
 
-        # # for white board experiment with bag file: depth_correction_2023-02-06-16-15-50.bag
-        # Ry = Rotation.from_euler('y', 0.2, degrees=True).as_matrix()
-        # Rz = Rotation.from_euler('z', -6.0, degrees=True).as_matrix()
-        # self.Tr_world_ouster[:3, :3] = Ry @ Rz
+        # for white board experiment with bag file: depth_correction_2023-02-06-16-15-50.bag
+        Ry = Rotation.from_euler('y', 0.2, degrees=True).as_matrix()
+        Rz = Rotation.from_euler('z', -6.0, degrees=True).as_matrix()
+        self.Tr_world_ouster[:3, :3] = Ry @ Rz
 
         self.static_frame = 'subt'
         self.ouster_pose = None
         self.ouster_msg = None
         self.board_pose = None
         self.board_angle = None
+        self.board_normal = None
         self.static_transforms = self.measurements_to_transforms()
         self.board_cloud = None
         self.tf_br = tf2_ros.TransformBroadcaster()
@@ -197,7 +198,14 @@ class Process(object):
                     assert ouster_points.ndim == board_points.ndim == 2
                     assert ouster_points.shape[1] == board_points.shape[1] == 3  # (N, 3)
 
-                    icp_dist = point_to_point_dist([board_points, ouster_points], icp_inlier_ratio=0.9, differentiable=False)
+                    # icp_dist = point_to_point_dist([board_points, ouster_points], icp_inlier_ratio=0.9, differentiable=False)
+
+                    # point to PLANE distance
+                    v_diff = ouster_points - self.board_pose[:3, 3]
+                    k = v_diff @ self.board_normal[None].T
+                    ouster_points_plane = ouster_points - (k.squeeze() * self.board_normal[None].T).T
+                    icp_dist = np.mean(np.linalg.norm(ouster_points_plane - ouster_points, axis=-1))
+
                     rospy.loginfo('ICP distance between clouds: %.3f for estimated angle [deg]: %.1f' %
                                   (icp_dist.item(), np.rad2deg(self.board_angle)))
 
@@ -306,6 +314,7 @@ class Process(object):
         v1 = normalize(v1)
         angle_y = -np.arctan2(v1[2], v1[0]) + np.pi/2
         self.board_angle = angle_y
+        self.board_normal = normalize(np.cross(v1, np.array([0, 1, 0])))
         q = quaternion_from_euler(0, angle_y, 0)
 
         tr.transform.rotation.x = q[0]

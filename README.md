@@ -6,7 +6,7 @@ A learnable method that refines lidar measurements based on the local shape of t
 In particular, we introduce two novel point cloud map consistency losses, which facilitate self-supervised learning on real data of lidar depth correction models.
 Complementary to the removal of the bias from lidar measurements, we demonstrate that the depth correction models help to reduce localization drift.
 
-[comment]: <> (<img src="https://github.com/ctu-vras/depth_correction/blob/main/docs/imgs/bias.png" width="500" />)
+![](./docs/imgs/husky_fee_corridor_inc_angles.png)
 
 #### Topics
 

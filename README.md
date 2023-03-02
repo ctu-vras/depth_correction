@@ -1,4 +1,18 @@
-# Depth Correction
+# Self-Supervised Depth Correction of Lidar Measurements from Map Consistency Loss
+
+This repository is a [ROS](https://www.ros.org/) node that contains implementation of the following:
+
+- point cloud map consistency loss 
+- self-supervised training method to learn lidar measurements correction models and update sensor poses
+- tools to work with novel data sequences which contain accurately localized point cloud data with a ground truth
+map
+
+### Contributions
+
+- removal of the bias from lidar scans related to measuring scene surfaces with high incidence angle
+- reduction of lidar odometry localization drift
+
+## Introduction
 
 Point cloud maps acquired using consumer-level lidar still
 suffer from **bias related to measuring scene surfaces with high incidence angle**.
@@ -8,12 +22,12 @@ Complementary to the removal of the bias from lidar measurements, we demonstrate
 
 ![](./docs/imgs/husky_fee_corridor_inc_angles.png)
 
-#### Topics
+### Topics
 
 - `input` [[sensor_msgs/PointCloud2](http://docs.ros.org/en/noetic/api/sensor_msgs/html/msg/PointCloud2.html)]: Input point cloud to subscribe to.
 - `output` [sensor_msgs/PointCloud2]: Published point cloud topic.
 
-#### Parameters
+### Parameters
 
 - `model_class`: Class name from module depth_correction.model.
 - `model_args`: Model constructor positional arguments.
@@ -130,7 +144,7 @@ python -m depth_correction.datasets.fee_corridor
 
 ## Optimization Example
 
-Point cloud scans correction with ICP-like point to plane distance as loss function.
+Point cloud scans correction with ICP-like point-to-plane distance as the loss function.
 
 ```python
 # import necessary libraries

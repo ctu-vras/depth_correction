@@ -19,6 +19,7 @@ suffer from **bias related to measuring scene surfaces with high incidence angle
 A learnable method that refines lidar measurements based on the local shape of the measured surface.
 In particular, we introduce two novel point cloud map consistency losses, which facilitate self-supervised learning on real data of lidar depth correction models.
 Complementary to the removal of the bias from lidar measurements, we demonstrate that the depth correction models help to reduce localization drift.
+Please refer to the paper on [arXiv](https://arxiv.org/abs/2303.01123) for more details.
 
 ![](./docs/imgs/husky_fee_corridor_inc_angles.png)
 
@@ -226,4 +227,21 @@ python -m depth_correction.main --dataset fee_corridor --min-depth 1.0 --max-dep
 Training of depth correction models and evaluation of them on map consistency and localization accuracy (whole pipeline):
 ```bash
 python -m depth_correction.main --dataset fee_corridor --min-depth 1.0 --max-depth 25.0 --grid-res 0.2 --nn-r 0.4 -- train_and_eval_all
+```
+
+## Citation
+
+Feel free to cite the work you find it relevant to your research.
+
+```
+@misc{https://doi.org/10.48550/arxiv.2303.01123,
+  doi = {10.48550/ARXIV.2303.01123},
+  url = {https://arxiv.org/abs/2303.01123},
+  author = {Agishev, Ruslan and Pětříček, Tomáš and Zimmermann, Karel},
+  keywords = {Robotics (cs.RO), FOS: Computer and information sciences, FOS: Computer and information sciences, 68T40},
+  title = {Self-Supervised Depth Correction of Lidar Measurements from Map Consistency Loss},
+  publisher = {arXiv},
+  year = {2023},
+  copyright = {arXiv.org perpetual, non-exclusive license}
+}
 ```

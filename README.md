@@ -231,7 +231,7 @@ python -m depth_correction.main --dataset fee_corridor --min-depth 1.0 --max-dep
 
 ## Citation
 
-Feel free to cite the work you find it relevant to your research.
+Feel free to cite the work if you find it relevant to your research.
 
 ```
 @misc{https://doi.org/10.48550/arxiv.2303.01123,

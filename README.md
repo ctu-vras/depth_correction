@@ -158,16 +158,16 @@ points1_struct, pose1 = ds[0]
 points2_struct, pose2 = ds[1]
 
 # construct depth cloud objects from points
-cloud1 = DepthCloud.from_structured_array(points1_struct)
-cloud2 = DepthCloud.from_structured_array(points2_struct)
+cloud1 = DepthCloud.from_structured_array(points1_struct, dtype=cfg.numpy_float_type())
+cloud2 = DepthCloud.from_structured_array(points2_struct, dtype=cfg.numpy_float_type())
 
 # apply grid and depth filters to clouds
 cloud1 = filtered_cloud(cloud1, cfg)
 cloud2 = filtered_cloud(cloud2, cfg)
 
 # transform point clouds to the same world coordinate frame
-cloud1 = cloud1.transform(torch.as_tensor(pose1))
-cloud2 = cloud2.transform(torch.as_tensor(pose2))
+cloud1 = cloud1.transform(torch.as_tensor(pose1, dtype=cfg.torch_float_type()))
+cloud2 = cloud2.transform(torch.as_tensor(pose2, dtype=cfg.torch_float_type()))
 
 # compute cloud features necessary for optimization (like normals and incidence angles)
 cloud1.update_all(r=cfg.nn_r)

@@ -50,7 +50,7 @@ def read_poses(path):
 
 class Dataset(object):
 
-    def __init__(self, name=None, path=None, poses_path=None, move_to_origin=False, static_poses=True,
+    def __init__(self, name=None, path=None, poses_path=None, zero_origin=False, static_poses=True,
                  xyz_from_leica_tracker=False):
         """Depth Correction dataset or a dataset in that format.
 
@@ -88,7 +88,7 @@ class Dataset(object):
         self.path = path
         self.poses_path = poses_path
         self.prefix = 'static_' if static_poses else ''
-        self.zero_origin = move_to_origin
+        self.zero_origin = zero_origin
         self.xyz_from_leica_tracker = xyz_from_leica_tracker
         self.static_poses = static_poses
         # read poses from Leica tracker
@@ -141,7 +141,7 @@ class Dataset(object):
 
         ds = Dataset(name=self.name,
                      path=self.path,
-                     move_to_origin=self.zero_origin,
+                     zero_origin=self.zero_origin,
                      static_poses=self.static_poses,
                      xyz_from_leica_tracker=self.xyz_from_leica_tracker)
         ds.poses = self.poses
@@ -194,7 +194,7 @@ def demo():
     cfg.device = 'cuda'
     cfg.loss_kwargs['icp_point_to_plane'] = False
     cfg.dataset_kwargs['static_poses'] = False
-    cfg.dataset_kwargs['move_to_origin'] = False
+    cfg.dataset_kwargs['zero_origin'] = False
 
     for name in dataset_names:
         ds = Dataset(name, **cfg.dataset_kwargs)

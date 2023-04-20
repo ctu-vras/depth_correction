@@ -168,7 +168,8 @@ def fix_transform(T):
 
 def rotation_angle(T):
     R = T[:-1, :-1]
-    angle = np.arccos((np.trace(R) - 1.0) / 2.0).item()
+    cos = np.clip((np.trace(R) - 1.0) / 2.0, a_min=0., a_max=1.)
+    angle = np.arccos(cos).item()
     return angle
 
 

@@ -205,7 +205,7 @@ class ColoredCloud(object):
 
 
 class Dataset(Sequence):
-    def __init__(self, name, path=None, poses_path=None, zero_origin=True, filtered_scans=False):
+    def __init__(self, name, path=None, poses_path=None, zero_origin=True, filtered_scans=True):
         """ KITTI-360 dataset or a dataset in that format.
 
         :param name: Dataset name in format NN_start_SS_end_EE_step_ss

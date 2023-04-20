@@ -73,8 +73,8 @@
             is_3D: true
             is_online: true
             compute_prob_dynamic: true
-<!--            is_mapping: true-->
-            is_mapping: false
+            is_mapping: true
+<!--            is_mapping: false-->
             save_map_cells_on_hard_drive: false
         </rosparam>
 

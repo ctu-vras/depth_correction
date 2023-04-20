@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+
+import open3d as o3d
+from tqdm import tqdm
+import os
+import numpy as np
+import scipy
+from depth_correction.datasets.kitti360 import Dataset, prefix, data_dir
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
+
+
+def remove_dynamic_objects(dist_th=0.2):
+
+    dataset_names = ['%02d' % i for i in [0, 2, 3, 4, 5, 6, 7, 9, 10]]
+    # dataset_names = ['%02d' % i for i in [3]]
+
+    for name in dataset_names:
+        ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=False, filtered_scans=False)
+
+        # save cloud
+        folder = os.path.join(data_dir, 'data_3d_filtered', ds.seq, 'velodyne_points', 'data')
+        os.makedirs(folder, exist_ok=True)
+
+        # dynamic objects
+        dynamic_points = ds.get_dynamic_points()
+
+        # dynamic_pcd = o3d.geometry.PointCloud()
+        # dynamic_pcd.points = o3d.utility.Vector3dVector(dynamic_points)
+        # dynamic_pcd.colors = o3d.utility.Vector3dVector(np.zeros_like(dynamic_points) + np.array([1, 0, 0]))
+
+        # pcd_global = o3d.geometry.PointCloud()
+
+        # for k, i in tqdm(enumerate(ds.ids[::50])):
+        for k, i in tqdm(enumerate(ds.ids)):
+            cloud, pose = ds.local_cloud(i), ds.cloud_pose(i)
+
+            cloud = structured_to_unstructured(cloud[['x', 'y', 'z', 'i']])
+
+            # transform cloud to common map coordinate frame
+            cloud_map = np.matmul(cloud[:, :3], pose[:3, :3].T) + pose[:3, 3:].T
+
+            # if k % 100 == 0:
+            #     pcd_local = o3d.geometry.PointCloud()
+            #     pcd_local.points = o3d.utility.Vector3dVector(cloud_map)
+            #     pcd_local.colors = o3d.utility.Vector3dVector(np.zeros_like(cloud_map) + np.asarray([0, 1, 0]))
+            #     o3d.visualization.draw_geometries([pcd_local, dynamic_pcd])
+
+            if len(dynamic_points) > 0:
+                tree = scipy.spatial.cKDTree(dynamic_points)
+                dists, idxs = tree.query(cloud_map, k=1)
+                dynamic_mask = np.logical_and(dists >= 0, dists <= dist_th)
+                cloud_filtered = np.asarray(cloud[~dynamic_mask], dtype=cloud.dtype)
+                print('Removed %d points belonging to dynamic objects' % np.sum(dynamic_mask))
+            else:
+                cloud_filtered = cloud
+            assert cloud_filtered.max() <= 1000
+            # print(cloud_filtered.max())
+
+            # save filtered clouds
+            with open(os.path.join(folder, '%010d.bin' % i), 'wb') as f:
+                np.save(f, cloud_filtered)
+
+        #     pcd_global.points.extend(pcd_local.points)
+        #     pcd_global.colors.extend(pcd_local.colors)
+        #
+        # o3d.visualization.draw_geometries([pcd_global])
+
+
+if __name__ == '__main__':
+    remove_dynamic_objects(dist_th=0.2)

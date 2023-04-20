@@ -25,16 +25,6 @@ if 'KITTI360_DATASET' in os.environ:
 else:
     data_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', prefix))
 
-# dataset_names = [
-#     '00_start_2_end_52_step_1',
-#     '03_start_2_end_52_step_1',
-#     '05_start_2_end_52_step_1',
-#     '06_start_2_end_52_step_1',
-#     '07_start_2_end_52_step_1',
-#     '09_start_2_end_52_step_1',
-#     '10_start_2_end_52_step_1',
-#     '04_start_2897_end_2947_step_1',
-# ]
 dataset_names = [
     '00_start_102_end_152_step_1',
     '03_start_102_end_152_step_1',
@@ -45,16 +35,6 @@ dataset_names = [
     '10_start_102_end_152_step_1',
     '04_start_2997_end_3047_step_1',
 ]
-# dataset_names = [
-#     '00_start_2_end_385_step_1',
-#     '03_start_2_end_282_step_1',
-#     '04_start_2897_end_3118_step_1',
-#     '05_start_2_end_357_step_1',
-#     '06_start_2_end_403_step_1',
-#     '07_start_2_end_125_step_1',
-#     '09_start_2_end_292_step_1',
-#     '10_start_2_end_208_step_1',
-# ]
 
 
 class Sequence(object):
@@ -92,12 +72,12 @@ class Sequence(object):
         fpath = os.path.join(self.path, 'data_3d_raw', self.seq, 'velodyne_points', 'data', '%010d.bin' % int(i))
         return fpath
 
-    def local_cloud(self, i, filter_car_pts=False):
+    def local_cloud(self, i, filter_ego_pts=False):
         file = self.get_cloud_path(i)
         cloud = np.fromfile(file, dtype=np.float32)
         cloud = cloud.reshape((-1, 4))
 
-        if filter_car_pts:
+        if filter_ego_pts:
             valid_indices = cloud[:, 0] < -3.
             valid_indices = valid_indices | (cloud[:, 0] > 3.)
             valid_indices = valid_indices | (cloud[:, 1] < -3.)
@@ -225,11 +205,14 @@ class ColoredCloud(object):
 
 
 class Dataset(Sequence):
-    def __init__(self, name, path=None, poses_path=None, move_to_origin=True):
+    def __init__(self, name, path=None, poses_path=None, zero_origin=True, filtered_scans=False):
         """ KITTI-360 dataset or a dataset in that format.
 
         :param name: Dataset name in format NN_start_SS_end_EE_step_ss
         :param path: Dataset path, takes precedence over name.
+        :param zero_origin: Whether to move data set coordinate system origin to (0, 0, 0).
+        :param filtered_scans: Whether to use point clouds with filtered dynamic objects
+                               (if True 'data_3d_filtered' folder should be generated in advance).
         """
         super(Dataset, self).__init__(seq=name, path=path)
         assert isinstance(name, str)
@@ -251,8 +234,14 @@ class Dataset(Sequence):
         self.ids = self.ids[sub_seq]
         self.poses = self.poses[sub_seq]
 
-        # move poses to origin to 0:
-        if move_to_origin:
+        if filtered_scans:
+            self.cloud_dir = os.path.join(self.path, 'data_3d_filtered')
+        else:
+            self.cloud_dir = os.path.join(self.path, 'data_3d_raw')
+        assert os.path.exists(self.cloud_dir), 'Path %s does not exist' % self.cloud_dir
+
+        # move poses to zero-origin
+        if zero_origin:
             Tr_inv = np.linalg.inv(self.poses[0])
             self.poses = np.asarray([np.matmul(Tr_inv, pose) for pose in self.poses])
 
@@ -260,17 +249,19 @@ class Dataset(Sequence):
         return prefix + '/' + self.name
 
     def get_cloud_path(self, i):
-        fpath = os.path.join(self.path, 'data_3d_filtered', self.seq, 'velodyne_points', 'data', '%010d.bin' % int(i))
+        fpath = os.path.join(self.cloud_dir, self.seq, 'velodyne_points', 'data', '%010d.bin' % int(i))
         return fpath
 
     def get_dynamic_points(self):
         pcd_path = os.path.join(self.path, 'data_3d_semantics', 'train', self.seq, 'dynamic')
-        pcd_file = os.path.join(pcd_path, '%010d_%010d.ply' % (self.start, self.end))
-        if os.path.exists(pcd_file):
+        dynamic_points = []
+        for p in os.listdir(pcd_path):
+            pcd_file = os.path.join(pcd_path, p)
             data = read_ply(pcd_file)
-            dynamic_points = np.vstack((data['x'], data['y'], data['z'])).T
-        else:
-            dynamic_points = None
+            points = structured_to_unstructured(data[['x', 'y', 'z']])
+            dynamic_points.append(points)
+        if len(dynamic_points) > 0:
+            dynamic_points = np.concatenate(dynamic_points)
         return dynamic_points
 
     def __str__(self):
@@ -312,7 +303,7 @@ def visualize_colored_datasets():
 
     cfg = Config(min_depth=1, max_depth=15, grid_res=0.4, nn_r=0.4)
     for name in dataset_names:
-        ds = Dataset(name='%s/%s' % (prefix, name), move_to_origin=False)
+        ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=False)
 
         pcd_path = os.path.join(ds.path, 'data_3d_semantics', 'train', ds.seq, 'static')
         pcdFile = os.path.join(pcd_path, np.sort(os.listdir(pcd_path))[0])
@@ -403,61 +394,6 @@ def stack_colored_submaps():
     exit()
 
 
-def remove_dynamic_objects(dist_th=0.2):
-    import open3d as o3d
-    from tqdm import tqdm
-
-    for name in dataset_names:
-
-        ds = Dataset(name='%s/%s' % (prefix, name), move_to_origin=False)
-
-        # save cloud
-        folder = os.path.join(data_dir, 'data_3d_filtered', ds.seq, 'velodyne_points', 'data')
-        os.makedirs(folder, exist_ok=True)
-
-        # dynamic objects
-        dynamic_pcd = o3d.geometry.PointCloud()
-        dynamic_points = ds.get_dynamic_points()
-        dynamic_pcd.points = o3d.utility.Vector3dVector(dynamic_points)
-        dynamic_pcd.colors = o3d.utility.Vector3dVector(np.zeros_like(dynamic_points) + np.array([1, 0, 0]))
-
-        pcd_global = o3d.geometry.PointCloud()
-        for k, i in tqdm(enumerate(ds.ids)):
-            cloud, pose = ds.local_cloud(i), ds.cloud_pose(i)
-
-            cloud = structured_to_unstructured(cloud[['x', 'y', 'z', 'i']])
-
-            # transform cloud to common map coordinate frame
-            cloud_map = np.matmul(cloud[:, :3], pose[:3, :3].T) + pose[:3, 3:].T
-
-            pcd_local = o3d.geometry.PointCloud()
-            pcd_local.points = o3d.utility.Vector3dVector(cloud_map)
-            pcd_local.colors = o3d.utility.Vector3dVector(np.zeros_like(cloud_map) + np.asarray([0, 1, 0]))
-
-            # if k % 100 == 0:
-            #     o3d.visualization.draw_geometries([pcd_local, dynamic_pcd])
-
-            if dynamic_points is not None:
-                tree = scipy.spatial.cKDTree(dynamic_points)
-                dists, idxs = tree.query(np.asarray(cloud_map), k=1)
-                mask = np.logical_and(dists >= 0, dists <= dist_th)
-                cloud_filtered = np.asarray(cloud[~mask], dtype=np.float32)
-                print('Removed %d points belonging to dynamic objects' % np.sum(mask))
-            else:
-                cloud_filtered = cloud
-            assert cloud_filtered.max() <= 1000
-            print(cloud_filtered.max())
-
-            # save filtered clouds
-            # with open(os.path.join(folder, '%010d.bin' % i), 'wb') as f:
-            #     np.save(f, cloud_filtered)
-
-            pcd_global.points.extend(pcd_local.points)
-            pcd_global.colors.extend(pcd_local.colors)
-
-        o3d.visualization.draw_geometries([pcd_global])
-
-
 def create_semantic_kitti360():
     from depth_correction.config import Config
     from depth_correction.preproc import filtered_cloud
@@ -469,7 +405,7 @@ def create_semantic_kitti360():
 
     cfg = Config(min_depth=0.01, max_depth=150, grid_res=0.0)
     for name in dataset_names:
-        ds = Dataset(name='%s/%s' % (prefix, name), move_to_origin=False)
+        ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=False)
 
         # folders to save clouds and semantic labels
         pts_folder = os.path.join(data_dir, 'SemanticKITTI-360', ds.seq, 'velodyne')
@@ -542,11 +478,10 @@ def inspect_semantic_kitti360():
 
 def main():
     # stack_colored_submaps()
-    # visualize_datasets()
+    visualize_datasets()
     # visualize_colored_submaps()
     # visualize_colored_datasets()
-    # remove_dynamic_objects()
-    create_semantic_kitti360()
+    # create_semantic_kitti360()
     # inspect_semantic_kitti360()
 
 

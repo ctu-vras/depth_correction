@@ -1,0 +1,5 @@
+#! /bin/bash
+
+#source /opt/ros/depthcorr_ws/devel/setup.bash
+python -m depth_correction.main --dataset depth_correction --min-depth 1.0 --max-depth 20.0 --grid-res 0.2 --nn-r 0.4 --data-step 1 --ros-master-port 12311 --rviz false -- train_and_eval_all
+

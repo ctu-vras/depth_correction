@@ -62,14 +62,14 @@ class Sequence(object):
     def read_poses(self):
         path = self.get_poses_path()
         data = np.loadtxt(path, dtype=np.float32)
-        ids = np.asarray([int(i) for i in data[:, 0]])  # index of poses
+        ids = [int(i) for i in data[:, 0]]  # index of poses
         poses = data[:, 1:].reshape((-1, 4, 4)) @ self.T_lidar2cam
         # ensure that there are corresponding point clouds for ids
         clouds_ids = [int(i[:-4]) for i in os.listdir(self.cloud_dir)]
         mask = [True if i in clouds_ids else False for i in ids]
-        ids = ids[mask]
+        ids = np.asarray(ids)[mask]
         poses = poses[mask]
-        return poses, ids
+        return poses, ids.tolist()
 
     def read_calibration(self):
         fileCameraToLidar = os.path.join(self.path, 'calibration', 'calib_cam_to_velo.txt')

@@ -71,7 +71,7 @@ Save it in the `depth_correction/data/` folder or configure the `python` path as
    
 ## Evaluate SLAM on KITTI-360
 
-In order to evaluate localization accuracy using []() SLAM pipeline with the sequences from KITTI-360 run:
+In order to evaluate localization accuracy using [norlab_icp_mapper](https://github.com/tpet/norlab_icp_mapper_ros) SLAM pipeline with the sequences from KITTI-360 run:
 
 ```bash
 roslaunch depth_correction slam_eval.launch dataset:=kitti360/03_start_2_end_200_step_1

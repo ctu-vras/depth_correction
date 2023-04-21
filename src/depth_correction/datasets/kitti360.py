@@ -49,9 +49,9 @@ class Sequence(object):
                 seq = parts[1].split('_')[0]
         self.seq = '2013_05_28_drive_%04d_sync' % int(seq)
         if filtered_scans:
-            self.cloud_dir = os.path.join(self.path, 'data_3d_filtered', self.seq, 'velodyne_points', 'data',)
+            self.cloud_dir = os.path.join(self.path, 'data_3d_filtered', self.seq, 'velodyne_points', 'data')
         else:
-            self.cloud_dir = os.path.join(self.path, 'data_3d_raw', self.seq, 'velodyne_points', 'data',)
+            self.cloud_dir = os.path.join(self.path, 'data_3d_raw', self.seq, 'velodyne_points', 'data')
         self.T_cam2lidar = self.read_calibration()
         self.T_lidar2cam = np.linalg.inv(self.T_cam2lidar)
         self.poses, self.ids = self.read_poses()
@@ -213,7 +213,7 @@ class ColoredCloud(object):
 
 
 class Dataset(Sequence):
-    def __init__(self, name, path=None, poses_path=None, zero_origin=True, filtered_scans=True):
+    def __init__(self, name, path=None, poses_path=None, zero_origin=True):
         """ KITTI-360 dataset or a dataset in that format.
 
         :param name: Dataset name in format NN_start_SS_end_EE_step_ss

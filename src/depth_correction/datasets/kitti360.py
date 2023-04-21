@@ -49,9 +49,9 @@ class Sequence(object):
                 seq = parts[1].split('_')[0]
         self.seq = '2013_05_28_drive_%04d_sync' % int(seq)
         if filtered_scans:
-            self.cloud_dir = os.path.join(self.path, 'data_3d_filtered')
+            self.cloud_dir = os.path.join(self.path, 'data_3d_filtered', self.seq, 'velodyne_points', 'data',)
         else:
-            self.cloud_dir = os.path.join(self.path, 'data_3d_raw')
+            self.cloud_dir = os.path.join(self.path, 'data_3d_raw', self.seq, 'velodyne_points', 'data',)
         self.T_cam2lidar = self.read_calibration()
         self.T_lidar2cam = np.linalg.inv(self.T_cam2lidar)
         self.poses, self.ids = self.read_poses()
@@ -62,8 +62,13 @@ class Sequence(object):
     def read_poses(self):
         path = self.get_poses_path()
         data = np.loadtxt(path, dtype=np.float32)
-        ids = [int(i) for i in data[:, 0]]  # index of poses
+        ids = np.asarray([int(i) for i in data[:, 0]])  # index of poses
         poses = data[:, 1:].reshape((-1, 4, 4)) @ self.T_lidar2cam
+        # ensure that there are corresponding point clouds for ids
+        clouds_ids = [int(i[:-4]) for i in os.listdir(self.cloud_dir)]
+        mask = [True if i in clouds_ids else False for i in ids]
+        ids = ids[mask]
+        poses = poses[mask]
         return poses, ids
 
     def read_calibration(self):
@@ -72,7 +77,7 @@ class Sequence(object):
         return cam2lidar
 
     def get_cloud_path(self, i):
-        fpath = os.path.join(self.cloud_dir, self.seq, 'velodyne_points', 'data', '%010d.bin' % int(i))
+        fpath = os.path.join(self.cloud_dir, '%010d.bin' % int(i))
         return fpath
 
     def local_cloud(self, i, filter_ego_pts=False):
@@ -246,10 +251,6 @@ class Dataset(Sequence):
 
     def __str__(self):
         return prefix + '/' + self.name
-
-    def get_cloud_path(self, i):
-        fpath = os.path.join(self.cloud_dir, self.seq, 'velodyne_points', 'data', '%010d.bin' % int(i))
-        return fpath
 
     def get_dynamic_points(self):
         pcd_path = os.path.join(self.path, 'data_3d_semantics', 'train', self.seq, 'dynamic')

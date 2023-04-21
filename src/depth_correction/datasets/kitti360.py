@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# -*- coding: utf-8 -*-
 
 import os
 import re
@@ -38,7 +37,7 @@ dataset_names = [
 
 
 class Sequence(object):
-    def __init__(self, path=None, seq=0):
+    def __init__(self, path=None, seq=0, filtered_scans=False):
         if not path:
             path = data_dir
         self.path = path
@@ -49,6 +48,10 @@ class Sequence(object):
                 assert parts[0] == prefix
                 seq = parts[1].split('_')[0]
         self.seq = '2013_05_28_drive_%04d_sync' % int(seq)
+        if filtered_scans:
+            self.cloud_dir = os.path.join(self.path, 'data_3d_filtered')
+        else:
+            self.cloud_dir = os.path.join(self.path, 'data_3d_raw')
         self.T_cam2lidar = self.read_calibration()
         self.T_lidar2cam = np.linalg.inv(self.T_cam2lidar)
         self.poses, self.ids = self.read_poses()
@@ -69,7 +72,7 @@ class Sequence(object):
         return cam2lidar
 
     def get_cloud_path(self, i):
-        fpath = os.path.join(self.path, 'data_3d_raw', self.seq, 'velodyne_points', 'data', '%010d.bin' % int(i))
+        fpath = os.path.join(self.cloud_dir, self.seq, 'velodyne_points', 'data', '%010d.bin' % int(i))
         return fpath
 
     def local_cloud(self, i, filter_ego_pts=False):
@@ -234,10 +237,6 @@ class Dataset(Sequence):
         self.ids = self.ids[sub_seq]
         self.poses = self.poses[sub_seq]
 
-        if filtered_scans:
-            self.cloud_dir = os.path.join(self.path, 'data_3d_filtered')
-        else:
-            self.cloud_dir = os.path.join(self.path, 'data_3d_raw')
         assert os.path.exists(self.cloud_dir), 'Path %s does not exist' % self.cloud_dir
 
         # move poses to zero-origin

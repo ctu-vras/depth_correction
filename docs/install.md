@@ -16,13 +16,14 @@ Tested with Ubuntu 20.04 and ROS-noetic.
    pip install -r python_requirements.txt
    pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
    ```
-3. Install [ROS](http://wiki.ros.org/ROS/Installation)
+3. Install [ROS](http://wiki.ros.org/ROS/Installation).
+
 4. Install ROS dependencies:
    ```bash
    sudo apt-get install python3-catkin-tools python3-pcl ros-noetic-ros-numpy ros-noetic-rviz ros-noetic-tf-conversions
    ```
 
-6. Build ROS workspace:
+5. Build ROS workspace:
    ```bash
    cd ~/catkin_ws/src/ && git clone https://github.com/tpet/data.git
    cd ~/catkin_ws/ && wstool init src ~/catkin_ws/src/depth_correction/dependencies.rosinstall

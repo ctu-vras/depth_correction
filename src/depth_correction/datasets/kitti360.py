@@ -291,7 +291,7 @@ def visualize_datasets():
 
     cfg = Config(min_depth=1, max_depth=15, grid_res=0.4, nn_r=0.4)
     for name in dataset_names:
-        ds = Dataset(name='%s/%s' % (prefix, name), move_to_origin=True)
+        ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=True)
 
         visualize_dataset(ds, cfg)
 

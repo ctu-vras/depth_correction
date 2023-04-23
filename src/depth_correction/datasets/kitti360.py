@@ -213,7 +213,7 @@ class ColoredCloud(object):
 
 
 class Dataset(Sequence):
-    def __init__(self, name, path=None, poses_path=None, zero_origin=True):
+    def __init__(self, name, path=None, poses_path=None, zero_origin=True, filtered_scans=True):
         """ KITTI-360 dataset or a dataset in that format.
 
         :param name: Dataset name in format NN_start_SS_end_EE_step_ss
@@ -222,7 +222,7 @@ class Dataset(Sequence):
         :param filtered_scans: Whether to use point clouds with filtered dynamic objects
                                (if True 'data_3d_filtered' folder should be generated in advance).
         """
-        super(Dataset, self).__init__(seq=name, path=path)
+        super(Dataset, self).__init__(seq=name, path=path, filtered_scans=filtered_scans)
         assert isinstance(name, str)
         parts = name.split('/')
         assert 1 <= len(parts) <= 2

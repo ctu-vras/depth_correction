@@ -54,4 +54,4 @@ for i in range(cfg.n_opt_iters):
     optimizer.step()
 
     print(model)
-    print(loss)
+    print(loss.item())

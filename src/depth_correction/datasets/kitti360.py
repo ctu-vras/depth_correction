@@ -91,16 +91,17 @@ class Sequence(object):
         fpath = os.path.join(self.cloud_dir, '%010d.bin' % int(i))
         return fpath
 
-    def local_cloud(self, i, filter_ego_pts=False):
+    def local_cloud(self, i, filter_ego_pts=True):
         file = self.get_cloud_path(i)
         cloud = np.fromfile(file, dtype=np.float32)
         cloud = cloud.reshape((-1, 4))
 
         if filter_ego_pts:
-            valid_indices = cloud[:, 0] < -3.
-            valid_indices = valid_indices | (cloud[:, 0] > 3.)
-            valid_indices = valid_indices | (cloud[:, 1] < -3.)
-            valid_indices = valid_indices | (cloud[:, 1] > 3.)
+            min_depth = 3.
+            valid_indices = cloud[:, 0] < -min_depth
+            valid_indices = valid_indices | (cloud[:, 0] > min_depth)
+            valid_indices = valid_indices | (cloud[:, 1] < -min_depth)
+            valid_indices = valid_indices | (cloud[:, 1] > min_depth)
             cloud = cloud[valid_indices]
 
         cloud = unstructured_to_structured(cloud, names=['x', 'y', 'z', 'i'])
@@ -222,7 +223,7 @@ class ColoredCloud(object):
 
 
 class Dataset(Sequence):
-    def __init__(self, name, poses_path=None, zero_origin=True, filtered_scans=True):
+    def __init__(self, name, poses_path=None, zero_origin=True, filtered_scans=False):
         """ KITTI-360 dataset or a dataset in that format.
 
         :param name: Dataset name in format NN_start_SS_end_EE_step_ss

@@ -255,14 +255,16 @@ class Dataset(Sequence):
     def get_dynamic_points(self):
         pcd_path = os.path.join(self.path, 'data_3d_semantics', 'train', self.seq, 'dynamic')
         dynamic_points = []
+        ids_ranges = []
         for p in os.listdir(pcd_path):
             pcd_file = os.path.join(pcd_path, p)
             data = read_ply(pcd_file)
             points = structured_to_unstructured(data[['x', 'y', 'z']])
             dynamic_points.append(points)
-        if len(dynamic_points) > 0:
-            dynamic_points = np.concatenate(dynamic_points)
-        return dynamic_points
+            ids_ranges.append([int(i) for i in p[:-4].split('_')])
+        # if len(dynamic_points) > 0:
+        #     dynamic_points = np.concatenate(dynamic_points)
+        return dynamic_points, ids_ranges
 
     def __str__(self):
         return f'kitti360/{self.name}'

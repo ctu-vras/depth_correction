@@ -226,13 +226,11 @@ def eval_slam(cfg: Config):
         # Allow overriding poses paths, assume valid if non-empty.
         poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
         # Evaluate SLAM on whole kitti sequences if the dataset is semantic kitti
-        if cfg.dataset == 'semantic_kitti':
-            name = name[:17]  # semantic_kitti/XY
-            # name += '_step_%i' % cfg.data_step
-            name += '_end_500_step_1'
+        if 'kitti' in cfg.dataset:
+            # 'kitti360/03_start_102_end_112_step_1' -> 'kitti360/03_end_500_step_1'
+            name = '%s/%s%s' % (name.split('/')[0], name.split('/')[1].split('_')[0], '_end_500_step_1')
 
-        cli_args = [slam_eval_launch]
-        cli_args.append('dataset:=%s' % name)
+        cli_args = [slam_eval_launch, 'dataset:=%s' % name]
         if poses_path:
             cli_args.append('dataset_poses_path:=%s' % poses_path)
         cli_args.append('odom:=true')

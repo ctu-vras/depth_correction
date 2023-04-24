@@ -23,7 +23,6 @@
     <arg name="slam" default="norlab_icp_mapper"
          doc="SLAM algorithm to use, from {ethzasl_icp_mapper, norlab_icp_mapper}."/>
     <arg name="slam_eval_csv" default="$(find depth_correction)/slam_eval.csv"/>
-<!--    <arg name="slam_poses_csv" default="$(find data)/$(arg dataset)/csv_global/pose_scanner_slam.csv"/>-->
     <arg name="slam_poses_csv" default="$(find depth_correction)/slam_poses.csv"/>
     <!-- Cloud filter -->
     <arg name="min_depth" default="1.0"/>
@@ -103,6 +102,9 @@
         <arg name="bag" value="$(arg bag)"/>
         <arg name="bag_prefix" value="$(arg bag_prefix)"/>
     </include>
+
+    <!-- Static TF -->
+    <node pkg="tf" type="static_transform_publisher" name="tf_map_map_gt" args="0 0 0 0 0 0 map gt/map 100" />
 
     <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
         <arg name="config" value="$(dirname)/../config/slam.rviz"/>

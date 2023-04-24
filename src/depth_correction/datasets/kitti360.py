@@ -36,11 +36,19 @@ dataset_names = [
 ]
 
 
+def read_poses(path):
+    poses = np.genfromtxt(path, delimiter=', ', skip_header=True)
+    ids = np.genfromtxt(path, delimiter=', ', dtype=int, skip_header=True)[:, 0].tolist()
+    # assert ids == list(range(len(ids)))
+    poses = poses[:, 2:]
+    poses = poses.reshape((-1, 4, 4))
+    # poses = dict(zip(ids, poses))
+    return ids, poses
+
+
 class Sequence(object):
-    def __init__(self, path=None, seq=0, filtered_scans=False):
-        if not path:
-            path = data_dir
-        self.path = path
+    def __init__(self, poses_path=None, seq=0, filtered_scans=False):
+        self.path = data_dir
         if isinstance(seq, str):
             parts = seq.split('/')
             assert 1 <= len(parts) <= 2
@@ -54,16 +62,19 @@ class Sequence(object):
             self.cloud_dir = os.path.join(self.path, 'data_3d_raw', self.seq, 'velodyne_points', 'data')
         self.T_cam2lidar = self.read_calibration()
         self.T_lidar2cam = np.linalg.inv(self.T_cam2lidar)
-        self.poses, self.ids = self.read_poses()
+        self.poses, self.ids = self.read_poses(poses_path=poses_path)
 
     def get_poses_path(self):
         return os.path.join(self.path, 'data_poses', self.seq, 'cam0_to_world.txt')
 
-    def read_poses(self):
-        path = self.get_poses_path()
-        data = np.loadtxt(path, dtype=np.float32)
-        ids = [int(i) for i in data[:, 0]]  # index of poses
-        poses = data[:, 1:].reshape((-1, 4, 4)) @ self.T_lidar2cam
+    def read_poses(self, poses_path=None):
+        if poses_path:
+            ids, poses = read_poses(poses_path)
+        else:
+            path = self.get_poses_path()
+            data = np.loadtxt(path, dtype=np.float32)
+            ids = [int(i) for i in data[:, 0]]  # index of poses
+            poses = data[:, 1:].reshape((-1, 4, 4)) @ self.T_lidar2cam
         # ensure that there are corresponding point clouds for ids
         clouds_ids = [int(i[:-4]) for i in os.listdir(self.cloud_dir)]
         mask = [True if i in clouds_ids else False for i in ids]
@@ -126,10 +137,8 @@ class Sequence(object):
 
 class ColoredCloud(object):
     # Constructor
-    def __init__(self, path=None, seq=0):
-        if not path:
-            path = data_dir
-        self.path = path
+    def __init__(self, seq=0):
+        self.path = data_dir
 
         self.downSampleEvery = -1
         # show visible point clouds only
@@ -213,16 +222,16 @@ class ColoredCloud(object):
 
 
 class Dataset(Sequence):
-    def __init__(self, name, path=None, poses_path=None, zero_origin=True, filtered_scans=True):
+    def __init__(self, name, poses_path=None, zero_origin=True, filtered_scans=True):
         """ KITTI-360 dataset or a dataset in that format.
 
         :param name: Dataset name in format NN_start_SS_end_EE_step_ss
-        :param path: Dataset path, takes precedence over name.
+        :param poses_path: Poses path (for instance, obtained from SLAM).
         :param zero_origin: Whether to move data set coordinate system origin to (0, 0, 0).
         :param filtered_scans: Whether to use point clouds with filtered dynamic objects
                                (if True 'data_3d_filtered' folder should be generated in advance).
         """
-        super(Dataset, self).__init__(seq=name, path=path, filtered_scans=filtered_scans)
+        super(Dataset, self).__init__(seq=name, poses_path=poses_path, filtered_scans=filtered_scans)
         assert isinstance(name, str)
         parts = name.split('/')
         assert 1 <= len(parts) <= 2

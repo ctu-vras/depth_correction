@@ -18,14 +18,15 @@ print(path)
 # Choose dataset
 # dataset = 'asl_laser'
 # dataset = 'semantic_kitti'
-dataset = 'fee_corridor'
+# dataset = 'fee_corridor'
+dataset = 'kitti360'
 if dataset == 'asl_laser':
     # preproc = '{dataset}*g0.10'.format(dataset=dataset)
     preproc = '{dataset}*s0.0175_0.0873-nan'.format(dataset=dataset)
 elif dataset == 'semantic_kitti':
     # preproc = '{dataset}*g0.20'.format(dataset=dataset)
     preproc = '{dataset}*s0.0175_0.0873-nan'.format(dataset=dataset)
-elif dataset == 'fee_corridor':
+elif dataset == 'fee_corridor' or dataset == 'kitti360':
     preproc = f'{dataset}*g0.20'
 else:
     raise ValueError('Unsupported dataset: %s.' % dataset)
@@ -39,7 +40,7 @@ loss_eval_baseline_format = '{{preproc}}/{dataset}/*/loss_eval_{{loss}}.csv'.for
 # SLAM eval with depth correction filter from training
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv')
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_*_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
-slam_eval_format = '{preproc}/{pose_provider}_{model}_*_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv'
+slam_eval_format = '{preproc}/{pose_provider}_*_{model}_*_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv'
 # SLAM eval with all points corrected
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
 
@@ -184,9 +185,9 @@ def slam_error_from_csv(csv_paths, cols=2):
 def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=list(SLAM)[0], cols=2):
     csv_pattern = slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
                                           split='*', set=split, slam=slam)
-    print(csv_pattern)
+    # print(csv_pattern)
     csv_paths = glob.glob(csv_pattern)
-    print('\n'.join([csv_path[csv_path.index(dataset):] for csv_path in csv_paths]))
+    # print('\n'.join([csv_path[csv_path.index(dataset):] for csv_path in csv_paths]))
     return slam_error_from_csv(csv_paths, cols=cols)
 
 

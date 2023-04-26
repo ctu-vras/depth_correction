@@ -352,3 +352,17 @@ class ScaledInvCos(BaseModel):
 def model_by_name(name):
     assert name in ('BaseModel', 'InvCos', 'Linear', 'Polynomial', 'ScaledInvCos', 'ScaledPolynomial'), name
     return globals()[name]
+
+
+def test_model():
+    model = ScaledPolynomial(exponent=[2, 4], w=[-0.06, -0.06])
+    d0 = 20.
+    cloud = DepthCloud.from_points([[d0, 0., 0.]], vps=[[0., 0., 0.]])
+    for angle in np.linspace(10, 85, 10):
+        cloud.inc_angles = torch.tensor([[angle / 180.]])
+        d = model(cloud).depth.item()
+        print('For angle %.1f [deg] corrected depth=%.6f [m]' % (angle, d - d0))
+
+
+if __name__ == '__main__':
+    test_model()

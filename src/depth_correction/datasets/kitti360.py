@@ -27,12 +27,12 @@ else:
 dataset_names = [
     '00_start_102_end_152_step_1',
     '03_start_102_end_152_step_1',
+    '04_start_102_end_152_step_1',
     '05_start_102_end_152_step_1',
     '06_start_102_end_152_step_1',
     '07_start_102_end_152_step_1',
     '09_start_102_end_152_step_1',
     '10_start_102_end_152_step_1',
-    '04_start_102_end_152_step_1',
 ]
 
 
@@ -91,17 +91,16 @@ class Sequence(object):
         fpath = os.path.join(self.cloud_dir, '%010d.bin' % int(i))
         return fpath
 
-    def local_cloud(self, i, filter_ego_pts=True):
+    def local_cloud(self, i, filter_ego_pts_depth=1.0):
         file = self.get_cloud_path(i)
         cloud = np.fromfile(file, dtype=np.float32)
         cloud = cloud.reshape((-1, 4))
 
-        if filter_ego_pts:
-            min_depth = 3.
-            valid_indices = cloud[:, 0] < -min_depth
-            valid_indices = valid_indices | (cloud[:, 0] > min_depth)
-            valid_indices = valid_indices | (cloud[:, 1] < -min_depth)
-            valid_indices = valid_indices | (cloud[:, 1] > min_depth)
+        if filter_ego_pts_depth is not None:
+            valid_indices = cloud[:, 0] < -filter_ego_pts_depth
+            valid_indices = valid_indices | (cloud[:, 0] > filter_ego_pts_depth)
+            valid_indices = valid_indices | (cloud[:, 1] < -filter_ego_pts_depth)
+            valid_indices = valid_indices | (cloud[:, 1] > filter_ego_pts_depth)
             cloud = cloud[valid_indices]
 
         cloud = unstructured_to_structured(cloud, names=['x', 'y', 'z', 'i'])

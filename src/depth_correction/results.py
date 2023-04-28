@@ -211,39 +211,45 @@ def slam_localization_error_demo():
     (orient_acc_deg_base, orient_acc_deg_base_std), (trans_acc_m_base, trans_acc_m_base_std) = \
             slam_error_from_csv(csv_paths)
 
+    # models = ['Polynomial', 'ScaledPolynomial']
+    models = ['Polynomial']
+    poses_sources = ['ground_truth']
+    # losses = ['min_eigval_loss', 'icp_loss']
+    losses = ['min_eigval_loss']
+
+    model_map = {Model.Polynomial: 'SLAM \cite{Pomerleau-2013-AR} + $\\epsilon_\\mathrm{p}$ (\\ref{eq:polynomial_model})',
+                 Model.ScaledPolynomial: 'SLAM \cite{Pomerleau-2013-AR} + $\\epsilon_\\mathrm{sp}$ (\\ref{eq:scaled_polynomial_model})'}
+
     for pose_src in poses_sources:
 
         print('\nSLAM accuracy for initial localization source provider: %s\n' % pose_src)
 
-        for loss in losses + ["*"]:  # for each separate loss as well as averaged
+        # for loss in losses + ["*"]:  # for each separate loss as well as averaged
+        for loss in losses:
             print("\nLocalization error evaluation with loss: %s\n" % loss)
 
-            table = [["Base model", u"%.3f (\u00B1 %.3f)" % (orient_acc_deg_base, orient_acc_deg_base_std),
-                      u"%.3f (\u00B1 %.3f)" % (trans_acc_m_base, trans_acc_m_base_std)]]
+            table = [["SLAM", "$%.2f \\pm %.2f$" % (orient_acc_deg_base, orient_acc_deg_base_std),
+                      "$%.2f \\pm %.2f$" % (trans_acc_m_base, trans_acc_m_base_std)]]
             for model in models:
-                table.append(
-                    [model.capitalize()] + [
-                        ", ".join([u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
-                                                                          model=model,
-                                                                          loss=loss,
-                                                                          split='train')[i],
-                                   u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
-                                                                          model=model,
-                                                                          loss=loss,
-                                                                          split='val')[i],
-                                   u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
-                                                                          model=model,
-                                                                          loss=loss,
-                                                                          split='test')[i]])
-                        for i in range(2)])
+                orient_means, orient_stds = [], []
+                trans_means, trans_stds = [], []
+                for split in ['train', 'val', 'test']:
+                    orient_err, trans_err = get_slam_error(pose_src=pose_src, model=model, loss=loss, split=split)
+                    orient_mean, orient_std = orient_err
+                    trans_mean, trans_std = trans_err
+
+                    trans_means.append(trans_mean)
+                    trans_stds.append(trans_std)
+                    orient_means.append(orient_mean)
+                    orient_stds.append(orient_std)
+
+                table.append([model_map[model]] +
+                             ["$%.2f \\pm %.2f$" % (np.mean(orient_means).item(), np.mean(orient_stds).item())] +
+                             ["$%.2f \\pm %.2f$" % (np.mean(trans_means).item(), np.mean(trans_stds).item())])
 
             print(tabulate.tabulate(table,
-                                    ["model", "orientation error (train, val, test), [deg]",
-                                     "translation error (train, val, test), [m]"], tablefmt="grid"))
-
-            print(tabulate.tabulate(table,
-                                    ["model", "orientation error (train, val, test), [deg]",
-                                     "translation error (train, val, test), [m]"], tablefmt="latex"))
+                                    ["pipeline", "orientation error [deg]",
+                                     "translation error [m]"], tablefmt="latex_raw"))
 
 
 def slam_localization_error_tables():
@@ -283,9 +289,9 @@ def slam_localization_error_tables():
                 mean, std = 100 * mean, 100 * std
 
             if subset == 'test':
-                # table[-1] += ['%.3f \u00B1 %.3f' % (mean, std)]
-                # table[-1] += ['%.3f \\pm %.3f' % (mean, std)]
-                table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+                # table[-1] += ['%.2f \\pm %.2f' % (mean, std)]
+                # table[-1] += ['%.2f \\pm %.2f' % (mean, std)]
+                table[-1] += ['$%.2f \\pm %.2f$' % (mean, std)]
             else:
                 table[-1] += ['$%.3f$' % mean]
 
@@ -297,11 +303,11 @@ def slam_localization_error_tables():
         elif col == 3:
             mean, std = 100 * mean, 100 * std
 
-        base_table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+        base_table[-1] += ['$%.2f \\pm %.2f$' % (mean, std)]
 
     print()
     print('SLAM results with no correction')
-    print(tabulate.tabulate(base_table, tablefmt='latex_raw'))
+    print(tabulate.tabulate(base_table, headers=['orientation error [deg]', 'translation error [m]'], tablefmt='latex_raw'))
     print()
     print('SLAM results with depth correction')
     print(tabulate.tabulate(table, tablefmt='latex_raw'))
@@ -323,7 +329,7 @@ def mean_loss_tables():
 
         mean, std = base_res[0]
 
-        print(loss, '$%.3f \\pm %.3f$' % (1000 * mean, 1000 * std))
+        print(loss, '$%.2f \\pm %.2f$' % (1000 * mean, 1000 * std))
 
     model_map = {Model.Polynomial: '$\\epsilon_\\mathrm{p}$ (\\ref{eq:polynomial_model})',
                  Model.ScaledPolynomial: '$\\epsilon_\\mathrm{sp}$ (\\ref{eq:scaled_polynomial_model})'}
@@ -364,7 +370,7 @@ def mean_loss_tables():
     #     elif col == 3:
     #         mean, std = 100 * mean, 100 * std
     #
-    #     base_table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+    #     base_table[-1] += ['$%.2f \\pm %.2f$' % (mean, std)]
     #
     # print()
     # print('SLAM results with no correction')
@@ -401,20 +407,20 @@ def mean_loss_over_sequences_and_data_splits_demo():
 
         print('\nMean losses over sequences for localization source: %s\n' % pose_src)
 
-        table = [["Base model"] + [u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray([loss, std])) for loss, std in
+        table = [["Base model"] + ["$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray([loss, std])) for loss, std in
                                    base_loss_values]]
         for model in models:
             table.append(
                 [model.capitalize()] + [
-                    ", ".join([u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                    ", ".join(["$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
                                                                                           model=model,
                                                                                           loss=loss,
                                                                                           split='train'))),
-                               u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                               "$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
                                                                                           model=model,
                                                                                           loss=loss,
                                                                                           split='val'))),
-                               u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                               "$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
                                                                                           model=model,
                                                                                           loss=loss,
                                                                                           split='test')))
@@ -488,9 +494,9 @@ def results_for_individual_sequences_demo(std=False):
 
 
 def main():
-    # slam_localization_error_demo()
+    slam_localization_error_demo()
     # slam_localization_error_tables()
-    mean_loss_tables()
+    # mean_loss_tables()
     # mean_loss_over_sequences_and_data_splits_demo()
     # results_for_individual_sequences_demo()
 

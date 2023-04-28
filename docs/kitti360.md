@@ -83,7 +83,7 @@ where `NN` is sequence number, `SS` and `EE` are the first and the last scan num
 To run the SLAM algorithm with the depth correction method:
 
 ```bash
-roslaunch depth_correction slam_eval.launch model_class:=ScaledPolynomial model_kwargs:="{'exponent': [4], 'w': [-0.001]}" depth_correction:=true dataset:=kitti360/03_start_2_end_200_step_1
+roslaunch depth_correction slam_eval.launch model_class:=ScaledPolynomial model_kwargs:="{'exponent': [4], 'w': [-0.01]}" depth_correction:=true dataset:=kitti360/03_start_2_end_200_step_1
 ```
 
 As a result you should see the rotation and translation errors computed

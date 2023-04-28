@@ -296,13 +296,45 @@ def visualize_colored_submaps():
     exit()
 
 
+def datasets_statistics():
+    from depth_correction.config import Config
+    from depth_correction.visualization import visualize_dataset
+
+    cfg = Config(min_depth=5, max_depth=25, grid_res=0.2, nn_r=0.4)
+    for name in dataset_names:
+        ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=True)
+
+        clouds = []
+        poses = []
+        dists = []
+        pose_prev = np.eye(4)
+        for cloud, pose in ds:
+            cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
+            cloud = np.matmul(cloud[:, :3], pose[:3, :3].T) + pose[:3, 3:].T
+            clouds.append(cloud)
+            poses.append(pose)
+            dists.append(np.linalg.norm(pose[:3, 3] - pose_prev[:3, 3]))
+            pose_prev = pose
+
+        cloud = np.concatenate(clouds)
+        dists.pop(0)
+
+        print('Subseq %s, N points: %d, length: %.2f, distances between poses: min=%.2f, mean=%.2f, max=%.2f'
+              % (name, len(cloud), np.sum(dists).item(), np.min(dists), np.mean(dists).item(), np.max(dists)))
+
+        visualize_dataset(ds, cfg)
+
+
 def visualize_datasets():
     from depth_correction.config import Config
     from depth_correction.visualization import visualize_dataset
 
-    cfg = Config(min_depth=1, max_depth=15, grid_res=0.4, nn_r=0.4)
-    for name in dataset_names:
+    cfg = Config(min_depth=5, max_depth=25, grid_res=0.5)
+    # seqs = ['%02d_step_50' % i for i in [0, 2, 3, 4, 5, 6, 7, 9, 10]]
+    seqs = ['%02d_step_20' % i for i in [3, 7, 10]]
+    for name in seqs:
         ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=True)
+        print('Sequence: %s has %i samples' % (name, len(ds)))
 
         visualize_dataset(ds, cfg)
 

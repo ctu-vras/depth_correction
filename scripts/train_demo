@@ -61,7 +61,7 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.nn_k = 0
         # self.cfg.nn_r = 0.25
         self.cfg.nn_r = 0.4
-        self.cfg.min_valid_neighbors = 5
+        self.cfg.min_valid_neighbors = 10
         # self.cfg.min_valid_neighbors = 1
 
         # self.cfg.nn_type = NeighborhoodType.plane

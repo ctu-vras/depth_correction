@@ -127,26 +127,40 @@ def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
     else:
         print('%.3f = %i / %i points kept (previous filters).'
               % (mask.double().mean(), mask.sum(), mask.numel()))
-
     if cfg.min_valid_neighbors:
-        mask &= filter_valid_neighbors(cloud, min=cfg.min_valid_neighbors, only_mask=True, log=cfg.log_filters)
+        mask1 = filter_valid_neighbors(cloud, min=cfg.min_valid_neighbors, only_mask=True, log=cfg.log_filters)
+        mask &= mask1
+        # cloud.visualize(colors=mask1, window_name='Valid neighbors')
     # Enforce bound on eigenvalues (done for local clouds too).
     if cfg.eigenvalue_bounds:
-        mask &= filter_eigenvalues(cloud, bounds=cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+        mask1 = filter_eigenvalues(cloud, bounds=cfg.eigenvalue_bounds, only_mask=True, log=cfg.log_filters)
+        mask &= mask1
+        # cloud.visualize(colors=mask1, window_name='Eigenvalue bounds')
     if cfg.eigenvalue_ratio_bounds:
-        mask &= filter_eigenvalue_ratios(cloud, bounds=cfg.eigenvalue_ratio_bounds, only_mask=True, log=cfg.log_filters)
+        mask1 = filter_eigenvalue_ratios(cloud, bounds=cfg.eigenvalue_ratio_bounds, only_mask=True, log=cfg.log_filters)
+        mask &= mask1
+        cloud.visualize(colors=mask1, window_name='Eigenvalue ratios')
+        # cloud.visualize(colors=cloud.eigvals[:, 0] / cloud.eigvals[:, 1], window_name='Eigvals: l1 / l2')
+        # cloud.visualize(colors=cloud.eigvals[:, 1] / cloud.eigvals[:, 2], window_name='Eigvals: l2 / l3')
     # Enforce minimum direction and viewpoint spread for bias estimation.
     if cfg.dir_dispersion_bounds:
-        # cloud.visualize(colors=cloud.dir_dispersion(), window_name='Direction dispersion')
-        mask &= within_bounds(cloud.dir_dispersion(), bounds=cfg.dir_dispersion_bounds,
+        mask1 = within_bounds(cloud.dir_dispersion(), bounds=cfg.dir_dispersion_bounds,
                               log_variable='dir dispersion' if cfg.log_filters else None)
+        mask &= mask1
+        # cloud.visualize(colors=cloud.dir_dispersion(), window_name='Direction dispersion')
+        # cloud.visualize(colors=mask1, window_name='Dir dispersion')
     if cfg.vp_dispersion_bounds:
-        # cloud.visualize(colors=cloud.vp_dispersion(), window_name='Viewpoint dispersion')
-        mask &= within_bounds(cloud.vp_dispersion(), bounds=cfg.vp_dispersion_bounds,
+        mask1 = within_bounds(cloud.vp_dispersion(), bounds=cfg.vp_dispersion_bounds,
                               log_variable='vp dispersion' if cfg.log_filters else None)
+        mask &= mask1
+        # cloud.visualize(colors=cloud.vp_dispersion(), window_name='Viewpoint dispersion')
+        # cloud.visualize(colors=mask1, poses=poses, window_name='VP dispersion')
     if cfg.vp_dispersion_to_depth2_bounds:
-        mask &= within_bounds(cloud.vp_dispersion_to_depth2(), bounds=cfg.vp_dispersion_to_depth2_bounds,
+        mask1 = within_bounds(cloud.vp_dispersion_to_depth2(), bounds=cfg.vp_dispersion_to_depth2_bounds,
                               log_variable='vp dispersion to depth2' if cfg.log_filters else None)
+        mask &= mask1
+        # cloud.visualize(colors=cloud.vp_dispersion_to_depth2(), window_name='VP dispersion to depth2')
+    # cloud.visualize(colors=mask, window_name='Total masked points')
     return mask
 
 

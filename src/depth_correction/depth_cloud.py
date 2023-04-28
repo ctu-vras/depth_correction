@@ -495,7 +495,7 @@ class DepthCloud(object):
         pcd = self.to_point_cloud(colors=colors, colormap=colormap, interval=interval)
         o3d_geometries = [pcd]
         for vp in poses:
-            mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1., origin=vp)
+            mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=3., origin=vp)
             o3d_geometries.append(mesh_frame)
         o3d.visualization.draw_geometries(o3d_geometries, window_name=window_name, point_show_normal=normals)
         # def cb():

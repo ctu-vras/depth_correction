@@ -193,7 +193,7 @@ def demo():
     cfg = Config()
     cfg.device = 'cuda'
     cfg.loss_kwargs['icp_point_to_plane'] = False
-    cfg.dataset_kwargs['static_poses'] = False
+    cfg.dataset_kwargs['static_poses'] = True
     cfg.dataset_kwargs['zero_origin'] = False
 
     for name in dataset_names:

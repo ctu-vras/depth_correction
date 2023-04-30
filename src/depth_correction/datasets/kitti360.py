@@ -76,11 +76,13 @@ class Sequence(object):
             ids = [int(i) for i in data[:, 0]]  # index of poses
             poses = data[:, 1:].reshape((-1, 4, 4)) @ self.T_lidar2cam
         # ensure that there are corresponding point clouds for ids
-        clouds_ids = [int(i[:-4]) for i in os.listdir(self.cloud_dir)]
-        mask = [True if i in clouds_ids else False for i in ids]
-        ids = np.asarray(ids)[mask]
-        poses = poses[mask]
-        return poses, ids.tolist()
+        if os.path.exists(self.cloud_dir):
+            clouds_ids = [int(i[:-4]) for i in os.listdir(self.cloud_dir)]
+            mask = [True if i in clouds_ids else False for i in ids]
+            ids = np.asarray(ids)[mask]
+            poses = poses[mask]
+            ids.tolist()
+        return poses, ids
 
     def read_calibration(self):
         fileCameraToLidar = os.path.join(self.path, 'calibration', 'calib_cam_to_velo.txt')
@@ -251,7 +253,7 @@ class Dataset(Sequence):
         self.ids = self.ids[sub_seq]
         self.poses = self.poses[sub_seq]
 
-        assert os.path.exists(self.cloud_dir), 'Path %s does not exist' % self.cloud_dir
+        # assert os.path.exists(self.cloud_dir), 'Path %s does not exist' % self.cloud_dir
 
         # move poses to zero-origin
         if zero_origin:

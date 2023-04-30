@@ -88,7 +88,7 @@ class Table:
 
 
 def tables_basic_demo():
-    from data.asl_laser import dataset_names
+    from depth_correction.datasets.asl_laser import dataset_names
     # https://pandas.pydata.org/pandas-docs/stable/user_guide/10min.html
 
     # loss demo: average across sequences
@@ -413,17 +413,17 @@ def mean_loss_over_sequences_and_data_splits_demo():
             table.append(
                 [model.capitalize()] + [
                     ", ".join(["$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
-                                                                                          model=model,
-                                                                                          loss=loss,
-                                                                                          split='train'))),
+                                                                                       model=model,
+                                                                                       loss=loss,
+                                                                                       split='train'))),
                                "$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
-                                                                                          model=model,
-                                                                                          loss=loss,
-                                                                                          split='val'))),
+                                                                                       model=model,
+                                                                                       loss=loss,
+                                                                                       split='val'))),
                                "$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
-                                                                                          model=model,
-                                                                                          loss=loss,
-                                                                                          split='test')))
+                                                                                       model=model,
+                                                                                       loss=loss,
+                                                                                       split='test')))
                                ]) for loss in losses]
             )
 
@@ -493,12 +493,74 @@ def results_for_individual_sequences_demo(std=False):
     print(tabulate.tabulate(df, names, tablefmt='latex'))
 
 
+def plot_slam_trajs():
+    from .datasets.kitti360 import read_poses, Dataset, prefix
+
+    slam = list(SLAM)[0]
+    slam_poses_baseline_format = f'{preproc}/{dataset}/*/slam_poses_{slam}.csv'
+    slam_poses_baseline_pattern = os.path.join(path, slam_poses_baseline_format)
+    seq_des = '00'
+
+    plt.figure()
+    for poses_scv in glob.glob(slam_poses_baseline_pattern):
+        seq = poses_scv.split('/')[-2]
+        seq = seq[:2] + '_end_500_step_1'
+        # if seq[:2] != seq_des:
+        #     continue
+
+        ds = Dataset(name='%s/%s' % (prefix, seq))
+        poses_gt = ds.poses
+
+        _, poses = read_poses(poses_scv)
+        plt.plot(poses[:, 0, 3], poses[:, 1, 3], label=seq)
+        plt.plot(poses_gt[:, 0, 3], poses_gt[:, 1, 3], '--', label=seq + '_gt')
+
+    plt.grid()
+    plt.axis('equal')
+    plt.legend()
+    plt.show()
+
+
+def slam_error_for_sequences():
+    slam = list(SLAM)[0]
+    pose_src = 'ground_truth'
+    model = 'Polynomial'
+    # losses = ['min_eigval_loss', 'trace_loss', 'icp_loss']
+    losses = ['min_eigval_loss']
+
+    dfs = None
+    for loss in losses:
+        for split in ['train', 'val', 'test']:
+            slam_eval_pattern = slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
+                                                       split='*', set=split, slam=slam)
+            for csv_path in glob.glob(slam_eval_pattern):
+                df = pd.read_csv(csv_path, delimiter=' ', header=None)
+                dfs = df if dfs is None else pd.concat([dfs, df])
+
+    # set sequences name as index
+    # df = dfs.set_index(dfs[0])
+
+    # rename column names
+    df = dfs.rename(columns={0: 'seq', 1: 'r_angle', 2: 't_norm', 3: 'rel_angle', 4: 'rel_offset'})
+    # select only orient and trans errors (not relative changes)
+    df = df[['seq', 'r_angle', 't_norm']]
+
+    # for each sequence compute mean errors
+    aggregation_functions = {'r_angle': 'mean', 't_norm': 'mean'}
+    df = df.groupby('seq').aggregate(aggregation_functions)
+    df['r_angle'] = df['r_angle'].apply(np.rad2deg)
+
+    print(df.to_latex())
+
+
 def main():
-    slam_localization_error_demo()
+    # slam_localization_error_demo()
     # slam_localization_error_tables()
     # mean_loss_tables()
     # mean_loss_over_sequences_and_data_splits_demo()
     # results_for_individual_sequences_demo()
+    # plot_slam_trajs()
+    slam_error_for_sequences()
 
 
 if __name__ == '__main__':

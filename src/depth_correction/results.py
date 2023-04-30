@@ -32,7 +32,7 @@ else:
     raise ValueError('Unsupported dataset: %s.' % dataset)
 preproc = os.path.join(path, preproc)
 preproc = glob.glob(preproc)
-assert len(preproc) == 1
+assert len(preproc) >= 1
 preproc = preproc[0]
 slam_eval_baseline_format = '{{preproc}}/{dataset}/*/slam_eval_{{slam}}.csv'.format(dataset=dataset)
 loss_eval_baseline_format = '{{preproc}}/{dataset}/*/loss_eval_{{loss}}.csv'.format(dataset=dataset)

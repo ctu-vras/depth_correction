@@ -139,7 +139,7 @@ def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
     if cfg.eigenvalue_ratio_bounds:
         mask1 = filter_eigenvalue_ratios(cloud, bounds=cfg.eigenvalue_ratio_bounds, only_mask=True, log=cfg.log_filters)
         mask &= mask1
-        cloud.visualize(colors=mask1, window_name='Eigenvalue ratios')
+        # cloud.visualize(colors=mask1, window_name='Eigenvalue ratios')
         # cloud.visualize(colors=cloud.eigvals[:, 0] / cloud.eigvals[:, 1], window_name='Eigvals: l1 / l2')
         # cloud.visualize(colors=cloud.eigvals[:, 1] / cloud.eigvals[:, 2], window_name='Eigvals: l2 / l3')
     # Enforce minimum direction and viewpoint spread for bias estimation.

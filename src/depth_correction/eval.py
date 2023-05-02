@@ -227,8 +227,8 @@ def eval_slam(cfg: Config):
         poses_path = cfg.test_poses_path[i] if cfg.test_poses_path else None
         # Evaluate SLAM on whole kitti sequences if the dataset is semantic kitti
         if 'kitti' in cfg.dataset:
-            # 'kitti360/03_start_102_end_112_step_1' -> 'kitti360/03_end_500_step_1'
-            name = '%s/%s%s' % (name.split('/')[0], name.split('/')[1].split('_')[0], '_end_500_step_1')
+            # 'kitti360/04_start_102_end_112_step_1' -> 'kitti360/04_start_1_end_500_step_1'
+            name = '%s/%s%s' % (name.split('/')[0], name.split('/')[1].split('_')[0], 'start_1_end_500_step_1')
 
         cli_args = [slam_eval_launch, 'dataset:=%s' % name]
         if poses_path:

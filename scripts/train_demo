@@ -75,14 +75,14 @@ class TrainingDemo(TrainCallbacks):
         self.cfg.shadow_angle_bounds = []
         # self.cfg.dir_dispersion_bounds = [0., float('inf')]
         # self.cfg.dir_dispersion_bounds = [0., 1.]
-        self.cfg.dir_dispersion_bounds = []
+        # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
         self.cfg.eigenvalue_bounds = []
         # self.cfg.eigenvalue_bounds = [[0, -float('inf'), (self.cfg.nn_r / 8)**2],
         #                               [1, (self.cfg.nn_r / 4)**2, float('inf')]]
         # self.cfg.eigenvalue_ratio_bounds = []
-        self.cfg.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0., 1.]]
-        # self.cfg.eigenvalue_ratio_bounds = [[0, 1, 0, 0.01], [1, 2, 0.25, 1.0]]
+        # self.cfg.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0., 1.]]
+        self.cfg.eigenvalue_ratio_bounds = [[0, 1, 0, 0.01], [1, 2, 0.25, 1.0]]
         # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
         # self.cfg.log_filters = True

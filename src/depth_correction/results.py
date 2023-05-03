@@ -26,13 +26,15 @@ if dataset == 'asl_laser':
 elif dataset == 'semantic_kitti':
     # preproc = '{dataset}*g0.20'.format(dataset=dataset)
     preproc = '{dataset}*s0.0175_0.0873-nan'.format(dataset=dataset)
-elif dataset == 'fee_corridor' or dataset == 'kitti360':
+elif dataset == 'fee_corridor':
     preproc = f'{dataset}*g0.20'
+elif dataset == 'kitti360':
+    preproc = f'{dataset}_d5-25_g0.20'
 else:
     raise ValueError('Unsupported dataset: %s.' % dataset)
 preproc = os.path.join(path, preproc)
 preproc = glob.glob(preproc)
-assert len(preproc) >= 1
+assert len(preproc) == 1
 preproc = preproc[0]
 slam_eval_baseline_format = '{{preproc}}/{dataset}/*/slam_eval_{{slam}}.csv'.format(dataset=dataset)
 loss_eval_baseline_format = '{{preproc}}/{dataset}/*/loss_eval_{{loss}}.csv'.format(dataset=dataset)
@@ -494,31 +496,52 @@ def results_for_individual_sequences_demo(std=False):
 
 
 def plot_slam_trajs():
+    import matplotlib.pyplot as plt
     from .datasets.kitti360 import read_poses, Dataset, prefix
 
     slam = list(SLAM)[0]
-    slam_poses_baseline_format = f'{preproc}/{dataset}/*/slam_poses_{slam}.csv'
-    slam_poses_baseline_pattern = os.path.join(path, slam_poses_baseline_format)
-    seq_des = '00'
+    preproc = f'{dataset}_d5-25_g0.20'
+    # slam_poses_baseline_format = f'{preproc}/{dataset}_baseline/*/slam_poses_{slam}.csv'
+    slam_poses_format = f'{preproc}/{dataset}/*/slam_poses_{slam}.csv'
+    slam_poses_pattern = os.path.join(path, slam_poses_format)
 
-    plt.figure()
-    for poses_scv in glob.glob(slam_poses_baseline_pattern):
-        seq = poses_scv.split('/')[-2]
-        seq = seq[:2] + '_end_500_step_1'
-        # if seq[:2] != seq_des:
-        #     continue
+    # plt.figure()
+    for poses_scv in glob.glob(slam_poses_pattern):
+        # SLAM poses
+        _, poses = read_poses(poses_scv)
+        _, poses_baseline = read_poses(poses_scv.replace('/kitti360/', '/kitti360_baseline/'))
 
-        ds = Dataset(name='%s/%s' % (prefix, seq))
+        seq = poses_scv.split('/')[-2][:2]
+        start = 1
+        end = len(poses) + start
+        subseq = seq + '_start_%i_end_%i_step_1' % (start, end)
+
+        # GT poses
+        ds = Dataset(name='%s/%s' % (prefix, subseq), zero_origin=True)
         poses_gt = ds.poses
 
-        _, poses = read_poses(poses_scv)
-        plt.plot(poses[:, 0, 3], poses[:, 1, 3], label=seq)
-        plt.plot(poses_gt[:, 0, 3], poses_gt[:, 1, 3], '--', label=seq + '_gt')
+        # transform SLAM poses to global coord frame
+        # poses = np.asarray([poses_gt[0] @ p for p in poses])
 
-    plt.grid()
-    plt.axis('equal')
-    plt.legend()
-    plt.show()
+        # visualization
+        plt.rcParams.update({'font.size': 28})
+        plt.figure(figsize=(10, 10))
+        ax = plt.gca()
+
+        ax.plot(poses_gt[:, 0, 3], poses_gt[:, 1, 3], color='b', linewidth=4, label='GT')
+        ax.plot(poses_baseline[:, 0, 3], poses_baseline[:, 1, 3], color='r', linewidth=3, label='SLAM')
+        ax.plot(poses[:, 0, 3], poses[:, 1, 3], color='g', linewidth=3, label='SLAM+DC')
+
+        plt.title('Seq.: %s. Start pose: %i, end pose: %i' % (seq, start, end))
+        ax.spines['top'].set_color('none')
+        ax.spines['bottom'].set_position('zero')
+        ax.spines['left'].set_position('zero')
+        ax.spines['right'].set_color('none')
+        ax.grid()
+        ax.axis('equal')
+        ax.legend(loc='lower left')
+        # plt.savefig(f'/home/ruslan/Desktop/{dataset}_seq_{seq}_start{start}_end{end}_slam_dc_results.png')
+        plt.show()
 
 
 def slam_error_for_sequences():
@@ -532,7 +555,7 @@ def slam_error_for_sequences():
     for loss in losses:
         for split in ['train', 'val', 'test']:
             slam_eval_pattern = slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
-                                                       split='*', set=split, slam=slam)
+                                                        split='*', set=split, slam=slam)
             for csv_path in glob.glob(slam_eval_pattern):
                 df = pd.read_csv(csv_path, delimiter=' ', header=None)
                 dfs = df if dfs is None else pd.concat([dfs, df])

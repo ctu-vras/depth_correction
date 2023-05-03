@@ -154,7 +154,7 @@ def global_cloud_mask(cloud: DepthCloud, mask: torch.Tensor, cfg: Config):
                               log_variable='vp dispersion' if cfg.log_filters else None)
         mask &= mask1
         # cloud.visualize(colors=cloud.vp_dispersion(), window_name='Viewpoint dispersion')
-        # cloud.visualize(colors=mask1, poses=poses, window_name='VP dispersion')
+        # cloud.visualize(colors=mask1, window_name='VP dispersion')
     if cfg.vp_dispersion_to_depth2_bounds:
         mask1 = within_bounds(cloud.vp_dispersion_to_depth2(), bounds=cfg.vp_dispersion_to_depth2_bounds,
                               log_variable='vp dispersion to depth2' if cfg.log_filters else None)

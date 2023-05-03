@@ -215,8 +215,7 @@ class Config(Configurable):
         self.eigenvalue_bounds = []
         # self.eigenvalue_bounds = [[0,      -float('inf'), (self.nn_r / 4)**2],
         #                           [1, (self.nn_r / 4)**2,       float('inf')]]
-        # self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1.]]
-        self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0., 1.]]
+        self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1.]]
 
         # Data
         self.dataset = 'kitti360'

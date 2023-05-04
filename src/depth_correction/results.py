@@ -509,11 +509,18 @@ def plot_slam_trajs():
     for poses_scv in glob.glob(slam_poses_pattern):
         # SLAM poses
         _, poses = read_poses(poses_scv)
-        _, poses_baseline = read_poses(poses_scv.replace('/kitti360/', '/kitti360_baseline/'))
+        _, poses_baseline = read_poses(poses_scv.replace(f'/{dataset}/', f'/{dataset}_baseline_500scans/'))
+        print('Poses: %i' % len(poses))
+        print('Poses baseline: %s' % len(poses_baseline))
+        N = min(len(poses), len(poses_baseline))
+        poses = poses[:N]
+        poses_baseline = poses_baseline[:N]
+
+        print(np.allclose(poses, poses_baseline))
 
         seq = poses_scv.split('/')[-2][:2]
         start = 1
-        end = len(poses) + start
+        end = N + start
         subseq = seq + '_start_%i_end_%i_step_1' % (start, end)
 
         # GT poses

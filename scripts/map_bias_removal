@@ -1,0 +1,843 @@
+#!/usr/bin/env python
+
+from __future__ import absolute_import, division, print_function
+from argparse import ArgumentParser
+import numpy as np
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
+import os
+from rosbag import Bag
+from ros_numpy import numpify
+from tqdm import tqdm
+from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import PointStamped
+import matplotlib.pyplot as plt
+import open3d as o3d
+from scipy.spatial.transform import Rotation
+from depth_correction.filters import filter_box
+from depth_correction.loss import point_to_point_dist, point_to_plane_dist, min_eigval_loss, trace_loss
+import torch
+from depth_correction.preproc import local_feature_cloud
+from depth_correction.config import Config, Model
+from depth_correction.model import load_model
+from depth_correction.utils import absolute_orientation
+from depth_correction.depth_cloud import DepthCloud
+from scipy.spatial import cKDTree
+from pytorch3d.loss import chamfer_distance
+
+
+measurements = {'subt_corner': np.asarray([5.2622, -0.5873, 0.1312]),
+                'subt_base': np.asarray([5.2620, -0.0084, -0.3582]),
+                'subt_crystal': np.asarray([5.2567, 0.5753, 0.1589])}
+board_height = measurements['subt_corner'][2] - measurements['subt_base'][2] - 0.01  # Z
+board_length = measurements['subt_crystal'][1] - measurements['subt_corner'][1]  # Y
+board_width = 0.015  # X
+
+
+def slots(msg):
+    return [getattr(msg, var) for var in msg.__slots__]
+
+
+def get_crystal_poses(bag_path, leica_topic='/total_station_driver/ts_points'):
+    poses = []
+    stamps = []
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in bag.read_messages(topics=[leica_topic]):
+            msg = PointStamped(*slots(msg))
+            pose = np.array([msg.point.x, msg.point.y, msg.point.z])
+            poses.append(pose)
+            stamps.append(stamp)
+    return poses, stamps
+
+
+def get_static_crystal_poses(poses, stamps, pose_th=0.001, static_window_size=10):
+    i = 0
+    static_poses = []
+    static_stamps = []
+    while True:
+        window_size = 0
+        for p in poses[i:]:
+            if np.linalg.norm(poses[i] - p) > pose_th:
+                break
+            window_size += 1
+        # print('Pose %i / %i is static for %i iters' % (i, len(poses), window_size))
+
+        i += window_size
+        if i >= len(poses):
+            break
+
+        if window_size > static_window_size:
+            static_poses.append(poses[i])
+            static_stamps.append(stamps[i])
+
+    return static_poses, static_stamps
+
+
+def get_static_clouds(bag_path, static_stamps, time_th=0.1, ouster_topic='/ouster/points'):
+    static_clouds = []
+
+    i = 0
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in tqdm(bag.read_messages(topics=[ouster_topic])):
+
+            if i >= len(static_stamps):
+                break
+
+            if 0 < (stamp.to_sec() - static_stamps[i].to_sec()) < time_th:
+                i += 1
+
+                msg = PointCloud2(*slots(msg))
+                cloud = numpify(msg)
+                if cloud.ndim == 2:
+                    cloud = cloud.reshape((-1,))
+                static_clouds.append(cloud)
+
+    return static_clouds
+
+
+def visualize_clouds(clouds):
+    pcds = []
+    np.random.seed(135)
+    for cloud in clouds:
+        pcd = o3d.geometry.PointCloud()
+        if cloud.dtype.names:
+            points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+        else:
+            points = cloud
+        if points.ndim == 3:
+            points = points.reshape((-1, 3))
+        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.colors = o3d.utility.Vector3dVector(np.random.uniform(0, 1, 3) + np.zeros_like(points))
+        pcds.append(pcd)
+    o3d.visualization.draw_geometries(pcds)
+
+
+def generate_board_cloud(n_pts=1000):
+    np.random.seed(135)
+    x0, y0, z0 = measurements['subt_corner'] - measurements['subt_base']
+    z0 -= board_height
+    x0 -= 0.5 * board_width
+    origin = np.asarray([x0, y0, z0])  # in base frame
+    points = (board_width, board_length, board_height) * np.random.uniform(0, 1, (n_pts, 3)) + origin
+    cloud = unstructured_to_structured(np.asarray(points, dtype=np.float32), names=['x', 'y', 'z'])
+    return cloud
+
+
+def transform_cloud(cloud, Tr):
+    assert isinstance(cloud, np.ndarray)
+    if cloud.dtype.names:
+        pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    else:
+        pts = cloud
+    R, t = Tr[:-1, :-1], Tr[:-1, -1:]
+    pts_tr = pts @ R.T + t.T
+    if cloud.dtype.names:
+        cloud_tr = cloud.copy()
+        cloud_tr[['x', 'y', 'z']] = unstructured_to_structured(pts_tr, names=['x', 'y', 'z'])
+    else:
+        cloud_tr = pts_tr
+    return cloud_tr
+
+
+def normalize(v):
+    norm = np.linalg.norm(v)
+    if norm == 0:
+        return v
+    return v / norm
+
+
+def correction(cloud, model, cfg):
+    with torch.no_grad():
+        # Assume that depth and grid filters are run earlier.
+        cloud = local_feature_cloud(cloud, cfg)
+
+        cloud = model(cloud)
+        cloud.update_points()
+    output_cloud = cloud.to_structured_array()
+    return output_cloud
+
+
+def angle_from_leica(pose):
+    v1 = pose - measurements['subt_base']
+    v1 = normalize(v1)
+    angle_z = np.arctan2(v1[1], v1[0]) - np.pi / 2
+    normal = normalize(np.cross(np.array([0, 0, 1]), v1))
+    return angle_z, normal
+
+
+def icp_alignment(x, y, Tr_init=np.eye(4), inl_ratio=1.0, n_iters=100):
+    y_index = cKDTree(y)
+    Tr_res = Tr_init
+
+    d0, _ = y_index.query(x)
+    for _ in tqdm(range(n_iters)):
+        d, idx = y_index.query(x)
+        dist_th = np.percentile(d, 100 * inl_ratio)
+        inl_mask = d <= dist_th
+        x_inl = x[inl_mask]
+        y_inl = y[idx[inl_mask]]
+        Tr = absolute_orientation(x_inl.T, y_inl.T)
+        x = transform_cloud(x, Tr)
+
+        Tr_res = Tr_res @ Tr
+
+    print('Alignment error: %.3f / %.3f' % (d.mean(), d0.mean()))
+    # visualize_clouds([x, y])
+    return Tr_res
+
+
+def eval(cloud, board_cloud, board_normal, board_center=np.array([0, 0, 0])):
+    ouster_points = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    board_points = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+
+    # point to PLANE
+    v_diff = ouster_points - board_center
+    point_to_plane = np.mean(np.abs(v_diff @ board_normal[None].T))
+
+    dist_to_board = np.linalg.norm(ouster_points.mean(axis=0)[:2])
+
+    # point to POINT distance
+    point_to_point = point_to_point_dist([board_points, ouster_points],
+                                         icp_inlier_ratio=0.9, differentiable=False)
+    return point_to_point, point_to_plane, dist_to_board
+
+
+def eval_model():
+    data_path = '/home/ruslan/data/bags/depth_correction/leica_ouster/small_board/'
+    bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
+    # bag_path = os.path.join(data_path, 'depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag')
+
+    cfg = Config()
+    cfg.model_class = Model.ScaledPolynomial
+    # cfg.model_kwargs = {'w': [-0.00656668, 0.00473168], 'exponent': [2, 4]}
+    cfg.model_kwargs = {'w': [-0.00618152, 0.00410526], 'exponent': [2, 4]}
+    # cfg.model_kwargs = {'w': [-0.00068], 'exponent': [4]}
+    # cfg.model_kwargs = {'w': [-0.00110], 'exponent': [4]}
+    # cfg.model_kwargs = {'w': [-0.00096], 'exponent': [4]}
+    # cfg.model_kwargs = {'w': [-0.00035], 'exponent': [4]}
+    # cfg.model_kwargs = {'w': [-0.000630069, 0.00133942], 'exponent': [2, 4]}
+    cfg.eigenvalue_ratio_bounds = []
+    cfg.log_filters = True
+    model = load_model(cfg=cfg)
+
+    # get all crystal poses
+    crystal_poses, stamps = get_crystal_poses(bag_path)
+    print('Found %i poses' % len(crystal_poses))
+
+    # get static poses
+    static_crystal_poses, static_stamps = get_static_crystal_poses(crystal_poses, stamps)
+    print('Found %i static poses' % len(static_crystal_poses))
+    # plt.figure()
+    # plt.plot([s.to_sec() - static_stamps[0].to_sec() for s in static_stamps], '.')
+
+    # crystal_poses = np.asarray(crystal_poses) - crystal_poses[0]
+    # static_crystal_poses = np.asarray(static_crystal_poses) - static_crystal_poses[0]
+    # plt.figure()
+    # plt.plot(crystal_poses[:, 0], crystal_poses[:, 1], '.')
+    # plt.plot(static_crystal_poses[:, 0], static_crystal_poses[:, 1], 'o')
+    # plt.grid()
+    # plt.axis('equal')
+    # plt.show()
+
+    # get corresponding static point clouds
+    static_clouds = get_static_clouds(bag_path, static_stamps)
+    print('Found %i static clouds' % len(static_clouds))
+
+    assert len(static_clouds) == len(static_crystal_poses) == len(static_stamps)
+
+    # create board mesh
+    board_cloud = generate_board_cloud()
+    board_cloud0 = board_cloud.copy()
+
+    # transformation between ouster lidar and world frame (subt)
+    Tr_base_subt = np.eye(4)
+    Tr_base_subt[:3, 3] = -measurements['subt_base']
+
+    # initial estimate
+    # Tr_subt_ouster = np.eye(4)
+    # Tr_subt_ouster[:3, :3] = Rotation.from_euler('z', 0.055, degrees=False).as_matrix()
+    # Tr_subt_ouster[:3, 3] = np.array([0, 0, -0.10])
+    Tr_subt_ouster = np.array([[0.99832296, -0.05795125, -0.0035224, 0.],
+                               [0.05796774, 0.99802342, 0.02213984, 0.],
+                               [0.0023, -0.0223, 0.9997, -0.1],
+                               [0., 0., 0., 1.]])
+
+    # find transformation between lidar and world frames from ICP alignment
+    # x = structured_to_unstructured(board_cloud[['x', 'y', 'z']])
+    # y = structured_to_unstructured(static_clouds[0][['x', 'y', 'z']])
+    # y = transform_cloud(y, Tr_base_subt)
+    # Tr_subt_ouster = icp_alignment(x, y, Tr_init=Tr_subt_ouster, inl_ratio=0.6, n_iters=50)
+    # print('Found transformation between lidar and world frames:\n%s\n' % Tr_subt_ouster)
+
+    plt.figure(figsize=(16, 16))
+    metrics = {'point_to_point': [], 'point_to_plane': [], 'distance_to_board': []}
+    metrics_corr = {'point_to_point': [], 'point_to_plane': [], 'distance_to_board': []}
+    board_angles = []
+    for id in range(len(static_crystal_poses)):
+
+        board_angle, board_normal = angle_from_leica(static_crystal_poses[id])
+
+        # orient board cloud using tracked crystal pose
+        Tr_base_board = np.eye(4)
+        Tr_base_board[:3, :3] = Rotation.from_euler('z', board_angle, degrees=False).as_matrix()
+        board_cloud = transform_cloud(board_cloud0, Tr_base_board)
+        board_cloud = transform_cloud(board_cloud, np.linalg.inv(Tr_base_subt))
+
+        # transform ouster cloud to board base frame
+        cloud = static_clouds[id]
+        cloud = transform_cloud(cloud, Tr_subt_ouster)
+
+        # filter board box from cloud
+        box_scale = 0.6
+        board_center = measurements['subt_base'] + np.asarray([0, 0, board_height / 2])
+        board_box_size = box_scale * np.array([board_length, board_length, board_height])
+        cloud = filter_box(cloud, pose=board_center, size=board_box_size)
+        board_cloud = filter_box(board_cloud, pose=board_center, size=board_box_size)
+
+        # compute point cloud to mesh distance
+        if len(cloud) > 10:
+            board_angles.append(np.rad2deg(board_angle))
+
+            # correction
+            cloud_corr = correction(cloud, model, cfg)
+
+            point_to_point, point_to_plane, dist_to_board = eval(cloud, board_cloud, board_normal, board_center)
+            point_to_point_corr, point_to_plane_corr, dist_to_board_corr = eval(cloud_corr, board_cloud, board_normal,
+                                                                                board_center)
+
+            metrics['point_to_point'].append(point_to_point)
+            metrics['point_to_plane'].append(point_to_plane)
+            metrics['distance_to_board'].append(dist_to_board)
+
+            metrics_corr['point_to_point'].append(point_to_point_corr)
+            metrics_corr['point_to_plane'].append(point_to_plane_corr)
+            metrics_corr['distance_to_board'].append(dist_to_board_corr)
+
+            # visualize_clouds([cloud, board_cloud])
+            plt.subplot(2, 2, 1)
+            plt.cla()
+            plt.title('Board angle: %.1f [deg].' % np.rad2deg(board_angle))
+            plt.plot(board_cloud['x'], board_cloud['y'], 'x', label='gt cloud')
+            plt.plot(cloud['x'], cloud['y'], 'o', label='ouster cloud')
+            plt.plot(cloud_corr['x'], cloud_corr['y'], '.', label='ouster cloud corrected')
+            plt.plot(0, 0, 'k+', markersize=10, label='origin')
+            plt.legend()
+            plt.xlabel('X [m]')
+            plt.ylabel('Y [m]')
+            plt.grid()
+
+            plt.subplot(2, 2, 2)
+            plt.cla()
+            plt.title('ICP distance: %.3f' % point_to_point)
+            plt.plot(board_angles, metrics['point_to_point'], label='ICP distance')
+            plt.plot(board_angles, metrics_corr['point_to_point'], label='ICP distance corrected')
+            plt.legend()
+            plt.grid()
+            plt.xlabel('Board angle [deg]')
+            plt.ylabel('ICP point to POINT distance [m]')
+
+            plt.subplot(2, 2, 3)
+            plt.cla()
+            gt_distance = board_center[0]
+            plt.title('Distance to board error [m]')
+            plt.plot(board_angles, np.asarray(metrics['distance_to_board']) - gt_distance, label='distance to board')
+            plt.plot(board_angles, np.asarray(metrics_corr['distance_to_board']) - gt_distance, label='distance to board corrected')
+            # plt.plot(board_angles, board_center[0] * np.ones_like(board_angles), '--', label='GT distance')
+            plt.legend()
+            plt.grid()
+
+            plt.subplot(2, 2, 4)
+            plt.cla()
+            plt.title('ICP distance: %.3f' % point_to_plane)
+            plt.plot(board_angles, metrics['point_to_plane'], label='ICP distance')
+            plt.plot(board_angles, metrics_corr['point_to_plane'], label='ICP distance corrected')
+            plt.legend()
+            plt.grid()
+            plt.xlabel('Board angle [deg]')
+            plt.ylabel('ICP point to PLANE distance [m]')
+
+            plt.draw()
+            plt.pause(0.1)
+
+    for metric, _ in metrics.items():
+        print('%s: %.3f (%.3f)' % (metric, np.mean(metrics[metric]).item(),
+                                   np.std(metrics[metric]).item()))
+
+        print('%s with model correction: %.3f (%.3f)' % (metric, np.mean(metrics_corr[metric]).item(),
+                                                         np.std(metrics_corr[metric]).item()))
+
+    plt.show()
+
+
+def train_sequencial():
+    from depth_correction.transform import xyz_axis_angle_to_matrix
+
+    data_path = '/home/ruslan/data/bags/depth_correction/leica_ouster/small_board/'
+    bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
+    # bag_path = os.path.join(data_path, 'depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag')
+
+    cfg = Config()
+    cfg.model_class = Model.ScaledPolynomial
+    cfg.model_kwargs = {'w': [0.0, 0.0], 'exponent': [2, 4]}
+    # cfg.model_kwargs = {'w': [-0.0010], 'exponent': [4]}
+    cfg.eigenvalue_ratio_bounds = []
+    cfg.log_filters = True
+    cfg.lr = 0.002
+    cfg.n_opt_iters = 100
+
+    model = load_model(cfg=cfg)
+    xyza_delta = torch.zeros(1, 6)
+    xyza_delta.requires_grad = True
+    # optimizer = torch.optim.Adam([{'params': xyza_delta, 'lr': cfg.lr},
+    #                               {'params': model.parameters(), 'lr': cfg.lr}])
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    # optimizer = torch.optim.Adam([{'params': xyza_delta, 'lr': cfg.lr}])
+
+    # get all crystal poses
+    crystal_poses, stamps = get_crystal_poses(bag_path)
+    print('Found %i poses' % len(crystal_poses))
+
+    # get static poses
+    static_crystal_poses, static_stamps = get_static_crystal_poses(crystal_poses, stamps)
+    print('Found %i static poses' % len(static_crystal_poses))
+
+    # get corresponding static point clouds
+    static_clouds = get_static_clouds(bag_path, static_stamps)
+    print('Found %i static clouds' % len(static_clouds))
+    assert len(static_clouds) == len(static_crystal_poses) == len(static_stamps)
+
+    # create board mesh
+    board_cloud = generate_board_cloud()
+    board_cloud0 = board_cloud.copy()
+
+    # transformation between ouster lidar and world frame (subt)
+    Tr_base_subt = np.eye(4)
+    Tr_base_subt[:3, 3] = -measurements['subt_base']
+
+    # initial estimate
+    # Tr_subt_ouster = np.eye(4)
+    # Tr_subt_ouster[:3, :3] = Rotation.from_euler('z', 0.055, degrees=False).as_matrix()
+    # Tr_subt_ouster[:3, 3] = np.array([0, 0, -0.10])
+    # found from calibration optimization (learning poses)
+    Tr_subt_ouster = np.array([[0.99832296, -0.05795125, -0.0035224, 0.],
+                               [0.05796774, 0.99802342, 0.02213984, 0.],
+                               [0.0023, -0.0223, 0.9997, -0.1],
+                               [0., 0., 0., 1.]])
+
+    board_angles = []
+    plt.figure(figsize=(24, 16))
+    for id in range(len(static_crystal_poses)):
+
+        board_angle, board_normal = angle_from_leica(static_crystal_poses[id])
+        board_angles.append(np.rad2deg(board_angle))
+
+        # orient board cloud using tracked crystal pose
+        Tr_base_board = np.eye(4)
+        Tr_base_board[:3, :3] = Rotation.from_euler('z', board_angle, degrees=False).as_matrix()
+        board_cloud = transform_cloud(board_cloud0, Tr_base_board)
+        board_cloud = transform_cloud(board_cloud, np.linalg.inv(Tr_base_subt))
+
+        # transform ouster cloud to board base frame
+        cloud = static_clouds[id]
+        cloud = transform_cloud(cloud, Tr_subt_ouster)
+
+        # filter board box from cloud
+        box_scale = 0.6
+        board_center = measurements['subt_base'] + np.asarray([0, 0, board_height / 2])
+        board_box_size = box_scale * np.array([board_length, board_length, board_height])
+        cloud = filter_box(cloud, pose=board_center, size=board_box_size)
+        board_cloud = filter_box(board_cloud, pose=board_center, size=board_box_size)
+
+        board_cloud = DepthCloud.from_structured_array(board_cloud)
+        # TODO: normals from ground truth
+        board_cloud.update_all(r=cfg.nn_r)
+
+        # compute point cloud to mesh distance
+        if len(cloud) > 10:
+            losses = {'total': [], 'lambda1': [], 'chamfer': [], 'trace': []}
+            xyza_deltas = []
+            # training loop
+            for _ in range(cfg.n_opt_iters):
+                cloud = local_feature_cloud(cloud, cfg)
+                cloud_corr = model(cloud)
+
+                pose_deltas_mat = xyz_axis_angle_to_matrix(xyza_delta)
+                cloud_corr = cloud_corr.transform(pose_deltas_mat.squeeze())
+
+                cloud_corr.update_points()
+
+                # cloud_corr.update_all(r=cfg.nn_r)
+                # loss = point_to_point_dist(clouds=[cloud_corr, board_cloud])
+                # loss = point_to_plane_dist(clouds=[cloud_corr, board_cloud], icp_inlier_ratio=1.0)
+
+                # vectors = cloud_corr.points - torch.tensor([0, 0, board_height / 2])
+                # vectors = vectors / torch.linalg.norm(vectors, dim=-1, keepdims=True)
+                # normal = torch.as_tensor(board_normal[None].T)
+                # loss = (vectors @ normal).abs().sum()
+
+                global_cloud = DepthCloud.concatenate([cloud_corr, board_cloud])
+                global_cloud.update_all(r=cfg.nn_r)
+                loss_cham = chamfer_distance(cloud_corr.points[None].float(), board_cloud.points[None].float())[0]
+                # loss_Q = trace_loss(global_cloud)[0]
+                loss_lambda1 = min_eigval_loss(global_cloud)[0]
+                loss = loss_lambda1 + 0.1 * loss_cham
+                # loss = loss_lambda1
+                # loss = loss_cham
+
+                optimizer.zero_grad()
+                loss.backward()
+                # do not update lidar's X, Y and Z positions
+                xyza_delta.grad[0][0] = 0.0
+                xyza_delta.grad[0][1] = 0.0
+                xyza_delta.grad[0][2] = 0.0
+                optimizer.step()
+
+                print('Losses: lamdba1: %f, chamfer: %f' % (loss_lambda1.item(), loss_cham.item()))
+                print('Learned model: %s' % model)
+                print('Learned transformation:\n%s\n' % pose_deltas_mat)
+                losses['total'].append(loss.item())
+                losses['lambda1'].append(loss_lambda1.item())
+                losses['chamfer'].append(loss_cham.item())
+
+                with torch.no_grad():
+                    plt.subplot(3, 2, 1)
+                    plt.cla()
+                    plt.title('Board angle: %.1f [deg].' % np.rad2deg(board_angle))
+                    # plt.plot(0, 0, 'o', label='lidar (viewpoint)')
+                    plt.arrow(board_center[0], board_center[1], 0.4 * board_normal[0], 0.4 * board_normal[1])
+                    plt.plot(cloud_corr.points[:, 0], cloud_corr.points[:, 1], '.', label='ouster cloud corrected')
+                    plt.plot(board_cloud.points[:, 0], board_cloud.points[:, 1], '.', label='gt cloud')
+                    plt.plot(board_center[0], board_center[1], 'k+', markersize=10, label='board center')
+                    plt.plot(board_cloud.points[:, 0].mean(), board_cloud.points[:, 1].mean(), 'kx', markersize=10,
+                             label='gt cloud center')
+                    plt.plot(cloud_corr.points[:, 0].mean(), cloud_corr.points[:, 1].mean(), 'k^', markersize=10,
+                             label='cloud center')
+                    plt.legend()
+                    # plt.xlim([-0.6, 0.6])
+                    # plt.ylim([-0.6, 0.6])
+                    plt.axis('equal')
+                    plt.xlabel('X [m]')
+                    plt.ylabel('Y [m]')
+                    plt.grid()
+
+                    plt.subplot(3, 2, 2)
+                    plt.cla()
+                    plt.title('Loss')
+                    plt.plot(losses['total'], label='total')
+                    # plt.plot(losses['lambda1'], '--', label='lambda1')
+                    # plt.plot(losses['chamfer'], '--', label='chamfer')
+                    plt.legend()
+                    plt.grid()
+
+                    plt.subplot(3, 2, 3)
+                    plt.cla()
+                    plt.title('YZ')
+                    plt.plot(cloud_corr.points[:, 1], cloud_corr.points[:, 2], '.', label='ouster cloud corrected')
+                    plt.plot(board_cloud.points[:, 1], board_cloud.points[:, 2], '.', label='gt cloud')
+                    plt.plot(board_center[1], board_center[2], 'k+', markersize=10, label='origin')
+                    plt.plot(board_cloud.points[:, 1].mean(), board_cloud.points[:, 2].mean(), 'kx', markersize=10,
+                             label='gt cloud center')
+                    plt.plot(cloud_corr.points[:, 1].mean(), cloud_corr.points[:, 2].mean(), 'k^', markersize=10,
+                             label='cloud center')
+                    plt.legend()
+                    # plt.xlim([-0.6, 0.6])
+                    # plt.ylim([-0.6, 0.6])
+                    plt.axis('equal')
+                    plt.xlabel('Y [m]')
+                    plt.ylabel('Z [m]')
+                    plt.grid()
+
+                    plt.subplot(3, 2, 4)
+                    plt.cla()
+                    plt.title('Model')
+                    model.plot(plt.gca())
+                    plt.grid()
+
+                    xyza_deltas.append(xyza_delta.clone().squeeze())
+                    poses = torch.stack(xyza_deltas, dim=0).detach()
+                    plt.subplot(3, 2, 5)
+                    plt.cla()
+                    plt.title('Position correction')
+                    plt.plot(poses[:, 0], color='r', label='dx')
+                    plt.plot(poses[:, 1], color='g', label='dy')
+                    plt.plot(poses[:, 2], color='b', label='dz')
+                    plt.grid()
+
+                    plt.subplot(3, 2, 6)
+                    plt.cla()
+                    plt.title('Oientation correction')
+                    plt.plot(poses[:, 3], '--', color='r', label='dax')
+                    plt.plot(poses[:, 4], '--', color='g', label='day')
+                    plt.plot(poses[:, 5], '--', color='b', label='daz')
+                    plt.grid()
+
+                    plt.draw()
+                    plt.pause(0.01)
+
+    plt.show()
+
+
+def train():
+    from depth_correction.transform import xyz_axis_angle_to_matrix
+
+    data_path = '/home/ruslan/data/bags/depth_correction/leica_ouster/small_board/'
+    bag_path = os.path.join(data_path, 'depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag')
+    # bag_path = os.path.join(data_path, 'depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag')
+
+    cfg = Config()
+    cfg.model_class = Model.ScaledPolynomial
+    cfg.model_kwargs = {'w': [0.0, 0.0], 'exponent': [2, 4]}
+    # cfg.model_kwargs = {'w': [-0.0010], 'exponent': [4]}
+    cfg.eigenvalue_ratio_bounds = []
+    cfg.log_filters = True
+    cfg.lr = 0.001
+    cfg.n_opt_iters = 100
+
+    model = load_model(cfg=cfg)
+    xyza_delta = torch.zeros(1, 6)
+    xyza_delta.requires_grad = True
+    # optimizer = torch.optim.Adam([{'params': xyza_delta, 'lr': cfg.lr},
+    #                               {'params': model.parameters(), 'lr': cfg.lr}])
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    # optimizer = torch.optim.Adam([{'params': xyza_delta, 'lr': cfg.lr}])
+
+    # get all crystal poses
+    crystal_poses, stamps = get_crystal_poses(bag_path)
+    print('Found %i poses' % len(crystal_poses))
+
+    # get static poses
+    static_crystal_poses, static_stamps = get_static_crystal_poses(crystal_poses, stamps)
+    print('Found %i static poses' % len(static_crystal_poses))
+
+    # get corresponding static point clouds
+    static_clouds = get_static_clouds(bag_path, static_stamps)
+    print('Found %i static clouds' % len(static_clouds))
+    assert len(static_clouds) == len(static_crystal_poses) == len(static_stamps)
+
+    # create board mesh
+    board_cloud = generate_board_cloud()
+    board_cloud0 = board_cloud.copy()
+
+    # transformation between ouster lidar and world frame (subt)
+    Tr_base_subt = np.eye(4)
+    Tr_base_subt[:3, 3] = -measurements['subt_base']
+
+    # initial estimate
+    # Tr_subt_ouster = np.eye(4)
+    # Tr_subt_ouster[:3, :3] = Rotation.from_euler('z', 0.055, degrees=False).as_matrix()
+    # Tr_subt_ouster[:3, 3] = np.array([0, 0, -0.10])
+    # found from calibration optimization (learning poses)
+    Tr_subt_ouster = np.array([[0.99832296, -0.05795125, -0.0035224, 0.],
+                               [0.05796774, 0.99802342, 0.02213984, 0.],
+                               [0.0023, -0.0223, 0.9997, -0.1],
+                               [0., 0., 0., 1.]])
+
+    board_angles = []
+    plt.figure(figsize=(16, 16))
+
+    # training loop
+    losses = {'total': [], 'lambda1': [], 'chamfer': [], 'trace': []}
+    for it in range(cfg.n_opt_iters):
+        loss = torch.tensor(0.0, requires_grad=True)
+        xyza_deltas = []
+        for id in range(len(static_crystal_poses)):
+
+            board_angle, board_normal = angle_from_leica(static_crystal_poses[id])
+            board_angles.append(np.rad2deg(board_angle))
+
+            # orient board cloud using tracked crystal pose
+            Tr_base_board = np.eye(4)
+            Tr_base_board[:3, :3] = Rotation.from_euler('z', board_angle, degrees=False).as_matrix()
+            board_cloud = transform_cloud(board_cloud0, Tr_base_board)
+            board_cloud = transform_cloud(board_cloud, np.linalg.inv(Tr_base_subt))
+
+            # transform ouster cloud to board base frame
+            cloud = static_clouds[id]
+            cloud = transform_cloud(cloud, Tr_subt_ouster)
+
+            # filter board box from cloud
+            box_scale = 0.6
+            board_center = measurements['subt_base'] + np.asarray([0, 0, board_height / 2])
+            board_box_size = box_scale * np.array([board_length, board_length, board_height])
+            cloud = filter_box(cloud, pose=board_center, size=board_box_size)
+            board_cloud = filter_box(board_cloud, pose=board_center, size=board_box_size)
+
+            board_cloud = DepthCloud.from_structured_array(board_cloud)
+            # TODO: normals from ground truth
+            board_cloud.update_all(r=cfg.nn_r)
+
+            # compute point cloud to mesh distance
+            not_empty_cloud = len(cloud) > 10
+            # desired_angles = board_angle < np.deg2rad(65)
+            # if not_empty_cloud and desired_angles:
+            if not_empty_cloud:
+                cloud = local_feature_cloud(cloud, cfg)
+                cloud_corr = model(cloud)
+
+                pose_deltas_mat = xyz_axis_angle_to_matrix(xyza_delta)
+                cloud_corr = cloud_corr.transform(pose_deltas_mat.squeeze())
+                # cloud_corr.update_points()
+
+                cloud_corr.update_all(r=cfg.nn_r)
+                # loss_icp = point_to_point_dist(clouds=[cloud_corr, board_cloud])
+                loss_icp = point_to_plane_dist(clouds=[cloud_corr, board_cloud], icp_inlier_ratio=1.0)
+
+                # compute sample loss
+                global_cloud = DepthCloud.concatenate([cloud_corr, board_cloud])
+                global_cloud.update_all(r=cfg.nn_r)
+                loss_cham = chamfer_distance(cloud_corr.points[None].float(), board_cloud.points[None].float())[0]
+                # loss_Q = trace_loss(global_cloud)[0]
+                loss_lambda1 = min_eigval_loss(global_cloud)[0]
+                # loss_sample = loss_lambda1 + 0.1 * loss_cham
+                loss_sample = loss_lambda1 + 0.1 * loss_icp
+                # loss_sample = loss_icp
+                # loss_sample = loss_lambda1
+                # loss_sample = loss_cham
+
+                loss = loss + loss_sample
+
+                if it % 50 == 0:
+                    with torch.no_grad():
+                        visualize_clouds([cloud_corr.points.numpy(), board_cloud.points.numpy()])
+
+        optimizer.zero_grad()
+        loss.backward()
+        # do not update lidar's X, Y and Z positions
+        xyza_delta.grad[0][0] = 0.0
+        xyza_delta.grad[0][1] = 0.0
+        xyza_delta.grad[0][2] = 0.0
+        optimizer.step()
+
+        print('Losses: sample: %f, total: %f' % (loss.item(), loss_sample.item()))
+        print('Learned model: %s' % model)
+        # print('Learned transformation:\n%s\n' % pose_deltas_mat)
+        losses['total'].append(loss.item())
+        # losses['lambda1'].append(loss_lambda1.item())
+        # losses['chamfer'].append(loss_cham.item())
+
+        # postprocessing
+        with torch.no_grad():
+            plt.subplot(1, 2, 1)
+            plt.cla()
+            plt.title('Loss')
+            plt.plot(losses['total'], label='total')
+            # plt.plot(losses['lambda1'], '--', label='lambda1')
+            # plt.plot(losses['chamfer'], '--', label='chamfer')
+            plt.legend()
+            plt.grid()
+
+            plt.subplot(1, 2, 2)
+            plt.cla()
+            plt.title('Model')
+            model.plot(plt.gca())
+            plt.grid()
+
+            plt.draw()
+            plt.pause(0.01)
+
+    plt.show()
+
+
+def filter_window_outliers(cloud: np.ndarray, y_min=-2.5, y_max=2.5, phi_deg=10.0):
+    """
+    Filter outliers related to lidar beams going through windows
+
+    :param y_max:
+    :param y_min:
+    :param cloud:
+    :para phi_deg
+    :return:
+    """
+    phi = np.deg2rad(phi_deg)
+    Rot = np.array([[np.cos(phi), -np.sin(phi), 0],
+                    [np.sin(phi), np.cos(phi), 0],
+                    [0, 0, 1]])
+    if cloud.dtype.names:
+        pts = structured_to_unstructured(cloud[['x', 'y', 'z']])
+    else:
+        pts = cloud
+    pts = (Rot @ pts.T).T
+    y = pts[:, 1]
+    mask = np.logical_and(y > y_min, y < y_max)
+
+    return cloud[mask]
+
+
+def global_map_bias(map_topic='/point_map'):
+    bag_path = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_seq2.bag'
+    # bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w-0.00068_exp4_seq2_half.bag'
+    # bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w-0.0011_exp4_seq2.bag'
+    bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w-0.00618152_0.00410526_exp2_4_seq2_half.bag'
+    # bag_path_corr = '/home/ruslan/data/bags/depth_correction/slam_eval/slam_depth_correction_w0.00410526_exp4_seq2_half.bag'
+
+    bag_paths = [bag_path_corr, bag_path]
+    plt.figure(figsize=(24, 4))
+
+    for path in bag_paths:
+
+        print('Processing bag: %s' % path)
+        poses, stamps = get_crystal_poses(path)
+        # ts = np.asarray([t.to_sec() for t in stamps])
+        poses = np.asarray(poses)
+        farest_id = np.argmax(poses[:, 0])
+        search_window_size = 6
+        map_step = 1
+
+        with Bag(path, 'r') as bag:
+            cloud = None
+            for topic, msg, stamp in bag.read_messages(topics=[map_topic],
+                                                       start_time=stamps[int(farest_id-search_window_size/2)],
+                                                       end_time=stamps[int(farest_id+search_window_size/2)]):
+                if cloud is not None:
+                    break
+
+                msg = PointCloud2(*slots(msg))
+                cloud = numpify(msg)
+                print('Found global cloud with N points: %i' % len(cloud))
+
+                phi = 9.5 if 'seq2' in path else 8.2
+                cloud_corridor = filter_window_outliers(cloud, y_min=-2.0, y_max=2.0, phi_deg=phi)
+                # visualize_clouds([cloud, cloud_corridor])
+
+                Tr = np.eye(4)
+                Tr[:3, :3] = Rotation.from_euler('z', phi, degrees=True).as_matrix()
+                Tr[:3, :3] = Rotation.from_euler('y', -0.5, degrees=True).as_matrix() @ Tr[:3, :3]
+                cloud_corridor_aligned = transform_cloud(cloud_corridor, Tr)
+                poses_aligned = poses[:farest_id]
+
+                # # pts = structured_to_unstructured(cloud_corridor_aligned[['x', 'y', 'z']])
+                plt.subplot(2, 1, 1)
+                plt.plot(cloud_corridor_aligned['x'][::map_step], cloud_corridor_aligned['y'][::map_step],
+                         '.', markersize=0.1, color='b' if 'depth_correction' in path.split('/')[-1] else 'r',
+                         label='corrected' if 'depth_correction' in path.split('/')[-1] else 'initial')
+                plt.plot(poses_aligned[:, 0], poses_aligned[:, 1], 'k', label='robot path')
+                plt.xlabel('X [m]')
+                plt.ylabel('Y [m]')
+                # plt.axis('equal')
+                plt.grid(visible=True)
+                # plt.legend()
+
+                plt.subplot(2, 1, 2)
+                plt.plot(cloud_corridor_aligned['x'][::map_step], cloud_corridor_aligned['z'][::map_step],
+                         '.', markersize=0.1, color='b' if 'depth_correction' in path.split('/')[-1] else 'r',
+                         label='corrected' if 'depth_correction' in path.split('/')[-1] else 'initial')
+                plt.plot(poses_aligned[:, 0], poses_aligned[:, 2], 'k')
+                plt.xlabel('X [m]')
+                plt.ylabel('Z [m]')
+                # plt.axis('equal')
+                plt.grid(visible=True)
+                # plt.legend()
+
+                plt.draw()
+                plt.pause(0.01)
+
+    plt.show()
+
+
+def main():
+    # eval_model()
+    # train()
+    global_map_bias()
+
+
+if __name__ == '__main__':
+    main()

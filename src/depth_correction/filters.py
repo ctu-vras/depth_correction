@@ -15,6 +15,7 @@ __all__ = [
     'filter_shadow_points',
     'filter_valid_neighbors',
     'within_bounds',
+    'filter_box',
 ]
 
 default_rng = np.random.default_rng(135)

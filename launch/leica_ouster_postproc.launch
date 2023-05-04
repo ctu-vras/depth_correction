@@ -30,39 +30,12 @@
         <remap from="ouster/points" to="cloud"/>
     </node>
 
-<!--    &lt;!&ndash; Depth correction &ndash;&gt;-->
-<!--    <include if="$(arg depth_correction)" file="$(dirname)/depth_correction.launch">-->
-<!--        <arg name="config" value="$(arg config)"/>-->
-<!--        <arg name="input" value="filtered_cloud"/>-->
-<!--        <arg name="output" value="corrected_cloud"/>-->
-<!--        <arg name="nn_k" value="$(arg nn_k)"/>-->
-<!--        <arg name="nn_r" value="$(arg nn_r)"/>-->
-<!--        <arg name="shadow_neighborhood_angle" value="$(arg shadow_neighborhood_angle)"/>-->
-<!--        <arg name="shadow_angle_bounds" value="$(arg shadow_angle_bounds)"/>-->
-<!--        <arg name="eigenvalue_bounds" value="$(arg eigenvalue_bounds)"/>-->
-<!--        <arg name="model_class" value="$(arg model_class)"/>-->
-<!--        <arg name="model_args" value="$(arg model_args)"/>-->
-<!--        <arg name="model_kwargs" value="$(arg model_kwargs)"/>-->
-<!--        <arg name="model_state_dict" value="$(arg model_state_dict)"/>-->
-<!--        <arg name="device" value="$(arg device)"/>-->
-<!--    </include>-->
-
-<!--    &lt;!&ndash; Cloud filterring &ndash;&gt;-->
-<!--    <include file="$(dirname)/cloud_filter.launch">-->
-<!--        <arg name="config" value="$(arg config)"/>-->
-<!--        <arg name="input" value="cloud"/>-->
-<!--        <arg name="output" value="filtered_cloud"/>-->
-<!--        <arg name="min_depth" value="$(arg min_depth)"/>-->
-<!--        <arg name="max_depth" value="$(arg max_depth)"/>-->
-<!--        <arg name="grid_res" value="$(arg grid_res)"/>-->
-<!--        <arg name="max_age" value="1.0"/>-->
-<!--    </include>-->
-
     <!-- Leica data postprocessing -->
     <node pkg="depth_correction" type="leica_ouster_postproc" name="leica_ouster_postproc" output="screen">
         <rosparam subst_value="true">
             depth_correction: $(arg depth_correction)
         </rosparam>
+<!--        <remap from="cloud" to="$(eval 'corrected_cloud' if depth_correction else 'filtered_cloud')"/>-->
         <remap from="cloud" to="cloud"/>
         <remap from="crystal_points" to="total_station_driver/ts_points"/>
     </node>

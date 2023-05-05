@@ -3,20 +3,27 @@
 from __future__ import absolute_import, division, print_function
 import matplotlib.pyplot as plt
 from ros_numpy import msgify, numpify
-from rosbag import Bag, ROSBagException, Compression
-import rospy
+from rosbag import Bag
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import PointStamped
-from tf2_ros import BufferCore, TransformException
 from tqdm import tqdm
 import numpy as np
 from numpy.lib.recfunctions import unstructured_to_structured, structured_to_unstructured
 from scipy.spatial.transform import Rotation
 from depth_correction.filters import filter_box, filter_depth, filter_grid
 import open3d as o3d
+from time import time
+import torch
+from depth_correction.model import load_model
+from depth_correction.config import Config, Model
+from depth_correction.preproc import local_feature_cloud
 
+VIS = 0
+cfg = Config()
+cfg.model_class = Model.ScaledPolynomial
+cfg.model_kwargs = {'w': [-0.0011], 'exponent': [4]}
+cfg.eigenvalue_ratio_bounds = []
 
-VIS = 1
 
 def str2bool(v):
     return v.lower() in ('1', 'yes', 'true', 't', 'y')
@@ -34,31 +41,15 @@ def normalize(v):
         return v
     return v / norm
 
-def load_buffer(bag_paths):
-    tf_topics = ['/tf', '/tf_static']
+def correction(cloud, model, cfg):
+    with torch.no_grad():
+        # Assume that depth and grid filters are run earlier.
+        cloud = local_feature_cloud(cloud, cfg)
 
-    # tf_buffer = BufferCore(cache_time=rospy.Duration(2**31 - 1))
-    # tf_buffer = BufferCore(cache_time=rospy.Duration(24 * 60 * 60))
-    tf_buffer = BufferCore(rospy.Duration(24 * 60 * 60))
-    
-    for path in bag_paths:
-        try:
-            with Bag(path, 'r') as bag:
-                for topic, msg, stamp in tqdm(bag.read_messages(topics=tf_topics),
-                                              desc='%s: reading transforms' % path.split('/')[-1],
-                                              total=bag.get_message_count(topic_filters=tf_topics)):
-                    if topic == '/tf':
-                        for tf in msg.transforms:
-                            tf_buffer.set_transform(tf, 'bag')
-                    elif topic == '/tf_static':
-                        for tf in msg.transforms:
-                            tf_buffer.set_transform_static(tf, 'bag')
-                        
-        except ROSBagException as ex:
-            print('Could not read %s: %s' % (path, ex))
-
-    return tf_buffer
-
+        cloud = model(cloud)
+        cloud.update_points()
+    output_cloud = cloud.to_structured_array()
+    return output_cloud
 
 def transform_cloud(cloud, Tr):
     assert isinstance(cloud, np.ndarray)
@@ -109,20 +100,6 @@ def set_axes_equal(ax):
 
 
 def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
-
-    # tf_buffer = load_buffer(bag_paths)
-
-    measurements = {'world_corner': np.asarray([5.2622, -0.5873, 0.1312]),
-                    'world_base': np.asarray([5.2620, -0.0084, -0.3582]),
-                    'world_crystal': np.asarray([5.2567, 0.5753, 0.1589])}
-    # for white side of the calibration board
-    # measurements = {'world_corner': np.asarray([5.2576, 0.5684, 0.1379]),
-    #                 'world_base': np.asarray([5.2603, -0.0051, -0.3578]),
-    #                 'world_crystal': np.asarray([5.2441, -0.5964, 0.1509])}
-    board_height = np.abs(measurements['world_corner'][2] - measurements['world_base'][2]) - 0.01  # Z
-    board_length = np.abs(measurements['world_crystal'][1] - measurements['world_corner'][1])  # Y
-    board_width = 0.015  # X
-    
     def generate_board_cloud(n_pts=100):
         np.random.seed(135)
         length = board_length
@@ -179,7 +156,22 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
         ax.cla()
         ax.set_ylim([0, 0.2])
         ax.set_xlim([-180, 180])
-        ax.plot(angles, pt2pl_errs, color='k')
+        ax.plot(angles, pt2pl_errs, '.', color='k')
+
+    # tf_buffer = load_buffer(bag_paths)
+
+    measurements = {'world_corner': np.asarray([5.2622, -0.5873, 0.1312]),
+                    'world_base': np.asarray([5.2620, -0.0084, -0.3582]),
+                    'world_crystal': np.asarray([5.2567, 0.5753, 0.1589])}
+    # for white side of the calibration board
+    # measurements = {'world_corner': np.asarray([5.2576, 0.5684, 0.1379]),
+    #                 'world_base': np.asarray([5.2603, -0.0051, -0.3578]),
+    #                 'world_crystal': np.asarray([5.2441, -0.5964, 0.1509])}
+    board_height = np.abs(measurements['world_corner'][2] - measurements['world_base'][2]) - 0.01  # Z
+    board_length = np.abs(measurements['world_crystal'][1] - measurements['world_corner'][1])  # Y
+    board_width = 0.015  # X
+
+    model = load_model(cfg=cfg)
 
     board_cloud0 = generate_board_cloud()
     board_normal = np.asarray([1., 0., 0.])
@@ -208,18 +200,23 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
     with Bag(bag_path, 'r') as bag:
         for topic, msg, stamp in tqdm(bag.read_messages(topics=[cloud_topic, leica_topic])):
             if topic == cloud_topic:
+                t0 = time()
+
                 msg = PointCloud2(*slots(msg))
 
                 ouster_cloud = numpify(msg)
                 ouster_cloud = ouster_cloud.reshape((-1,))
-                ouster_cloud = ouster_cloud[::5]
+                # ouster_cloud = ouster_cloud[::5]
+                ouster_cloud = filter_grid(ouster_cloud, 0.2)
                 ouster_cloud = filter_depth(ouster_cloud, min=0., max=8.)
                 ouster_cloud = transform_cloud(ouster_cloud, Tr_world_ouster)
                 ouster_cloud_box = filter_box(ouster_cloud,
                                               pose=board_pose + np.asarray([0, 0, board_height / 2]),
-                                              size=0.8 * np.asarray([board_length, board_length, board_height]))
+                                              size=0.6 * np.asarray([board_length, board_length, board_height]))
+                # print('Cloud processing took: %.3f [sec]' % (time() - t0))
 
             elif topic == leica_topic:
+                t0 = time()
                 # get board orientation in world frame
                 msg = PointStamped(*slots(msg))
                 crystal_pose = np.asarray([msg.point.x, msg.point.y, msg.point.z])
@@ -235,11 +232,15 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
                 board_cloud = transform_cloud(board_cloud0, Tr_world_board)
                 board_normal = np.cross(v1, [0, 0, 1])
 
+                # print('Board localization took: %.3f [sec]' % (time() - t0))
+
             if ouster_cloud is None or board_cloud is None:
                 continue
 
-            points = structured_to_unstructured(ouster_cloud_box[['x', 'y', 'z']])
-            if len(points) > 0:
+            if len(ouster_cloud_box) > 0:
+                ouster_cloud_box = correction(cloud=ouster_cloud_box, model=model, cfg=cfg)
+                points = structured_to_unstructured(ouster_cloud_box[['x', 'y', 'z']])
+
                 pt2pl = np.abs(board_normal[None] @ (points - board_pose).T).mean()
                 pt2pl_errs.append(pt2pl)
                 angles.append(np.rad2deg(angle_z))
@@ -247,6 +248,7 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
                       (np.rad2deg(angle_z), pt2pl))
             else:
                 print('No ouster points in the box')
+                continue
 
             # visualization
             if VIS:
@@ -265,6 +267,17 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
                 # visualize(axes_2d, ouster_cloud, board_cloud, board_pose, board_length, pt2pl_errs)
                 visualize(axes_2d, ouster_cloud_box, board_cloud, board_pose, board_length, pt2pl_errs, angles)
                 plt.pause(0.01)
+
+    angles = np.asarray(angles)
+    pt2pl_errs = np.asarray(pt2pl_errs)
+    print('point-to-plane distance: %.3f (mean, [m]),  %.3f (max, [m])' %
+          (np.mean(pt2pl_errs).item(), np.max(pt2pl_errs).item()))
+    print('point-to-plane distance for angles > 60 [deg]: %.3f (mean, [m]),  %.3f (max, [m])' %
+          (np.mean(pt2pl_errs[angles > 60.]).item(), np.max(pt2pl_errs[angles > 60.]).item()))
+
+    plt.figure()
+    plt.plot(angles, pt2pl_errs, '.', color='k')
+    plt.show()
 
 
 def main():

@@ -206,11 +206,11 @@ class Process(object):
 
             # filter clouds
             board_cloud = filter_box(board_cloud,
-                                     pose=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
-                                     size=self.board_box_size)
+                                     box_center=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
+                                     box_size=self.board_box_size)
             ouster_cloud = filter_box(ouster_cloud,
-                                      pose=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
-                                      size=self.board_box_size)
+                                      box_center=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
+                                      box_size=self.board_box_size)
 
             # compute ICP distance between clouds
             if len(ouster_cloud) > 0:

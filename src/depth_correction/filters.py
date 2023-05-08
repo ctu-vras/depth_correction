@@ -141,10 +141,10 @@ def filter_depth(cloud, min=None, max=None, only_mask=False, log=False):
     return filtered
 
 
-def filter_box(cloud, pose, size, only_mask=False):
+def filter_box(cloud, box_center, box_size, box_orient=None, only_mask=False):
     """Keep points with rectangular bounds."""
     assert isinstance(cloud, (DepthCloud, np.ndarray))
-    assert len(pose) == len(size) == 3
+    assert len(box_center) == len(box_size) == 3
 
     if isinstance(cloud, DepthCloud):
         pts = cloud.points
@@ -156,13 +156,20 @@ def filter_box(cloud, pose, size, only_mask=False):
         assert pts.ndim == 2, "Input points tensor dimensions is %i (only 2 is supported)" % pts.ndim
         pts = torch.from_numpy(pts)
 
+    pts -= box_center
+
+    if box_orient is not None:
+        assert isinstance(box_orient, np.ndarray)
+        assert box_orient.shape == (3, 3)
+        pts = pts @ box_orient
+
     x = pts[:, 0]
     y = pts[:, 1]
     z = pts[:, 2]
 
-    keep_x = within_bounds(x, min=pose[0] - size[0] / 2, max=pose[0] + size[0] / 2)
-    keep_y = within_bounds(y, min=pose[1] - size[1] / 2, max=pose[1] + size[1] / 2)
-    keep_z = within_bounds(z, min=pose[2] - size[2] / 2, max=pose[2] + size[2] / 2)
+    keep_x = within_bounds(x, min=-box_size[0] / 2, max=+box_size[0] / 2)
+    keep_y = within_bounds(y, min=-box_size[1] / 2, max=+box_size[1] / 2)
+    keep_z = within_bounds(z, min=-box_size[2] / 2, max=+box_size[2] / 2)
 
     keep = torch.logical_and(keep_x, keep_y)
     keep = torch.logical_and(keep, keep_z)

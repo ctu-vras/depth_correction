@@ -170,11 +170,11 @@ class Process(object):
 
             # filter clouds
             board_cloud = filter_box(board_cloud,
-                                     pose=self.board_pose[:3, 3] + np.asarray([0, -self.board_length / 2, 0]),
-                                     size=self.board_box_size)
+                                     box_center=self.board_pose[:3, 3] + np.asarray([0, -self.board_length / 2, 0]),
+                                     box_size=self.board_box_size)
             ouster_cloud = filter_box(ouster_cloud,
-                                      pose=self.board_pose[:3, 3] + np.asarray([0, -self.board_length / 2, 0]),
-                                      size=self.board_box_size)
+                                      box_center=self.board_pose[:3, 3] + np.asarray([0, -self.board_length / 2, 0]),
+                                      box_size=self.board_box_size)
 
             # publish clouds
             board_cloud_msg = msgify(PointCloud2, board_cloud)

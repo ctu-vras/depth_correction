@@ -290,8 +290,8 @@ def eval_model():
         box_scale = 0.6
         board_center = measurements['subt_base'] + np.asarray([0, 0, board_height / 2])
         board_box_size = box_scale * np.array([board_length, board_length, board_height])
-        cloud = filter_box(cloud, pose=board_center, size=board_box_size)
-        board_cloud = filter_box(board_cloud, pose=board_center, size=board_box_size)
+        cloud = filter_box(cloud, box_center=board_center, box_size=board_box_size)
+        board_cloud = filter_box(board_cloud, box_center=board_center, box_size=board_box_size)
 
         # compute point cloud to mesh distance
         if len(cloud) > 10:
@@ -444,8 +444,8 @@ def train_sequencial():
         box_scale = 0.6
         board_center = measurements['subt_base'] + np.asarray([0, 0, board_height / 2])
         board_box_size = box_scale * np.array([board_length, board_length, board_height])
-        cloud = filter_box(cloud, pose=board_center, size=board_box_size)
-        board_cloud = filter_box(board_cloud, pose=board_center, size=board_box_size)
+        cloud = filter_box(cloud, box_center=board_center, box_size=board_box_size)
+        board_cloud = filter_box(board_cloud, box_center=board_center, box_size=board_box_size)
 
         board_cloud = DepthCloud.from_structured_array(board_cloud)
         # TODO: normals from ground truth
@@ -658,8 +658,8 @@ def train():
             box_scale = 0.6
             board_center = measurements['subt_base'] + np.asarray([0, 0, board_height / 2])
             board_box_size = box_scale * np.array([board_length, board_length, board_height])
-            cloud = filter_box(cloud, pose=board_center, size=board_box_size)
-            board_cloud = filter_box(board_cloud, pose=board_center, size=board_box_size)
+            cloud = filter_box(cloud, box_center=board_center, box_size=board_box_size)
+            board_cloud = filter_box(board_cloud, box_center=board_center, box_size=board_box_size)
 
             board_cloud = DepthCloud.from_structured_array(board_cloud)
             # TODO: normals from ground truth

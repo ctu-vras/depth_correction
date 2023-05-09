@@ -141,10 +141,9 @@ def filter_depth(cloud, min=None, max=None, only_mask=False, log=False):
     return filtered
 
 
-def filter_box(cloud, box_center, box_size, box_orient=None, only_mask=False):
+def filter_box(cloud, box_size, box_T=None, only_mask=False):
     """Keep points with rectangular bounds."""
     assert isinstance(cloud, (DepthCloud, np.ndarray))
-    assert len(box_center) == len(box_size) == 3
 
     if isinstance(cloud, DepthCloud):
         pts = cloud.points
@@ -156,12 +155,14 @@ def filter_box(cloud, box_center, box_size, box_orient=None, only_mask=False):
         assert pts.ndim == 2, "Input points tensor dimensions is %i (only 2 is supported)" % pts.ndim
         pts = torch.from_numpy(pts)
 
-    pts -= box_center
+    if box_T is None:
+        box_T = np.eye(4)
+    assert isinstance(box_T, np.ndarray)
+    assert box_T.shape == (4, 4)
+    box_center = box_T[:3, 3]
+    box_orient = box_T[:3, :3]
 
-    if box_orient is not None:
-        assert isinstance(box_orient, np.ndarray)
-        assert box_orient.shape == (3, 3)
-        pts = pts @ box_orient
+    pts = (pts - box_center) @ box_orient
 
     x = pts[:, 0]
     y = pts[:, 1]

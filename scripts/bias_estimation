@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
 from __future__ import absolute_import, division, print_function
+import os
 import matplotlib.pyplot as plt
+import yaml
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import rospy
 from ros_numpy import msgify, numpify
 from rosbag import Bag
 from sensor_msgs.msg import PointCloud2
@@ -17,24 +20,20 @@ from time import time
 import torch
 from depth_correction.model import load_model
 from depth_correction.config import Config, Model
-from depth_correction.preproc import local_feature_cloud
 from depth_correction.depth_cloud import DepthCloud
-from depth_correction.utils import transform
+from depth_correction.utils import transform, normalize
 
-VIS = 1
+VIS = 0
 CORRECTION = 1
 TIME_TOL = 0.05  # sec
 
 cfg = Config()
 cfg.model_class = Model.ScaledPolynomial
-# cfg.model_kwargs = {'w': [-0.002], 'exponent': [4]}
-cfg.model_kwargs = {'w': [-0.005], 'exponent': [4]}
+cfg.model_kwargs = {'w': [-0.002], 'exponent': [4]}
+# cfg.model_kwargs = {'w': [-0.005], 'exponent': [4]}
 # cfg.model_class = Model.Polynomial
-# cfg.model_kwargs = {'w': [-0.05], 'exponent': [4]}
-cfg.eigenvalue_ratio_bounds = []
-cfg.shadow_angle_bounds = [0.087266, 3.141592]
-cfg.shadow_neighborhood_angle = 0.017453
-cfg.eigenvalue_bounds = [[0, -np.inf, 0.0004], [1, 0.0025, np.inf]]
+# cfg.model_kwargs = {'w': [-0.02], 'exponent': [4]}
+# cfg.model_state_dict = os.path.realpath(os.path.join(__file__, '../../gen/fee_corridor_d1-25_g0.20/ground_truth_none_Polynomial_r0.40_e0e1_0-0.25_e1e2_0.25-1_dd_0.09-nan_vpd_0.36-nan_min_eigval_loss_sqrt0_norm1_icp_inlier_ratio_0.3_icp_point_to_plane_True_lr0.0002/split_2/199_0.0206452_state_dict.pth'))
 
 
 def str2bool(v):
@@ -47,25 +46,18 @@ def slots(msg):
     """Return message attributes (slots) as list."""
     return [getattr(msg, var) for var in msg.__slots__]
 
-def normalize(v):
-    norm = np.linalg.norm(v)
-    if norm == 0:
-        return v
-    return v / norm
-
 def correction(cloud, model, cfg, inc_angles=None):
     with torch.no_grad():
-        # Assume that depth and grid filters are run earlier.
+        cloud = DepthCloud.from_structured_array(cloud)
         if inc_angles is None:
-            cloud = local_feature_cloud(cloud, cfg)
+            cloud.update_all(k=cfg.nn_k, r=cfg.nn_r)
         else:
-            cloud = DepthCloud.from_structured_array(cloud)
             cloud.inc_angles = torch.from_numpy(inc_angles)
 
         cloud = model(cloud)
         cloud.update_points()
-        print('Estimated mean inc angle: %f [deg]' % np.rad2deg(cloud.inc_angles.cpu().numpy().mean()))
-        # cloud.visualize(colors=cloud.inc_angles, window_name='Normals')
+        # print('Estimated mean inc angle: %f [deg]' % np.rad2deg(cloud.inc_angles.cpu().numpy().mean()))
+        # cloud.visualize(colors=cloud.inc_angles, window_name='Incidence angles')
     output_cloud = cloud.to_structured_array()
     return output_cloud
 
@@ -102,95 +94,65 @@ def set_axes_equal(ax):
     ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
 
 
-def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
-    def generate_board_cloud(n_pts=500):
-        np.random.seed(135)
-        length = board_length
-        height = board_height
-        width = board_width
-        x0, y0, z0 = measurements['world_corner'] - measurements['world_base']
-        z0 -= height
-        origin = np.asarray([x0, y0, z0])  # in base frame
-        points = (width, length, height) * np.random.uniform(0, 1, (n_pts, 3)) + origin
-        cloud = unstructured_to_structured(np.asarray(points, dtype=np.float32), names=['x', 'y', 'z'])
-        return cloud
-
+def bias_estimation(bag_path, data):
     def visualize(axes):
         ax = axes[0]
         ax.cla()
-        ax.plot(board_cloud['x'], board_cloud['y'], 'o', color='b')
-
+        ax.set_title('Incidence angle %.1f [deg]' % np.rad2deg(angle_z))
         ax.axis('equal')
         # coordinate system vis
         ax.spines['top'].set_color('none')
         ax.spines['bottom'].set_position('zero')
         ax.spines['left'].set_position('zero')
         ax.spines['right'].set_color('none')
-
         # circumference
         circle = plt.Circle(board_xyz[:2], board_length / 2, color='b', fill=False)
         ax.add_patch(circle)
-
         # ouster points
-        half_height = np.percentile(ouster_cloud_box['z'], 50)
-        cloud_vis = ouster_cloud_box[ouster_cloud_box['z'] <= half_height]
         if ouster_cloud_box_cor is not None:
-            cloud_vis_cor = ouster_cloud_box_cor[ouster_cloud_box['z'] <= half_height]
-            ax.plot(cloud_vis_cor['x'], cloud_vis_cor['y'], 'o', color='g')
-        ax.plot(cloud_vis['x'], cloud_vis['y'], 'o', color='r')
-        ax.quiver(cloud_vis['x'], cloud_vis['y'], board_normal[0], board_normal[1])
+            ax.plot(ouster_cloud_box_cor['x'], ouster_cloud_box_cor['y'], 'o', color='g')
+        ax.plot(ouster_cloud_box['x'], ouster_cloud_box['y'], 'o', color='r')
+        ax.quiver(ouster_cloud_box['x'], ouster_cloud_box['y'], board_normal[0], board_normal[1])
+        lc = board_xyz[:2] + normalize(v[:2]) * board_length / 2.
+        rc = board_xyz[:2] - normalize(v[:2]) * board_length / 2.
+        ax.plot([lc[0], rc[0]], [lc[1], rc[1]], '--', linewidth=2, color='k')
 
         ax = axes[1]
         ax.cla()
         # ax.view_init(elev=90., azim=np.rad2deg(angle_z)+90)
-        ax.view_init(elev=90., azim=0.)
+        # ax.view_init(elev=90., azim=0.)
         visualize_cloud_3d(ax, ouster_cloud_box, color='r')
+        # visualize_cloud_3d(ax, ouster_cloud[::2], color='r')
         if ouster_cloud_box_cor is not None:
             visualize_cloud_3d(ax, ouster_cloud_box_cor, color='g')
-        visualize_cloud_3d(ax, board_cloud, color='b')
-        draw_parallelepiped(ax, size=box_size, T=box_T)
+        # board plane
+        draw_parallelepiped(ax, size=(0.015, board_length, board_height), T=box_T, edgecolor='k', alpha=.0)
+        # filtration region
+        draw_parallelepiped(ax, size=box_size, T=box_T, facecolors='cyan', linewidths=1, edgecolors='r', alpha=.25)
         set_axes_equal(ax)
 
         ax = axes[2]
         ax.cla()
-        # ax.set_ylim([0, 0.25])
-        # ax.set_xlim([-10, 100])
-        ax.plot(angles, pt2pl_errs, '--', color='r')
-        ax.plot(angles, pt2pl_errs_cor, color='g')
+        ax.set_title('Point-to-plane dist (incidence angle)')
+        ax.set_xlim([-10, 90])
+        # ax.set_ylim([0, 0.1])
+        ax.plot(angles, pt2pl_errs, '--', color='r', label='dist=%.3f' % np.mean(pt2pl_errs))
+        if len(pt2pl_errs_cor) > 0:
+            ax.plot(angles, pt2pl_errs_cor, color='g', label='dist cor=%.3f' % np.mean(pt2pl_errs_cor))
+        ax.grid()
+        ax.legend()
 
-    measurements = {'world_corner': np.asarray([5.2622, -0.5873, 0.1312]),
-                    'world_base': np.asarray([5.2620, -0.0084, -0.3582]),
-                    'world_crystal': np.asarray([5.2567, 0.5753, 0.1589])}
-    # for white side of the calibration board
-    # measurements = {'world_corner': np.asarray([5.2576, 0.5684, 0.1379]),
-    #                 'world_base': np.asarray([5.2603, -0.0051, -0.3578]),
-    #                 'world_crystal': np.asarray([5.2441, -0.5964, 0.1509])}
+    measurements = data['measurements']
     board_height = np.abs(measurements['world_corner'][2] - measurements['world_base'][2]) - 0.01  # Z
     board_length = np.abs(measurements['world_crystal'][1] - measurements['world_corner'][1])  # Y
-    board_width = 0.015  # X
 
     model = load_model(cfg=cfg)
 
-    board_cloud0 = generate_board_cloud(n_pts=100)
-    board_normal = np.asarray([1., 0., 0.])
-    board_cloud = None
+    board_normal = None
     ouster_cloud = None
     board_xyz = measurements['world_base']
 
-    Tr_world_ouster = np.array([[0.99832296, -0.05795125, -0.0035224, 0.],
-                                [0.05796774, 0.99802342, 0.02213984, 0.],
-                                [0.0023, -0.0223, 0.9997, -0.1],
-                                [0., 0., 0., 1.]])
-    # print(np.rad2deg(Rotation.from_matrix(Tr_world_ouster[:3, :3]).as_euler('xyz')))
-    # [-1.27808371 -0.12987161  3.32463666]
-
-    # Tr_world_ouster = np.eye(4)
-    # Tr_world_ouster[:3, 3] = [0, 0, -0.1]
-    # Rx = np.asarray(Rotation.from_euler('x', -2, degrees=True).as_matrix())
-    # Ry = np.asarray(Rotation.from_euler('y', 0., degrees=True).as_matrix())
-    # Rz = np.asarray(Rotation.from_euler('z', 3.4, degrees=True).as_matrix())
-    # Tr_world_ouster[:3, :3] = Rz
-    # Tr_world_ouster[:3, :3] = Rx @ Ry @ Rz
+    Tr_world_ouster = np.asarray(data['T_world_ouster']).reshape((4, 4))
 
     if VIS:
         fig = plt.figure(figsize=(18, 6))
@@ -206,10 +168,19 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
     angles = []
     R = None
     ouster_cloud_box_cor = None
-    with Bag(bag_path, 'r') as bag:
-        for topic, msg, stamp in tqdm(bag.read_messages(topics=[cloud_topic, leica_topic])):
+    # stamp0 = next(iter(Bag(bag_path, 'r').read_messages(topics=[data['cloud_topic'], data['leica_topic']])))[2].to_sec()
+    stamp0 = None  # stamp0 + 60.
+    stampN = None  # stamp0 + 10.
 
-            if topic == cloud_topic:
+    if stamp0 is not None:
+        stamp0 = rospy.Time.from_sec(stamp0)
+        stampN = rospy.Time.from_sec(stampN)
+
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in tqdm(bag.read_messages(topics=[data['cloud_topic'], data['leica_topic']],
+                                                        start_time=stamp0, end_time=stampN)):
+
+            if topic == data['cloud_topic']:
                 t0 = time()
 
                 msg = PointCloud2(*slots(msg))
@@ -219,66 +190,72 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
                 ouster_cloud = ouster_cloud.reshape((-1,))
                 # ouster_cloud = ouster_cloud[::5]
                 # ouster_cloud = filter_grid(ouster_cloud, 0.05)
-                ouster_cloud = filter_depth(ouster_cloud, min=0., max=8.)
+                ouster_cloud = filter_depth(ouster_cloud, min=0., max=12.)
                 ouster_cloud = transform(Tr_world_ouster, ouster_cloud)
                 box_T = np.eye(4)
                 box_T[:3, 3] = board_xyz + np.asarray([0., 0., board_height / 2])
                 if R is not None:
                     box_T[:3, :3] = R
-                box_size = np.asarray([0.3, 0.4*board_length, board_height])
+                box_size = np.asarray([0.2, 0.4*board_length, board_height])
                 ouster_cloud_box = filter_box(ouster_cloud, box_size=box_size, box_T=box_T)
                 # print('Cloud processing took: %.3f [sec]' % (time() - t0))
 
-            if topic == leica_topic:
+            if topic == data['leica_topic']:
                 t0 = time()
                 # get board orientation in world frame
                 msg = PointStamped(*slots(msg))
                 leica_time = stamp.to_sec()
 
                 crystal_pose = np.asarray([msg.point.x, msg.point.y, msg.point.z])
-                v1 = crystal_pose - board_xyz
-                v1 = normalize(v1)
-                angle_z = np.arctan2(v1[1], v1[0]) - np.pi / 2
+                v = crystal_pose - board_xyz
+                v *= np.sign(np.dot([0, 1], v[:2]))  # choose board vector having positive Y-direction
+                v = normalize(v)
+                angle_z = np.arctan2(v[1], v[0]) - np.pi / 2  # angle between vector in the board plane V and Y-axis
 
                 # generate board cloud in world frame
                 R = np.asarray(Rotation.from_euler('z', angle_z, degrees=False).as_matrix())
                 Tr_world_board = np.eye(4)
                 Tr_world_board[:3, :3] = R
                 Tr_world_board[:3, 3] = board_xyz
-                board_cloud = transform(Tr_world_board, board_cloud0)
-                board_normal = np.cross([0, 0, 1], v1)
+                board_normal = np.cross([0., 0., 1.], v)
                 # orient normal towards lidar location
                 board_normal *= -np.sign(board_xyz @ board_normal)
+                board_normal = normalize(board_normal)
 
                 # print('Board localization took: %.3f [sec]' % (time() - t0))
 
-            if ouster_cloud is None or board_cloud is None:
+            if ouster_cloud is None or board_normal is None:
+                # print('Ouster cloud or board tracking is not yet available')
                 continue
 
-            # if np.rad2deg(angle_z) < 10:
+            # if np.rad2deg(angle_z) < 10.:
+            #     print('Board orientation: %.3f < %.3f [deg]' % (np.rad2deg(angle_z), 10.))
             #     continue
 
             if np.abs(cloud_time - leica_time) > TIME_TOL:
-                print('Cloud and leica msgs time difference is too large: %.3f > %.3f [sec]' %
-                      (np.abs(cloud_time - leica_time), TIME_TOL))
+                # print('Cloud and leica msgs time difference is too large: %.3f > %.3f [sec]' %
+                #       (np.abs(cloud_time - leica_time), TIME_TOL))
                 continue
 
             if len(ouster_cloud_box) > 0:
+                # plane (A, B, C, D), where n = (A,B,C), D = -(n, p), point p belongs to plane
+                pt2pl_cor = None
                 if CORRECTION:
                     ouster_cloud_box_cor = correction(cloud=ouster_cloud_box, model=model, cfg=cfg,
                                                       inc_angles=np.repeat([angle_z], len(ouster_cloud_box))[None].T)
-                points = structured_to_unstructured(ouster_cloud_box[['x', 'y', 'z']])
-                points_cor = structured_to_unstructured(ouster_cloud_box_cor[['x', 'y', 'z']])
+                    points_cor = structured_to_unstructured(ouster_cloud_box_cor[['x', 'y', 'z']])
+                    dists_cor = board_normal @ (points_cor - board_xyz).T
+                    pt2pl_cor = np.abs(dists_cor).mean()
+                    pt2pl_errs_cor.append(pt2pl_cor)
 
+                points = structured_to_unstructured(ouster_cloud_box[['x', 'y', 'z']])
                 dists = board_normal @ (points - board_xyz).T
-                dists_cor = board_normal @ (points_cor - board_xyz).T
                 pt2pl = np.abs(dists).mean()
-                pt2pl_cor = np.abs(dists_cor).mean()
                 pt2pl_errs.append(pt2pl)
-                pt2pl_errs_cor.append(pt2pl_cor)
                 angles.append(np.rad2deg(angle_z))
-                print('For board angle %.1f [deg], point-to-plane distance: %.3f [m]' %
-                      (np.rad2deg(angle_z), pt2pl))
+                if pt2pl_cor is not None:
+                    print('For board angle %.1f [deg], point-to-plane distance: %.3f [m] (dc: %.3f [m])' %
+                          (np.rad2deg(angle_z), pt2pl, pt2pl_cor))
             else:
                 print('No ouster points in the box for box angle: %.1f [deg]' % np.rad2deg(angle_z))
                 continue
@@ -291,7 +268,7 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
                 # o3d.visualization.draw_geometries([pcd], point_show_normal=True)
 
                 visualize(axes)
-                plt.pause(0.01)
+                plt.pause(0.001)
 
     if len(pt2pl_errs) > 0:
         angles = np.asarray(angles)
@@ -301,25 +278,16 @@ def bias_estimation(bag_path=None, cloud_topic=None, leica_topic=None):
         print('point-to-plane distance for angles > 60 [deg]: %.3f (mean, [m]),  %.3f (max, [m])' %
               (np.mean(pt2pl_errs[angles > 60.]).item(), np.max(pt2pl_errs[angles > 60.]).item()))
 
-        plt.figure()
-        plt.title('point-to-plane distance: %.3f (mean, [m]),  %.3f (max, [m])' %
-                  (np.mean(pt2pl_errs).item(), np.max(pt2pl_errs).item()))
-        plt.plot(angles, pt2pl_errs, color='k')
-        plt.savefig('/home/ruslan/Desktop/bias_estimation_depth_correction_%s_model_%s_%s.png' %
-                    (CORRECTION, cfg.model_class, cfg.model_kwargs))
-        plt.show()
+        print('Saving results...')
+        np.savetxt(bag_path.replace('.bag', '_bias_estimation.csv'),
+                   np.stack([angles, pt2pl_errs, pt2pl_errs_cor]).T, delimiter=',',
+                   header='Angles [deg], ICP dist [m], ICP dist DC [m]')
+        if VIS:
+            plt.savefig(bag_path.replace('.bag', '_bias_estimation_dc_%s_model_%s_%s.png' %
+                                                 (CORRECTION, cfg.model_class, cfg.model_kwargs)))
+            plt.show()
 
-
-def main():
-    bag_path = '/home/ruslan/data/datasets/fee_corridor/bags/leica_ouster/small_board/depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag'
-    # bag_path = '/home/ruslan/data/datasets/fee_corridor/bags/leica_ouster/small_board/depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag'
-
-    cloud_topic = '/ouster/points'
-    leica_topic = '/total_station_driver/ts_points'
-    bias_estimation(bag_path, cloud_topic, leica_topic)
-
-
-def draw_parallelepiped(ax, size=(1., 1., 1.), T=None):
+def draw_parallelepiped(ax, size=(1., 1., 1.), T=None, **kwargs):
     l, w, h = size
     points = np.array([[-l, -w, -h],
                        [l, -w, -h],
@@ -351,8 +319,7 @@ def draw_parallelepiped(ax, size=(1., 1., 1.), T=None):
              [points[1], points[2], points[6], points[5]],
              [points[4], points[7], points[3], points[0]]]
     # plot sides
-    ax.add_collection3d(Poly3DCollection(verts,
-                                         facecolors='cyan', linewidths=1, edgecolors='r', alpha=.25))
+    ax.add_collection3d(Poly3DCollection(verts, **kwargs))
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
@@ -379,6 +346,22 @@ def box_filterring_demo():
     draw_parallelepiped(ax, size=(l, w, h), T=box_pose)
     set_axes_equal(ax)
     plt.show()
+
+
+def main():
+    # bag_file = 'fee_corridor/bags/leica_ouster/small_board/depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag'
+    bag_file = 'fee_corridor/bags/leica_ouster/small_board/depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag'
+
+    bag_path = os.path.realpath(os.path.join(__file__, '../../data', bag_file))
+    assert os.path.exists(bag_path)
+    data_path = bag_path.replace('.bag', '.yaml')
+    assert os.path.exists(data_path)
+
+    with open(data_path, 'r') as f:
+        data = yaml.safe_load(f)
+    assert data is not None
+
+    bias_estimation(bag_path, data)
 
 
 if __name__ == '__main__':

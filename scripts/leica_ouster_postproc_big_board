@@ -88,13 +88,13 @@ class Process(object):
 
     def __init__(self):
         # for depth_correction_2023-02-06-16-15-50.bag
-        self.measurements = {'subt_TL': np.asarray([8.5736, 0.9518, 0.4274]),
-                             'subt_BL': np.asarray([8.5730, 0.9573, -0.5322]),
-                             'subt_TR': None,
+        self.measurements = {'world_TL': np.asarray([8.5736, 0.9518, 0.4274]),
+                             'world_BL': np.asarray([8.5730, 0.9573, -0.5322]),
+                             'world_TR': None,
                              }
         # for point cloud filtering
-        self.board_height = self.measurements['subt_TL'][2] - self.measurements['subt_BL'][2] + 0.02  # Z
-        # self.board_length = self.measurements['subt_TR'][1] - self.measurements['subt_TL'][1]  # Y
+        self.board_height = self.measurements['world_TL'][2] - self.measurements['world_BL'][2] + 0.02  # Z
+        # self.board_length = self.measurements['world_TR'][1] - self.measurements['world_TL'][1]  # Y
         self.board_length = None
         self.board_width = 0.015  # X
         # self.board_box_size = 0.6 * np.asarray([self.board_height, self.board_length, self.board_height])
@@ -107,7 +107,7 @@ class Process(object):
                                          [0, 0, 1, -0.10],
                                          [0, 0, 0, 1]])
         # for black board experiment with bag file: depth_correction_black_board_2023-02-06-16-46-40.bag
-        # self.Tr_world_ouster[:3, :3] = Rotation.from_euler('y', 0.7, degrees=True).as_matrix()
+        # self.Tr_world_ouster[:3, :3] = np.asarray(Rotation.from_euler('y', 0.7, degrees=True).as_matrix())
 
         # for white board experiment with bag file: depth_correction_2023-02-06-16-15-50.bag
         Ry = Rotation.from_euler('y', 0.2, degrees=True).as_matrix()
@@ -169,12 +169,10 @@ class Process(object):
             ouster_cloud = transform_cloud(ouster_cloud, self.ouster_pose)
 
             # filter clouds
-            board_cloud = filter_box(board_cloud,
-                                     box_center=self.board_pose[:3, 3] + np.asarray([0, -self.board_length / 2, 0]),
-                                     box_size=self.board_box_size)
-            ouster_cloud = filter_box(ouster_cloud,
-                                      box_center=self.board_pose[:3, 3] + np.asarray([0, -self.board_length / 2, 0]),
-                                      box_size=self.board_box_size)
+            box_T = np.eye(4)
+            box_T[:3, 3] = self.board_pose[:3, 3] + np.asarray([0, -self.board_length / 2, 0])
+            board_cloud = filter_box(board_cloud, box_T=box_T, box_size=self.board_box_size)
+            ouster_cloud = filter_box(ouster_cloud, box_T=box_T, box_size=self.board_box_size)
 
             # publish clouds
             board_cloud_msg = msgify(PointCloud2, board_cloud)
@@ -223,12 +221,12 @@ class Process(object):
                                                                   icp_dist.item()]]) + '\n')
 
     def generate_board_cloud(self, n_pts=4000):
-        assert self.measurements['subt_TR'] is not None
+        assert self.measurements['world_TR'] is not None
         np.random.seed(135)
 
-        length = self.measurements['subt_TL'][1] - self.measurements['subt_TR'][1]
+        length = self.measurements['world_TL'][1] - self.measurements['world_TR'][1]
         self.board_length = length
-        height = self.measurements['subt_TL'][2] - self.measurements['subt_BL'][2]
+        height = self.measurements['world_TL'][2] - self.measurements['world_BL'][2]
         width = 0.015  # 1 cm
         self.board_box_size = 0.6 * np.asarray([self.board_height, self.board_length, self.board_height])
         x0, y0, z0 = 0, 0, 0
@@ -240,13 +238,13 @@ class Process(object):
         return cloud
 
     def measurements_to_transforms(self):
-        base_pose = (self.measurements['subt_BL'] + self.measurements['subt_TL']) / 2.
+        base_pose = (self.measurements['world_BL'] + self.measurements['world_TL']) / 2.
         t1 = Transformation(frame='board_base', child_frame='TL_corner')
-        t1.translation = self.measurements['subt_TL'] - base_pose
+        t1.translation = self.measurements['world_TL'] - base_pose
         t1.rotation = np.asarray([0, 0, 0, 1])
 
         t2 = Transformation(frame='board_base', child_frame='BL_corner')
-        t2.translation = self.measurements['subt_BL'] - base_pose
+        t2.translation = self.measurements['world_BL'] - base_pose
         t2.rotation = np.asarray([0, 0, 0, 1])
         return [t1, t2]
 
@@ -267,17 +265,17 @@ class Process(object):
         self.ouster_msg = ouster_msg
 
     def leica_process(self, crystal_point_msg):
-        crystal_subt_pose = np.asarray([crystal_point_msg.point.x,
+        crystal_world_pose = np.asarray([crystal_point_msg.point.x,
                                         crystal_point_msg.point.y,
                                         crystal_point_msg.point.z])
-        base_pose = (self.measurements['subt_BL'] + self.measurements['subt_TL']) / 2.
+        base_pose = (self.measurements['world_BL'] + self.measurements['world_TL']) / 2.
 
-        if self.measurements['subt_TR'] is None:
+        if self.measurements['world_TR'] is None:
             crystal_TR_corner_offset = np.array([0., 0., 0.])
-            self.measurements['subt_TR'] = crystal_subt_pose + crystal_TR_corner_offset
+            self.measurements['world_TR'] = crystal_world_pose + crystal_TR_corner_offset
 
             t3 = Transformation(frame='board_base', child_frame='TR_corner')
-            t3.translation = self.measurements['subt_TR'] - base_pose
+            t3.translation = self.measurements['world_TR'] - base_pose
             t3.rotation = np.asarray([0, 0, 0, 1])
             self.static_transforms.append(t3)
 
@@ -310,7 +308,7 @@ class Process(object):
         tr.transform.translation.z = 0
 
         # compute from 3 points (orientation of base marker in origin/fixed frame (subt))
-        v1 = crystal_subt_pose - base_pose
+        v1 = crystal_world_pose - base_pose
         v1 = normalize(v1)
         angle_y = -np.arctan2(v1[2], v1[0]) + np.pi/2
         self.board_angle = angle_y

@@ -23,6 +23,7 @@ from matplotlib import pyplot as plt
 from threading import RLock
 import torch
 from time import time
+from scipy.spatial.transform import Rotation
 
 
 def create_marker(p=None, q=None, scale=None, color=None, alpha=0.8, type=Marker.ARROW):
@@ -126,7 +127,7 @@ class Process(object):
         self.board_height = self.measurements['subt_corner'][2] - self.measurements['subt_base'][2] - 0.01  # Z
         self.board_length = self.measurements['subt_crystal'][1] - self.measurements['subt_corner'][1]  # Y
         self.board_width = 0.015  # X
-        self.board_box_size = 0.4 * np.asarray([self.board_length, self.board_length, self.board_height])
+        self.board_box_size = np.asarray([0.3, 0.4*self.board_length, self.board_height])
 
         self.Tr_world_ouster = np.array([[0.99832296, -0.05795125, -0.0035224, 0.],
                                          [0.05796774, 0.99802342, 0.02213984, 0.],
@@ -205,12 +206,11 @@ class Process(object):
             ouster_cloud = transform_cloud(ouster_cloud, self.ouster_pose)
 
             # filter clouds
-            board_cloud = filter_box(board_cloud,
-                                     box_center=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
-                                     box_size=self.board_box_size)
-            ouster_cloud = filter_box(ouster_cloud,
-                                      box_center=self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2]),
-                                      box_size=self.board_box_size)
+            box_T = np.eye(4)
+            box_T[:3, 3] = self.measurements['subt_base'] + np.asarray([0, 0, self.board_height / 2])
+            box_T[:3, :3] = np.asarray(Rotation.from_euler('z', self.board_angle).as_matrix())
+            board_cloud = filter_box(board_cloud, box_T=box_T, box_size=self.board_box_size)
+            ouster_cloud = filter_box(ouster_cloud, box_T=box_T, box_size=self.board_box_size)
 
             # compute ICP distance between clouds
             if len(ouster_cloud) > 0:

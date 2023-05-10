@@ -15,7 +15,8 @@ __all__ = [
     'timing',
     'trace',
     'wrap_text',
-    'absolute_orientation'
+    'absolute_orientation',
+    'normalize'
 ]
 
 
@@ -303,7 +304,10 @@ def absolute_orientation(x, y):
     return T
 
 def normalize(v):
-    norm = torch.linalg.norm(v)
-    if norm == 0:
+    if isinstance(v, torch.Tensor):
+        norm = torch.linalg.norm(v)
+    else:
+        norm = np.linalg.norm(v)
+    if norm == 0.:
         return v
     return v / norm

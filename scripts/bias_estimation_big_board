@@ -22,6 +22,7 @@ from depth_correction.model import load_model
 from depth_correction.config import Config, Model
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.utils import transform, normalize
+import copy
 
 VIS = 1
 CORRECTION = 1
@@ -29,8 +30,7 @@ TIME_TOL = 0.05  # sec
 
 cfg = Config()
 cfg.model_class = Model.ScaledPolynomial
-cfg.model_kwargs = {'w': [-0.002], 'exponent': [4]}
-# cfg.model_kwargs = {'w': [-0.005], 'exponent': [4]}
+cfg.model_kwargs = {'w': [-0.005], 'exponent': [4]}
 # cfg.model_class = Model.Polynomial
 # cfg.model_kwargs = {'w': [-0.02], 'exponent': [4]}
 # cfg.model_state_dict = os.path.realpath(os.path.join(__file__, '../../gen/fee_corridor_d1-25_g0.20/ground_truth_none_Polynomial_r0.40_e0e1_0-0.25_e1e2_0.25-1_dd_0.09-nan_vpd_0.36-nan_min_eigval_loss_sqrt0_norm1_icp_inlier_ratio_0.3_icp_point_to_plane_True_lr0.0002/split_2/199_0.0206452_state_dict.pth'))
@@ -93,42 +93,45 @@ def set_axes_equal(ax):
     ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
     ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
 
+def draw_registration_result(source, target, transformation):
+    source_temp = copy.deepcopy(source)
+    target_temp = copy.deepcopy(target)
+    source_temp.paint_uniform_color([1, 0.706, 0])
+    target_temp.paint_uniform_color([0, 0.651, 0.929])
+    source_temp.transform(transformation)
+    o3d.visualization.draw_geometries([source_temp, target_temp])
 
 def bias_estimation(bag_path, data):
     def visualize(axes):
         ax = axes[0]
         ax.cla()
-        ax.set_title('Incidence angle %.1f [deg]' % np.rad2deg(angle_z))
+        ax.set_title('Incidence angle %.1f [deg]' % np.rad2deg(angle_y))
         ax.axis('equal')
         # coordinate system vis
         ax.spines['top'].set_color('none')
         ax.spines['bottom'].set_position('zero')
         ax.spines['left'].set_position('zero')
         ax.spines['right'].set_color('none')
-        # circumference
-        circle = plt.Circle(board_xyz[:2], board_length / 2, color='b', fill=False)
-        ax.add_patch(circle)
         # ouster points
         if ouster_cloud_box_cor is not None:
-            ax.plot(ouster_cloud_box_cor['x'], ouster_cloud_box_cor['y'], 'o', color='g')
-        ax.plot(ouster_cloud_box['x'], ouster_cloud_box['y'], 'o', color='r')
-        ax.quiver(ouster_cloud_box['x'], ouster_cloud_box['y'], board_normal[0], board_normal[1])
-        lc = board_xyz[:2] + normalize(v[:2]) * board_length / 2.
-        rc = board_xyz[:2] - normalize(v[:2]) * board_length / 2.
-        ax.plot([lc[0], rc[0]], [lc[1], rc[1]], '--', linewidth=2, color='k')
+            ax.plot(ouster_cloud_box_cor['x'], ouster_cloud_box_cor['z'], 'o', color='g')
+        ax.plot(ouster_cloud_box['x'], ouster_cloud_box['z'], 'o', color='r')
+        ax.quiver(ouster_cloud_box['x'], ouster_cloud_box['z'], board_normal[0], board_normal[2])
+        ax.plot(board_cloud['x'], board_cloud['z'], 'o', color='b')
+        # lc = board_base_xyz[:2] + normalize(v[:2]) * board_length / 2.
+        # rc = board_base_xyz[:2] - normalize(v[:2]) * board_length / 2.
+        # ax.plot([lc[0], rc[0]], [lc[1], rc[1]], '--', linewidth=2, color='k')
 
         ax = axes[1]
         ax.cla()
-        # ax.view_init(elev=90., azim=np.rad2deg(angle_z)+90)
-        # ax.view_init(elev=90., azim=0.)
         visualize_cloud_3d(ax, ouster_cloud_box, color='r')
-        # visualize_cloud_3d(ax, ouster_cloud[::2], color='r')
+        visualize_cloud_3d(ax, board_cloud, color='b')
         if ouster_cloud_box_cor is not None:
             visualize_cloud_3d(ax, ouster_cloud_box_cor, color='g')
-        # board plane
-        draw_parallelepiped(ax, size=(0.015, board_length, board_height), T=box_T, edgecolor='k', alpha=.0)
-        # filtration region
-        draw_parallelepiped(ax, size=box_size, T=box_T, facecolors='cyan', linewidths=1, edgecolors='r', alpha=.25)
+        # # board plane
+        # draw_parallelepiped(ax, size=(0.015, board_length, board_height), T=box_T, edgecolor='k', alpha=.0)
+        # # filtration region
+        # draw_parallelepiped(ax, size=box_size, T=box_T, facecolors='cyan', linewidths=1, edgecolors='r', alpha=.25)
         set_axes_equal(ax)
 
         ax = axes[2]
@@ -143,15 +146,23 @@ def bias_estimation(bag_path, data):
         ax.legend()
 
     measurements = data['measurements']
-    board_height = np.abs(measurements['world_corner'][2] - measurements['world_base'][2]) - 0.01  # Z
-    board_length = np.abs(measurements['world_crystal'][1] - measurements['world_corner'][1])  # Y
+    board_height = np.abs(measurements['world_TL'][2] - measurements['world_BL'][2]) + 0.02  # Z
+    board_length = np.abs(measurements['world_TL'][1] - measurements['world_TR'][1])  # Y
+    board_width = 0.02
 
     model = load_model(cfg=cfg)
 
     board_normal = None
     ouster_cloud = None
-    board_xyz = measurements['world_base']
+    board_base_xyz = (np.asarray(measurements['world_BL']) + np.asarray(measurements['world_TL'])) / 2.
+    # board_base_xyz[0] = measurements['world_TR'][0]
+    board_cloud0 = (np.random.random((500, 3)) - 0.5) * np.array([board_width, board_length, board_height])
+    board_cloud0 = unstructured_to_structured(board_cloud0, names=['x', 'y', 'z'])
+    v = measurements['world_TR'] - board_base_xyz
+    v = normalize(v)
+    board_normal0 = normalize(np.cross(v, np.array([0., 1., 0.])))
 
+    # TODO: find transformation by ICP alignment to ground truth map
     Tr_world_ouster = np.asarray(data['T_world_ouster']).reshape((4, 4))
 
     if VIS:
@@ -169,8 +180,10 @@ def bias_estimation(bag_path, data):
     R = None
     ouster_cloud_box_cor = None
     # stamp0 = next(iter(Bag(bag_path, 'r').read_messages(topics=[data['cloud_topic'], data['leica_topic']])))[2].to_sec()
-    stamp0 = None  # stamp0 + 60.
-    stampN = None  # stamp0 + 10.
+    # stamp0 = stamp0 + 60.
+    # stampN = stamp0 + 30.
+    stamp0 = None
+    stampN = None
 
     if stamp0 is not None:
         stamp0 = rospy.Time.from_sec(stamp0)
@@ -188,15 +201,14 @@ def bias_estimation(bag_path, data):
 
                 ouster_cloud = numpify(msg)
                 ouster_cloud = ouster_cloud.reshape((-1,))
-                # ouster_cloud = ouster_cloud[::5]
-                # ouster_cloud = filter_grid(ouster_cloud, 0.05)
-                ouster_cloud = filter_depth(ouster_cloud, min=0., max=12.)
+                ouster_cloud = filter_depth(ouster_cloud, min=5., max=12.)
                 ouster_cloud = transform(Tr_world_ouster, ouster_cloud)
                 box_T = np.eye(4)
-                box_T[:3, 3] = board_xyz + np.asarray([0., 0., board_height / 2])
+                box_T[:3, 3] = board_base_xyz + np.asarray([0., -board_length / 2., 0.])
                 if R is not None:
                     box_T[:3, :3] = R
-                box_size = np.asarray([0.2, 0.4*board_length, board_height])
+                board_cloud = transform(box_T, board_cloud0)
+                box_size = np.asarray([0.3, 0.8*board_length, 0.8*board_height])
                 ouster_cloud_box = filter_box(ouster_cloud, box_size=box_size, box_T=box_T)
                 # print('Cloud processing took: %.3f [sec]' % (time() - t0))
 
@@ -207,34 +219,25 @@ def bias_estimation(bag_path, data):
                 leica_time = stamp.to_sec()
 
                 crystal_pose = np.asarray([msg.point.x, msg.point.y, msg.point.z])
-                v = crystal_pose - board_xyz
-                v *= np.sign(np.dot([0, 1], v[:2]))  # choose board vector having positive Y-direction
+                v = crystal_pose - board_base_xyz
+                # v *= np.sign(np.dot([0, 1], v[:2]))  # choose board vector having positive Y-direction
                 v = normalize(v)
-                angle_z = np.arctan2(v[1], v[0]) - np.pi / 2  # angle between vector in the board plane V and Y-axis
-
-                # generate board cloud in world frame
-                R = np.asarray(Rotation.from_euler('z', angle_z, degrees=False).as_matrix())
-                Tr_world_board = np.eye(4)
-                Tr_world_board[:3, :3] = R
-                Tr_world_board[:3, 3] = board_xyz
-                board_normal = np.cross([0., 0., 1.], v)
-                # orient normal towards lidar location
-                board_normal *= -np.sign(board_xyz @ board_normal)
-                board_normal = normalize(board_normal)
-
+                angle_y = -np.arctan2(v[2], v[0]) + np.pi / 2  # angle between vector in the board plane V and Y-axis
+                R = np.asarray(Rotation.from_euler('y', angle_y, degrees=False).as_matrix())
+                board_normal = R @ board_normal0
                 # print('Board localization took: %.3f [sec]' % (time() - t0))
 
             if ouster_cloud is None or board_normal is None:
-                # print('Ouster cloud or board tracking is not yet available')
+                print('Ouster cloud or board tracking is not yet available')
                 continue
 
-            # if np.rad2deg(angle_z) < 10.:
-            #     print('Board orientation: %.3f < %.3f [deg]' % (np.rad2deg(angle_z), 10.))
+            # if np.rad2deg(angle_y) < 10.:
+            #     print('Board orientation: %.3f < %.3f [deg]' % (np.rad2deg(angle_y), 10.))
             #     continue
 
             if np.abs(cloud_time - leica_time) > TIME_TOL:
-                # print('Cloud and leica msgs time difference is too large: %.3f > %.3f [sec]' %
-                #       (np.abs(cloud_time - leica_time), TIME_TOL))
+                print('Cloud and leica msgs time difference is too large: %.3f > %.3f [sec]' %
+                      (np.abs(cloud_time - leica_time), TIME_TOL))
                 continue
 
             if len(ouster_cloud_box) > 0:
@@ -242,30 +245,40 @@ def bias_estimation(bag_path, data):
                 pt2pl_cor = None
                 if CORRECTION:
                     ouster_cloud_box_cor = correction(cloud=ouster_cloud_box, model=model, cfg=cfg,
-                                                      inc_angles=np.repeat([angle_z], len(ouster_cloud_box))[None].T)
+                                                      inc_angles=np.repeat([angle_y], len(ouster_cloud_box))[None].T)
                     points_cor = structured_to_unstructured(ouster_cloud_box_cor[['x', 'y', 'z']])
-                    dists_cor = board_normal @ (points_cor - board_xyz).T
+                    dists_cor = board_normal @ (points_cor - board_base_xyz).T
                     pt2pl_cor = np.abs(dists_cor).mean()
                     pt2pl_errs_cor.append(pt2pl_cor)
 
                 points = structured_to_unstructured(ouster_cloud_box[['x', 'y', 'z']])
-                dists = board_normal @ (points - board_xyz).T
+                dists = board_normal @ (points - board_base_xyz).T
                 pt2pl = np.abs(dists).mean()
                 pt2pl_errs.append(pt2pl)
-                angles.append(np.rad2deg(angle_z))
+                angles.append(np.rad2deg(angle_y))
                 if pt2pl_cor is not None:
                     print('For board angle %.1f [deg], point-to-plane distance: %.3f [m] (dc: %.3f [m])' %
-                          (np.rad2deg(angle_z), pt2pl, pt2pl_cor))
+                          (np.rad2deg(angle_y), pt2pl, pt2pl_cor))
             else:
-                print('No ouster points in the box for box angle: %.1f [deg]' % np.rad2deg(angle_z))
+                print('No ouster points in the box for box angle: %.1f [deg]' % np.rad2deg(angle_y))
                 continue
 
             # visualization
             if VIS:
-                # pcd = o3d.geometry.PointCloud()
-                # pcd.points = o3d.utility.Vector3dVector(structured_to_unstructured(board_cloud[['x', 'y', 'z']]))
-                # pcd.normals = o3d.utility.Vector3dVector(np.repeat(board_normal[None], len(board_cloud), axis=0))
-                # o3d.visualization.draw_geometries([pcd], point_show_normal=True)
+                # pcd_ouster_box = o3d.geometry.PointCloud()
+                # pcd_ouster_box.points = o3d.utility.Vector3dVector(structured_to_unstructured(ouster_cloud_box[['x', 'y', 'z']]))
+                # pcd_ouster_box.normals = o3d.utility.Vector3dVector(np.repeat(board_normal[None], len(ouster_cloud_box), axis=0))
+                # pcd_ouster_box.paint_uniform_color([1, 0, 0])
+                #
+                # pcd_board = o3d.geometry.PointCloud()
+                # pcd_board.points = o3d.utility.Vector3dVector(structured_to_unstructured(board_cloud[['x', 'y', 'z']]))
+                # pcd_board.paint_uniform_color([0, 1, 0])
+                #
+                # pcd_ouster = o3d.geometry.PointCloud()
+                # pcd_ouster.points = o3d.utility.Vector3dVector(structured_to_unstructured(ouster_cloud[['x', 'y', 'z']]))
+                # pcd_ouster.paint_uniform_color([0, 0, 1])
+                #
+                # o3d.visualization.draw_geometries([pcd_ouster_box, pcd_ouster, pcd_board], point_show_normal=True)
 
                 visualize(axes)
                 plt.pause(0.001)
@@ -275,8 +288,8 @@ def bias_estimation(bag_path, data):
         pt2pl_errs = np.asarray(pt2pl_errs)
         print('point-to-plane distance: %.3f (mean, [m]),  %.3f (max, [m])' %
               (np.mean(pt2pl_errs).item(), np.max(pt2pl_errs).item()))
-        print('point-to-plane distance for angles > 60 [deg]: %.3f (mean, [m]),  %.3f (max, [m])' %
-              (np.mean(pt2pl_errs[angles > 60.]).item(), np.max(pt2pl_errs[angles > 60.]).item()))
+        # print('point-to-plane distance for angles > 60 [deg]: %.3f (mean, [m]),  %.3f (max, [m])' %
+        #       (np.mean(pt2pl_errs[angles > 60.]).item(), np.max(pt2pl_errs[angles > 60.]).item()))
 
         print('Saving results...')
         np.savetxt(bag_path.replace('.bag', '_bias_estimation.csv'),
@@ -326,31 +339,54 @@ def draw_parallelepiped(ax, size=(1., 1., 1.), T=None, **kwargs):
     ax.set_zlabel('Z')
 
 
-def box_filterring_demo():
-    pts = 10 * (np.random.random((1000, 3)) - 0.5)
-    R = np.asarray(Rotation.from_euler('z', 35, degrees=True).as_matrix())
-    l = 2.
-    w = 3.5
-    h = 2.
-    box_pose = np.eye(4)
-    box_pose[:3, :3] = R
-    box_pose[:3, 3] = np.asarray([1., -2., 1.])
+def icp_demo():
+    from depth_correction.datasets.fee_corridor import Dataset
 
-    pts_box = filter_box(pts, box_T=box_pose, box_size=(l, w, h))
-    print('Filtered %i/%i points' % (len(pts_box), len(pts)))
+    # bag_file = 'fee_corridor/bags/leica_ouster/big_board/8m/depth_correction_2023-02-06-16-15-50.bag'
+    bag_file = 'fee_corridor/bags/leica_ouster/big_board/8m/depth_correction_black_board_2023-02-06-16-46-40.bag'
 
-    fig = plt.figure(figsize=(10, 10))
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter3D(pts_box[:, 0], pts_box[:, 1], pts_box[:, 2], color='r', alpha=1.)
-    ax.scatter3D(pts[:, 0], pts[:, 1], pts[:, 2], color='b', alpha=.25)
-    draw_parallelepiped(ax, size=(l, w, h), T=box_pose)
-    set_axes_equal(ax)
-    plt.show()
+    bag_path = os.path.realpath(os.path.join(__file__, '../../data', bag_file))
 
+    # get ouster cloud
+    with Bag(bag_path, 'r') as bag:
+        for topic, msg, stamp in tqdm(bag.read_messages(topics=['/ouster/points'])):
+            msg = PointCloud2(*slots(msg))
+            cloud_time = stamp.to_sec()
+
+            ouster_cloud = numpify(msg)
+            break
+    ouster_cloud = ouster_cloud.reshape((-1,))
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(structured_to_unstructured(ouster_cloud[['x', 'y', 'z']]))
+
+    # Leica scanner GT cloud
+    ds = Dataset(name='seq1', zero_origin=False)
+    leica_cloud = ds.global_cloud(resolution_cm=5.)
+    pcd_gt = o3d.geometry.PointCloud()
+    pcd_gt.points = o3d.utility.Vector3dVector(structured_to_unstructured(leica_cloud[['x', 'y', 'z']]))
+
+    trans_init = np.array([[0.96222896, 0.26997932, -0.03502283, 0.42472884],
+                           [-0.27006718, 0.96283876, 0.00228684, 0.40569871],
+                           [0.03433874, 0.00725805, 0.9993839, 0.34870928],
+                           [0., 0., 0., 1., ]])
+    # trans_init = np.eye(4)
+
+    draw_registration_result(pcd, pcd_gt, np.eye(4))
+
+    print("Apply point-to-point ICP")
+    reg_p2p = o3d.pipelines.registration.registration_icp(pcd, pcd_gt, 0.2, trans_init,
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000))
+    print(reg_p2p)
+    print("Transformation is:")
+    print(reg_p2p.transformation)
+    print('Rotation angles:', np.rad2deg(Rotation.from_matrix(reg_p2p.transformation[:3, :3].copy()).as_euler('xyz')))
+
+    draw_registration_result(pcd, pcd_gt, reg_p2p.transformation)
 
 def main():
-    # bag_file = 'fee_corridor/bags/leica_ouster/small_board/depth_correction_black_board_ouster_leica_2023-02-02-14-50-38.bag'
-    bag_file = 'fee_corridor/bags/leica_ouster/small_board/depth_correction_white_board_ouster_leica_2023-02-02-13-44-08.bag'
+    # bag_file = 'fee_corridor/bags/leica_ouster/big_board/8m/depth_correction_2023-02-06-16-15-50.bag'
+    bag_file = 'fee_corridor/bags/leica_ouster/big_board/8m/depth_correction_black_board_2023-02-06-16-46-40.bag'
 
     bag_path = os.path.realpath(os.path.join(__file__, '../../data', bag_file))
     assert os.path.exists(bag_path)
@@ -366,4 +402,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # box_filterring_demo()
+    # icp_demo()

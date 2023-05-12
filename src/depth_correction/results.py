@@ -18,7 +18,8 @@ print(path)
 # Choose dataset
 # dataset = 'asl_laser'
 # dataset = 'semantic_kitti'
-dataset = 'fee_corridor'
+# dataset = 'fee_corridor'
+dataset = 'kitti360'
 if dataset == 'asl_laser':
     # preproc = '{dataset}*g0.10'.format(dataset=dataset)
     preproc = '{dataset}*s0.0175_0.0873-nan'.format(dataset=dataset)
@@ -27,6 +28,8 @@ elif dataset == 'semantic_kitti':
     preproc = '{dataset}*s0.0175_0.0873-nan'.format(dataset=dataset)
 elif dataset == 'fee_corridor':
     preproc = f'{dataset}*g0.20'
+elif dataset == 'kitti360':
+    preproc = f'{dataset}_d5-25_g0.20'
 else:
     raise ValueError('Unsupported dataset: %s.' % dataset)
 preproc = os.path.join(path, preproc)
@@ -39,7 +42,7 @@ loss_eval_baseline_format = '{{preproc}}/{dataset}/*/loss_eval_{{loss}}.csv'.for
 # SLAM eval with depth correction filter from training
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv')
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_*_{loss}/split_{split}/slam_eval_{slam}_{set}.csv')
-slam_eval_format = '{preproc}/{pose_provider}_{model}_*_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv'
+slam_eval_format = '{preproc}/{pose_provider}_*_{model}_*_{loss}_*/split_{split}/slam_eval_{slam}_{set}.csv'
 # SLAM eval with all points corrected
 # slam_eval_format = os.path.join(path, '{preproc}/{pose_provider}_{model}_{loss}/split_{split}/eval_all_corrected/slam_eval_{slam}_{set}.csv')
 
@@ -87,7 +90,7 @@ class Table:
 
 
 def tables_basic_demo():
-    from data.asl_laser import dataset_names
+    from depth_correction.datasets.asl_laser import dataset_names
     # https://pandas.pydata.org/pandas-docs/stable/user_guide/10min.html
 
     # loss demo: average across sequences
@@ -184,9 +187,9 @@ def slam_error_from_csv(csv_paths, cols=2):
 def get_slam_error(preproc=preproc, pose_src='*', model='*', loss='*', split='train', slam=list(SLAM)[0], cols=2):
     csv_pattern = slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
                                           split='*', set=split, slam=slam)
-    print(csv_pattern)
+    # print(csv_pattern)
     csv_paths = glob.glob(csv_pattern)
-    print('\n'.join([csv_path[csv_path.index(dataset):] for csv_path in csv_paths]))
+    # print('\n'.join([csv_path[csv_path.index(dataset):] for csv_path in csv_paths]))
     return slam_error_from_csv(csv_paths, cols=cols)
 
 
@@ -210,39 +213,45 @@ def slam_localization_error_demo():
     (orient_acc_deg_base, orient_acc_deg_base_std), (trans_acc_m_base, trans_acc_m_base_std) = \
             slam_error_from_csv(csv_paths)
 
+    # models = ['Polynomial', 'ScaledPolynomial']
+    models = ['Polynomial']
+    poses_sources = ['ground_truth']
+    # losses = ['min_eigval_loss', 'icp_loss']
+    losses = ['min_eigval_loss']
+
+    model_map = {Model.Polynomial: 'SLAM \cite{Pomerleau-2013-AR} + $\\epsilon_\\mathrm{p}$ (\\ref{eq:polynomial_model})',
+                 Model.ScaledPolynomial: 'SLAM \cite{Pomerleau-2013-AR} + $\\epsilon_\\mathrm{sp}$ (\\ref{eq:scaled_polynomial_model})'}
+
     for pose_src in poses_sources:
 
         print('\nSLAM accuracy for initial localization source provider: %s\n' % pose_src)
 
-        for loss in losses + ["*"]:  # for each separate loss as well as averaged
+        # for loss in losses + ["*"]:  # for each separate loss as well as averaged
+        for loss in losses:
             print("\nLocalization error evaluation with loss: %s\n" % loss)
 
-            table = [["Base model", u"%.3f (\u00B1 %.3f)" % (orient_acc_deg_base, orient_acc_deg_base_std),
-                      u"%.3f (\u00B1 %.3f)" % (trans_acc_m_base, trans_acc_m_base_std)]]
+            table = [["SLAM", "$%.2f \\pm %.2f$" % (orient_acc_deg_base, orient_acc_deg_base_std),
+                      "$%.2f \\pm %.2f$" % (trans_acc_m_base, trans_acc_m_base_std)]]
             for model in models:
-                table.append(
-                    [model.capitalize()] + [
-                        ", ".join([u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
-                                                                          model=model,
-                                                                          loss=loss,
-                                                                          split='train')[i],
-                                   u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
-                                                                          model=model,
-                                                                          loss=loss,
-                                                                          split='val')[i],
-                                   u"%.3f (\u00B1 %.3f)" % get_slam_error(pose_src=pose_src,
-                                                                          model=model,
-                                                                          loss=loss,
-                                                                          split='test')[i]])
-                        for i in range(2)])
+                orient_means, orient_stds = [], []
+                trans_means, trans_stds = [], []
+                for split in ['train', 'val', 'test']:
+                    orient_err, trans_err = get_slam_error(pose_src=pose_src, model=model, loss=loss, split=split)
+                    orient_mean, orient_std = orient_err
+                    trans_mean, trans_std = trans_err
+
+                    trans_means.append(trans_mean)
+                    trans_stds.append(trans_std)
+                    orient_means.append(orient_mean)
+                    orient_stds.append(orient_std)
+
+                table.append([model_map[model]] +
+                             ["$%.2f \\pm %.2f$" % (np.mean(orient_means).item(), np.mean(orient_stds).item())] +
+                             ["$%.2f \\pm %.2f$" % (np.mean(trans_means).item(), np.mean(trans_stds).item())])
 
             print(tabulate.tabulate(table,
-                                    ["model", "orientation error (train, val, test), [deg]",
-                                     "translation error (train, val, test), [m]"], tablefmt="grid"))
-
-            print(tabulate.tabulate(table,
-                                    ["model", "orientation error (train, val, test), [deg]",
-                                     "translation error (train, val, test), [m]"], tablefmt="latex"))
+                                    ["pipeline", "orientation error [deg]",
+                                     "translation error [m]"], tablefmt="latex_raw"))
 
 
 def slam_localization_error_tables():
@@ -282,9 +291,9 @@ def slam_localization_error_tables():
                 mean, std = 100 * mean, 100 * std
 
             if subset == 'test':
-                # table[-1] += ['%.3f \u00B1 %.3f' % (mean, std)]
-                # table[-1] += ['%.3f \\pm %.3f' % (mean, std)]
-                table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+                # table[-1] += ['%.2f \\pm %.2f' % (mean, std)]
+                # table[-1] += ['%.2f \\pm %.2f' % (mean, std)]
+                table[-1] += ['$%.2f \\pm %.2f$' % (mean, std)]
             else:
                 table[-1] += ['$%.3f$' % mean]
 
@@ -296,11 +305,11 @@ def slam_localization_error_tables():
         elif col == 3:
             mean, std = 100 * mean, 100 * std
 
-        base_table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+        base_table[-1] += ['$%.2f \\pm %.2f$' % (mean, std)]
 
     print()
     print('SLAM results with no correction')
-    print(tabulate.tabulate(base_table, tablefmt='latex_raw'))
+    print(tabulate.tabulate(base_table, headers=['orientation error [deg]', 'translation error [m]'], tablefmt='latex_raw'))
     print()
     print('SLAM results with depth correction')
     print(tabulate.tabulate(table, tablefmt='latex_raw'))
@@ -322,7 +331,7 @@ def mean_loss_tables():
 
         mean, std = base_res[0]
 
-        print(loss, '$%.3f \\pm %.3f$' % (1000 * mean, 1000 * std))
+        print(loss, '$%.2f \\pm %.2f$' % (1000 * mean, 1000 * std))
 
     model_map = {Model.Polynomial: '$\\epsilon_\\mathrm{p}$ (\\ref{eq:polynomial_model})',
                  Model.ScaledPolynomial: '$\\epsilon_\\mathrm{sp}$ (\\ref{eq:scaled_polynomial_model})'}
@@ -363,7 +372,7 @@ def mean_loss_tables():
     #     elif col == 3:
     #         mean, std = 100 * mean, 100 * std
     #
-    #     base_table[-1] += ['$%.3f \\pm %.3f$' % (mean, std)]
+    #     base_table[-1] += ['$%.2f \\pm %.2f$' % (mean, std)]
     #
     # print()
     # print('SLAM results with no correction')
@@ -400,23 +409,23 @@ def mean_loss_over_sequences_and_data_splits_demo():
 
         print('\nMean losses over sequences for localization source: %s\n' % pose_src)
 
-        table = [["Base model"] + [u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray([loss, std])) for loss, std in
+        table = [["Base model"] + ["$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray([loss, std])) for loss, std in
                                    base_loss_values]]
         for model in models:
             table.append(
                 [model.capitalize()] + [
-                    ", ".join([u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
-                                                                                          model=model,
-                                                                                          loss=loss,
-                                                                                          split='train'))),
-                               u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
-                                                                                          model=model,
-                                                                                          loss=loss,
-                                                                                          split='val'))),
-                               u"%.3f (\u00B1 %.3f)" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
-                                                                                          model=model,
-                                                                                          loss=loss,
-                                                                                          split='test')))
+                    ", ".join(["$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                                                                                       model=model,
+                                                                                       loss=loss,
+                                                                                       split='train'))),
+                               "$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                                                                                       model=model,
+                                                                                       loss=loss,
+                                                                                       split='val'))),
+                               "$%.2f \\pm %.2f$" % tuple(10e3 * np.asarray(get_losses(pose_src=pose_src,
+                                                                                       model=model,
+                                                                                       loss=loss,
+                                                                                       split='test')))
                                ]) for loss in losses]
             )
 
@@ -486,12 +495,102 @@ def results_for_individual_sequences_demo(std=False):
     print(tabulate.tabulate(df, names, tablefmt='latex'))
 
 
+def plot_slam_trajs():
+    import matplotlib.pyplot as plt
+    from .datasets.kitti360 import read_poses, Dataset, prefix
+
+    slam = list(SLAM)[0]
+    preproc = f'{dataset}_d5-25_g0.20'
+    # slam_poses_baseline_format = f'{preproc}/{dataset}_baseline/*/slam_poses_{slam}.csv'
+    slam_poses_format = f'{preproc}/{dataset}/*/slam_poses_{slam}.csv'
+    slam_poses_pattern = os.path.join(path, slam_poses_format)
+
+    # plt.figure()
+    for poses_scv in glob.glob(slam_poses_pattern):
+        # SLAM poses
+        _, poses = read_poses(poses_scv)
+        _, poses_baseline = read_poses(poses_scv.replace(f'/{dataset}/', f'/{dataset}_baseline_500scans/'))
+        print('Poses: %i' % len(poses))
+        print('Poses baseline: %s' % len(poses_baseline))
+        N = min(len(poses), len(poses_baseline))
+        poses = poses[:N]
+        poses_baseline = poses_baseline[:N]
+
+        print(np.allclose(poses, poses_baseline))
+
+        seq = poses_scv.split('/')[-2][:2]
+        start = 1
+        end = N + start
+        subseq = seq + '_start_%i_end_%i_step_1' % (start, end)
+
+        # GT poses
+        ds = Dataset(name='%s/%s' % (prefix, subseq), zero_origin=True)
+        poses_gt = ds.poses
+
+        # transform SLAM poses to global coord frame
+        # poses = np.asarray([poses_gt[0] @ p for p in poses])
+
+        # visualization
+        plt.rcParams.update({'font.size': 28})
+        plt.figure(figsize=(10, 10))
+        ax = plt.gca()
+
+        ax.plot(poses_gt[:, 0, 3], poses_gt[:, 1, 3], color='b', linewidth=4, label='GT')
+        ax.plot(poses_baseline[:, 0, 3], poses_baseline[:, 1, 3], color='r', linewidth=3, label='SLAM')
+        ax.plot(poses[:, 0, 3], poses[:, 1, 3], color='g', linewidth=3, label='SLAM+DC')
+
+        plt.title('Seq.: %s. Start pose: %i, end pose: %i' % (seq, start, end))
+        ax.spines['top'].set_color('none')
+        ax.spines['bottom'].set_position('zero')
+        ax.spines['left'].set_position('zero')
+        ax.spines['right'].set_color('none')
+        ax.grid()
+        ax.axis('equal')
+        ax.legend(loc='lower left')
+        # plt.savefig(f'/home/ruslan/Desktop/{dataset}_seq_{seq}_start{start}_end{end}_slam_dc_results.png')
+        plt.show()
+
+
+def slam_error_for_sequences():
+    slam = list(SLAM)[0]
+    pose_src = 'ground_truth'
+    model = 'Polynomial'
+    # losses = ['min_eigval_loss', 'trace_loss', 'icp_loss']
+    losses = ['min_eigval_loss']
+
+    dfs = None
+    for loss in losses:
+        for split in ['train', 'val', 'test']:
+            slam_eval_pattern = slam_eval_format.format(preproc=preproc, pose_provider=pose_src, model=model, loss=loss,
+                                                        split='*', set=split, slam=slam)
+            for csv_path in glob.glob(slam_eval_pattern):
+                df = pd.read_csv(csv_path, delimiter=' ', header=None)
+                dfs = df if dfs is None else pd.concat([dfs, df])
+
+    # set sequences name as index
+    # df = dfs.set_index(dfs[0])
+
+    # rename column names
+    df = dfs.rename(columns={0: 'seq', 1: 'r_angle', 2: 't_norm', 3: 'rel_angle', 4: 'rel_offset'})
+    # select only orient and trans errors (not relative changes)
+    df = df[['seq', 'r_angle', 't_norm']]
+
+    # for each sequence compute mean errors
+    aggregation_functions = {'r_angle': 'mean', 't_norm': 'mean'}
+    df = df.groupby('seq').aggregate(aggregation_functions)
+    df['r_angle'] = df['r_angle'].apply(np.rad2deg)
+
+    print(df.to_latex())
+
+
 def main():
     # slam_localization_error_demo()
     # slam_localization_error_tables()
-    mean_loss_tables()
+    # mean_loss_tables()
     # mean_loss_over_sequences_and_data_splits_demo()
     # results_for_individual_sequences_demo()
+    # plot_slam_trajs()
+    slam_error_for_sequences()
 
 
 if __name__ == '__main__':

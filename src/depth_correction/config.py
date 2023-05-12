@@ -180,9 +180,9 @@ class Config(Configurable):
         self.device = 'cpu'
 
         # Cloud preprocessing
-        self.min_depth = 1.0
-        self.max_depth = 20.0
-        self.grid_res = 0.1
+        self.min_depth = 5.0
+        self.max_depth = 25.0
+        self.grid_res = 0.2
         # Neighborhood
         self.nn_type = NeighborhoodType.ball
         self.nn_k = 0
@@ -205,7 +205,8 @@ class Config(Configurable):
         # self.shadow_angle_bounds = [radians(5.), float('inf')]
         self.shadow_angle_bounds = []
         # self.shadow_angle_bounds = None
-        self.dir_dispersion_bounds = [0.09, float('inf')]
+        self.dir_dispersion_bounds = []
+        # self.dir_dispersion_bounds = [0.09, float('inf')]
         self.vp_dispersion_bounds = [0.36, float('inf')]
         # self.vp_dispersion_to_depth2_bounds = [0.2, None]
         self.vp_dispersion_to_depth2_bounds = []
@@ -214,11 +215,10 @@ class Config(Configurable):
         self.eigenvalue_bounds = []
         # self.eigenvalue_bounds = [[0,      -float('inf'), (self.nn_r / 4)**2],
         #                           [1, (self.nn_r / 4)**2,       float('inf')]]
-        # self.eigenvalue_ratio_bounds = []
-        self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1]]
+        self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1.]]
 
         # Data
-        self.dataset = 'fee_corridor'
+        self.dataset = 'kitti360'
         self.dataset_args = []
         self.dataset_kwargs = {}
         self.train_names = []
@@ -256,7 +256,7 @@ class Config(Configurable):
         self.loss_kwargs['inlier_ratio'] = 1.0
         self.loss_kwargs['icp_inlier_ratio'] = 0.3
         self.loss_kwargs['icp_point_to_plane'] = True
-        self.n_opt_iters = 200
+        self.n_opt_iters = 100
 
         self.optimizer = 'Adam'
         self.optimizer_args = []

@@ -27,12 +27,12 @@ else:
 dataset_names = [
     '00_start_102_end_152_step_1',
     '03_start_102_end_152_step_1',
+    '04_start_102_end_152_step_1',
     '05_start_102_end_152_step_1',
     '06_start_102_end_152_step_1',
     '07_start_102_end_152_step_1',
     '09_start_102_end_152_step_1',
     '10_start_102_end_152_step_1',
-    '04_start_102_end_152_step_1',
 ]
 
 
@@ -76,11 +76,13 @@ class Sequence(object):
             ids = [int(i) for i in data[:, 0]]  # index of poses
             poses = data[:, 1:].reshape((-1, 4, 4)) @ self.T_lidar2cam
         # ensure that there are corresponding point clouds for ids
-        clouds_ids = [int(i[:-4]) for i in os.listdir(self.cloud_dir)]
-        mask = [True if i in clouds_ids else False for i in ids]
-        ids = np.asarray(ids)[mask]
-        poses = poses[mask]
-        return poses, ids.tolist()
+        if os.path.exists(self.cloud_dir):
+            clouds_ids = [int(i[:-4]) for i in os.listdir(self.cloud_dir)]
+            mask = [True if i in clouds_ids else False for i in ids]
+            ids = np.asarray(ids)[mask]
+            poses = poses[mask]
+            ids.tolist()
+        return poses, ids
 
     def read_calibration(self):
         fileCameraToLidar = os.path.join(self.path, 'calibration', 'calib_cam_to_velo.txt')
@@ -91,17 +93,16 @@ class Sequence(object):
         fpath = os.path.join(self.cloud_dir, '%010d.bin' % int(i))
         return fpath
 
-    def local_cloud(self, i, filter_ego_pts=True):
+    def local_cloud(self, i, filter_ego_pts_depth=1.0):
         file = self.get_cloud_path(i)
         cloud = np.fromfile(file, dtype=np.float32)
         cloud = cloud.reshape((-1, 4))
 
-        if filter_ego_pts:
-            min_depth = 3.
-            valid_indices = cloud[:, 0] < -min_depth
-            valid_indices = valid_indices | (cloud[:, 0] > min_depth)
-            valid_indices = valid_indices | (cloud[:, 1] < -min_depth)
-            valid_indices = valid_indices | (cloud[:, 1] > min_depth)
+        if filter_ego_pts_depth is not None:
+            valid_indices = cloud[:, 0] < -filter_ego_pts_depth
+            valid_indices = valid_indices | (cloud[:, 0] > filter_ego_pts_depth)
+            valid_indices = valid_indices | (cloud[:, 1] < -filter_ego_pts_depth)
+            valid_indices = valid_indices | (cloud[:, 1] > filter_ego_pts_depth)
             cloud = cloud[valid_indices]
 
         cloud = unstructured_to_structured(cloud, names=['x', 'y', 'z', 'i'])
@@ -252,7 +253,7 @@ class Dataset(Sequence):
         self.ids = self.ids[sub_seq]
         self.poses = self.poses[sub_seq]
 
-        assert os.path.exists(self.cloud_dir), 'Path %s does not exist' % self.cloud_dir
+        # assert os.path.exists(self.cloud_dir), 'Path %s does not exist' % self.cloud_dir
 
         # move poses to zero-origin
         if zero_origin:
@@ -297,13 +298,45 @@ def visualize_colored_submaps():
     exit()
 
 
+def datasets_statistics():
+    from depth_correction.config import Config
+    from depth_correction.visualization import visualize_dataset
+
+    cfg = Config(min_depth=5, max_depth=25, grid_res=0.2, nn_r=0.4)
+    for name in dataset_names:
+        ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=True)
+
+        clouds = []
+        poses = []
+        dists = []
+        pose_prev = np.eye(4)
+        for cloud, pose in ds:
+            cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
+            cloud = np.matmul(cloud[:, :3], pose[:3, :3].T) + pose[:3, 3:].T
+            clouds.append(cloud)
+            poses.append(pose)
+            dists.append(np.linalg.norm(pose[:3, 3] - pose_prev[:3, 3]))
+            pose_prev = pose
+
+        cloud = np.concatenate(clouds)
+        dists.pop(0)
+
+        print('Subseq %s, N points: %d, length: %.2f, distances between poses: min=%.2f, mean=%.2f, max=%.2f'
+              % (name, len(cloud), np.sum(dists).item(), np.min(dists), np.mean(dists).item(), np.max(dists)))
+
+        visualize_dataset(ds, cfg)
+
+
 def visualize_datasets():
     from depth_correction.config import Config
     from depth_correction.visualization import visualize_dataset
 
-    cfg = Config(min_depth=1, max_depth=15, grid_res=0.4, nn_r=0.4)
-    for name in dataset_names:
+    cfg = Config(min_depth=5, max_depth=25, grid_res=0.5)
+    # seqs = ['%02d_step_50' % i for i in [0, 2, 3, 4, 5, 6, 7, 9, 10]]
+    seqs = ['%02d_step_20' % i for i in [3, 7, 10]]
+    for name in seqs:
         ds = Dataset(name='%s/%s' % (prefix, name), zero_origin=True)
+        print('Sequence: %s has %i samples' % (name, len(ds)))
 
         visualize_dataset(ds, cfg)
 

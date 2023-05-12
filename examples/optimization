@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 from tqdm import tqdm
-from depth_correction.datasets.fee_corridor import Dataset, dataset_names
+from depth_correction.dataset import create_dataset
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial
 from depth_correction.preproc import filtered_cloud, local_feature_cloud
@@ -12,24 +12,28 @@ from depth_correction.loss import create_loss
 from depth_correction.eval import create_corrected_poses, global_cloud
 from depth_correction.preproc import establish_neighborhoods, compute_neighborhood_features
 from depth_correction.config import Loss, NeighborhoodType
+from depth_correction.visualization import visualize_dataset
 
 
 def main():
     cfg = Config()
     cfg.grid_res = 0.2
     cfg.min_depth = 1.0
-    cfg.max_depth = 20.0
+    cfg.max_depth = 25.0
     cfg.nn_r = 0.4
-    cfg.lr = 0.001
+    cfg.lr = 0.005
     cfg.n_opt_iters = 100
     cfg.device = 'cpu'
-    cfg.pose_correction = PoseCorrection.pose
+    # cfg.pose_correction = PoseCorrection.pose
+    cfg.pose_correction = PoseCorrection.none
     cfg.loss = Loss.min_eigval_loss
     cfg.nn_type = NeighborhoodType.ball
 
-    train_name = dataset_names[0]
-    print('Training on %s sequence' % train_name)
-    ds = Dataset(name=train_name, static_poses=True)
+    # train_name = 'fee_corridor/seq1_start_0_end_7_step_1'
+    train_name = 'kitti360/06_start_102_end_112_step_2'
+    print('Training on %s' % train_name)
+    ds = create_dataset(train_name, cfg)
+    visualize_dataset(ds, cfg)
 
     train_clouds = []
     for id in ds.ids:
@@ -39,14 +43,16 @@ def main():
         cloud = local_feature_cloud(cloud, cfg)
         train_clouds.append(cloud)
 
-    train_poses = np.stack([ds.poses[id] for id in ds.ids])
+    train_poses = np.stack([ds.poses[i] for i in range(len(ds))])
+    # train_poses = np.stack([ds.poses[id] for id in ds.ids])
     train_poses = torch.as_tensor(train_poses, device=cfg.device, dtype=cfg.torch_float_type())
     train_pose_deltas = torch.zeros((len(train_poses), 6),
                                     dtype=cfg.torch_float_type(), requires_grad=True, device=cfg.device)
 
     train_ns = establish_neighborhoods(clouds=train_clouds, poses=train_poses, cfg=cfg)
 
-    model = ScaledPolynomial(w=[0.0, 0.0], exponent=[2, 4], device=cfg.device)
+    # model = ScaledPolynomial(w=[0.0, 0.0], exponent=[2, 4], device=cfg.device)
+    model = ScaledPolynomial(w=[-0.0], exponent=[4], device=cfg.device)
 
     loss_fn = create_loss(cfg)
 
@@ -57,14 +63,14 @@ def main():
     for it in tqdm(range(cfg.n_opt_iters)):
         # update poses
         train_poses_corr = create_corrected_poses(train_poses, train_pose_deltas, cfg)
-        train_poses_corr = torch.stack(train_poses_corr)
+        train_poses_corr = torch.as_tensor(train_poses_corr)
 
         cloud = global_cloud(clouds=train_clouds, model=model, poses=train_poses_corr)
         feats = compute_neighborhood_features(cloud=cloud, model=None, neighborhoods=train_ns, cfg=cfg)
 
         # compute map consistency loss
         loss_train, _ = loss_fn(feats)
-        print(loss_train.item())
+        print(loss_train.item(), model)
 
         # optimization step
         optimizer.zero_grad()

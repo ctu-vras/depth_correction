@@ -1,19 +1,25 @@
 #! /usr/bin/env python
 
 import torch
-from depth_correction.datasets.fee_corridor import Dataset, dataset_names
+# from depth_correction.datasets.fee_corridor import Dataset, dataset_names
+from depth_correction.dataset import create_dataset
 from depth_correction.depth_cloud import DepthCloud
 from depth_correction.model import ScaledPolynomial
 from depth_correction.preproc import filtered_cloud
 from depth_correction.config import Config
 from depth_correction.loss import point_to_plane_dist
 
-# in this example we use collected indoor dataset
-ds = Dataset(name=dataset_names[0])
-
 # setup data and optimization parameters
 cfg = Config()
-cfg.lr = 0.001
+cfg.grid_res = 0.1
+cfg.min_depth = 1.0
+cfg.max_depth = 15.0
+cfg.nn_r = 0.25
+cfg.lr = 0.0002
+
+# in this example we use collected indoor dataset
+# ds = Dataset(name=dataset_names[0])
+ds = create_dataset('kitti360/06_start_102_end_152_step_1', cfg)
 
 # define model for scans correction: depth correction term in the example d' = w * gamma^4
 model = ScaledPolynomial(w=[0.0], exponent=[4])

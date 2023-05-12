@@ -39,30 +39,19 @@ class TrainingDemo(TrainCallbacks):
 
         self.cfg = Config()
 
-        # 10 clouds
-        # self.cfg.train_names = ['kitti360/03_start_223_end_273_step_1']
-        # self.cfg.train_poses_path = []
-        # self.cfg.val_names = ['kitti360/03_start_223_end_273_step_1']
-        # self.cfg.val_poses_path = []
-
-        # 4 clouds
-        # self.cfg.train_names = ['kitti360/03_start_223_end_243_step_1']
-        # self.cfg.train_names = ['kitti360/07_start_52_end_102_step_1']
-        self.cfg.train_names = ['fee_corridor/seq2']
+        self.cfg.train_names = ['kitti360/05_start_102_end_152_step_1']
         self.cfg.train_poses_path = []
-        # self.cfg.val_names = ['kitti360/03_start_223_end_243_step_1']
-        # self.cfg.val_names = ['kitti360/07_start_52_end_102_step_1']
-        self.cfg.val_names = ['fee_corridor/seq1']
+        self.cfg.val_names = ['kitti360/06_start_102_end_152_step_1']
         self.cfg.val_poses_path = []
 
-        # self.cfg.data_step = 4
-        self.cfg.data_step = 1
+        self.cfg.data_step = 5
+        # self.cfg.data_step = 1
         self.cfg.data_start = 0
-        self.cfg.data_stop = 10
+        self.cfg.data_stop = 20
         self.cfg.dataset = self.cfg.train_names[0].split('/')[0]
 
         # Depth and grid filters prevent computing L2 loss since the points don't match.
-        self.cfg.min_depth = 1.0
+        self.cfg.min_depth = 5.0
         # self.cfg.min_depth = 0.1
         self.cfg.max_depth = 25.0
         # self.cfg.grid_res = 0.1
@@ -84,13 +73,15 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.max_neighborhoods = 10
 
         self.cfg.shadow_angle_bounds = []
+        # self.cfg.dir_dispersion_bounds = [0., float('inf')]
+        # self.cfg.dir_dispersion_bounds = [0., 1.]
         # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
         self.cfg.eigenvalue_bounds = []
         # self.cfg.eigenvalue_bounds = [[0, -float('inf'), (self.cfg.nn_r / 8)**2],
         #                               [1, (self.cfg.nn_r / 4)**2, float('inf')]]
         # self.cfg.eigenvalue_ratio_bounds = []
-        # self.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0.25, 1]]
+        # self.cfg.eigenvalue_ratio_bounds = [[0, 1, 0, 0.25], [1, 2, 0., 1.]]
         self.cfg.eigenvalue_ratio_bounds = [[0, 1, 0, 0.01], [1, 2, 0.25, 1.0]]
         # self.cfg.dir_dispersion_bounds = []
         # self.cfg.vp_dispersion_bounds = []
@@ -104,8 +95,8 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.pose_noise_mode = NoisyPoseDataset.Mode.pose
         # self.cfg.pose_noise = 0.01
         # self.cfg.pose_correction = PoseCorrection.common
-        # self.cfg.pose_correction = PoseCorrection.none
-        self.cfg.pose_correction = PoseCorrection.pose
+        self.cfg.pose_correction = PoseCorrection.none
+        # self.cfg.pose_correction = PoseCorrection.pose
 
         # self.cfg.model_class = Model.Passthrough
         self.cfg.depth_bias_model_class = Model.ScaledPolynomial
@@ -147,8 +138,8 @@ class TrainingDemo(TrainCallbacks):
         # self.cfg.optimizer_kwargs['betas'] = (0.5, 0.9)
         # Weight decay for the depth correction model parameters (not poses).
         # self.cfg.optimizer_kwargs['weight_decay'] = 0.1
-        self.cfg.lr = 0.0002
-        self.cfg.n_opt_iters = 500
+        self.cfg.lr = 0.001
+        self.cfg.n_opt_iters = 100
 
         self.cfg.from_rosparam()
         self.cfg.to_yaml(os.path.join(self.cfg.log_dir, 'config.yaml'))

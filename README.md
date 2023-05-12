@@ -1,5 +1,7 @@
 # Self-Supervised Depth Correction of Lidar Measurements from Map Consistency Loss
 
+[![Paper](http://img.shields.io/badge/paper-arxiv.2303.01123-critical.svg?style=plastic)](https://arxiv.org/pdf/2303.01123)
+
 This repository is a [ROS](https://www.ros.org/) node that contains implementation of the following:
 
 - point cloud map consistency loss 

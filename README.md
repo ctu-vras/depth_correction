@@ -90,11 +90,13 @@ the following publicly available datasets:
 - [ASL laser](https://projects.asl.ethz.ch/datasets/doku.php?id=laserregistration:laserregistration),
 - [Semantic KITTI](http://www.semantic-kitti.org/dataset.html),
 - [Newer College](https://ori-drs.github.io/newer-college-dataset/).
-- [KITTI-360](https://www.cvlibs.net/datasets/kitti-360/)
+- [KITTI-360](./docs/kitti360.md)
 - [FEE Corridor](http://ptak.felk.cvut.cz/vras/data/fee_corridor/)
 
 In addition, we provide our dataset (`FEE Corridor`) that contains point cloud data captured in indorr environment
 with precise localization and ground truth mapping information.
+![](./docs/imgs/fee_corridor_oveirview.png)
+
 Download the dataset from
 [http://ptak.felk.cvut.cz/vras/data/fee_corridor/fee_corridor.zip](http://ptak.felk.cvut.cz/vras/data/fee_corridor/fee_corridor.zip)
 and put it to the `./data` folder (50 Gb).

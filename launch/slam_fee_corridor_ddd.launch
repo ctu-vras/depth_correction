@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <arg name="config" default="''"/>
+    <arg name="rviz" default="true"/>
+    <arg name="sequence" default="seq2" doc="A sequence from data set. One of [seq1, seq2]"/>
+    <arg name="bag" default="$(dirname)/../data/fee_corridor/bags/$(arg sequence).bag"/>
+    <arg name="params" default="$(eval bag.split()[0] + '.params')"/>
+    <!-- Cloud filter -->
+    <arg name="min_depth" default="1.0"/>
+    <arg name="max_depth" default="25.0"/>
+    <arg name="grid_res" default="0."/>
+    <!-- Depth denoising (DDD) -->
+    <arg name="depth_denoising" default="false"/>
+    <arg name="device" default="cuda"/>
+    <!-- Bag recording -->
+    <arg name="record" default="false"/>
+    <arg name="recorded_bag" default=""/>
+
+    <!-- Robot data: from bag file -->
+    <rosparam command="load" file="$(arg params)"/>
+    <param name="use_sim_time" value="true"/>
+    <node name="rosbag_play" pkg="rosbag" type="play" args="--clock --delay 3.0 --rate 1.0 --start 0 $(arg bag)">
+        <remap from="points" to="cloud"/>
+    </node>
+
+    <!-- 3D alignment to find transformation between subt and map frames -->
+    <!-- For sequence slam_2022-11-24-15-28-59 -->
+    <!-- TODO: double check it, does not work -->
+    <node if="$(eval 'seq1' in bag)"
+          pkg="tf" type="static_transform_publisher" name="leica_frame_broadcaster"
+          args="-1.99887395  0.41757888  0.17917509
+                0.00798539  0.00732319 -0.08601576  0.99623486
+                map subt 100" />
+    <!-- For sequence slam_2022-11-24-15-39-08 -->
+    <node if="$(eval 'seq2' in bag)"
+          pkg="tf" type="static_transform_publisher" name="leica_frame_broadcaster"
+          args="-2.00522453  0.40555919  0.17453647
+                -0.00176987  0.00817518 -0.08592385  0.99626659
+                map subt 100" />
+    <node pkg="tf" type="static_transform_publisher" name="subt_frame_broadcaster"
+          args="0 0 0
+                0 0 0 1
+                subt leica_frame 100" />
+
+    <!-- Depth denoising -->
+    <include if="$(arg depth_denoising)" file="$(dirname)/depth_denoising.launch">
+        <arg name="input" value="filtered_cloud"/>
+        <arg name="output" value="corrected_cloud"/>
+        <arg name="device" value="$(arg device)"/>
+    </include>
+
+    <!-- Cloud filterring -->
+    <include file="$(dirname)/cloud_filter.launch">
+        <arg name="config" value="$(arg config)"/>
+        <arg name="input" value="cloud"/>
+        <arg name="output" value="filtered_cloud"/>
+        <arg name="min_depth" value="$(arg min_depth)"/>
+        <arg name="max_depth" value="$(arg max_depth)"/>
+        <arg name="grid_res" value="$(arg grid_res)"/>
+        <arg name="max_age" value="1.0"/>
+    </include>
+
+    <!-- SLAM -->
+    <include file="$(dirname)/slam.launch">
+        <arg name="cloud" value="$(eval 'corrected_cloud' if depth_denoising else 'filtered_cloud')"/>
+        <arg name="odom_frame" value="odom"/>
+        <arg name="slam" value="norlab_icp_mapper"/>
+    </include>
+
+    <!-- estimate initial ground truth map position for ICP convergence (publish GT cloud in ROS and visualize it) -->
+    <node pkg="depth_correction" type="cloud_publisher" name="cloud_publisher">
+        <rosparam subst_value="true">
+<!--            cloud_file: $(dirname)/../data/fee_corridor/maps/npz/map_5cm_alligned.npz-->
+            cloud_file: $(dirname)/../data/fee_corridor/maps/npz/ground_map_5cm_alligned.npz
+            frame: map
+            rate: 5.0
+            alignment: false
+        </rosparam>
+        <remap from="cloud" to="ground_truth_map"/>
+    </node>
+
+    <!-- Recording -->
+    <include if="$(arg record)" file="$(dirname)/record.launch">
+        <arg name="topics" value="/clock
+                                  /husky_velocity_controller/odom
+                                  /icp_odom
+                                  /tf
+                                  /tf_static
+                                  /total_station_driver/ts_points"/>
+        <arg name="bag" value="$(arg recorded_bag)"/>
+    </include>
+
+    <!-- RVIZ -->
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+        <arg name="config" value="$(dirname)/../config/play.rviz"/>
+    </include>
+</launch>

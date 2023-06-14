@@ -1,0 +1,183 @@
+#!/usr/bin/env python
+from __future__ import absolute_import, division, print_function
+import os
+import numpy as np
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
+from ros_numpy import msgify, numpify
+import rospy
+from sensor_msgs.msg import PointCloud2
+import torch
+from timeit import default_timer as timer
+import sys
+sys.path.append('/home/ruslan/workspaces/depthcorr_ws/src/DeepDepthDenoising/')
+import models as ddd_models
+import utils as ddd_utils
+from supervision import get_mask
+
+
+lidar_params = {
+        'proj_fov_up': 45,
+        'proj_fov_down': -45,
+        'proj_H': 128,
+        'proj_W': 1024
+}
+
+model_params = {
+        'width': lidar_params['proj_W'],
+        'height': lidar_params['proj_H'],
+        'ndf': 8,
+        'dilation': 1,
+        'norm_type': "elu",
+        'upsample_type': "nearest"
+    }
+
+def load_model(model_path=None, device=None):
+    if model_path is None:
+        model_path = '/home/ruslan/workspaces/depthcorr_ws/src/DeepDepthDenoising/weights/ddd'
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # load denoising (DDD) model
+    model = ddd_models.get_model(model_params).to(device)
+    ddd_utils.init.initialize_weights(model, model_path)
+    return model
+
+def range_projection(points, params):
+    """ Project a point cloud into a sphere.
+    """
+    # laser parameters
+    fov_up = params['proj_fov_up'] / 180.0 * np.pi  # field of view up in rad
+    fov_down = params['proj_fov_down'] / 180.0 * np.pi  # field of view down in rad
+    fov = abs(fov_down) + abs(fov_up)  # get field of view total in rad
+
+    # get depth of all points
+    depth = np.linalg.norm(points, 2, axis=1)
+
+    # get scan components
+    scan_x = points[:, 0]
+    scan_y = points[:, 1]
+    scan_z = points[:, 2]
+
+    # get angles of all points
+    yaw = -np.arctan2(scan_y, scan_x)
+    pitch = np.arcsin(scan_z / (depth + 1e-8))
+
+    # get projections in image coords
+    proj_x = 0.5 * (yaw / np.pi + 1.0)  # in [0.0, 1.0]
+    proj_y = 1.0 - (pitch + abs(fov_down)) / fov  # in [0.0, 1.0]
+
+    # scale to image size using angular resolution
+    proj_x *= params['proj_W']  # in [0.0, W]
+    proj_y *= params['proj_H']  # in [0.0, H]
+
+    # round and clamp for use as index
+    proj_x = np.floor(proj_x)
+    proj_x = np.minimum(params['proj_W'] - 1, proj_x)
+    proj_x = np.maximum(0, proj_x).astype(np.int32)  # in [0,W-1]
+
+    proj_y = np.floor(proj_y)
+    proj_y = np.minimum(params['proj_H'] - 1, proj_y)
+    proj_y = np.maximum(0, proj_y).astype(np.int32)  # in [0,H-1]
+
+    # order in decreasing depth
+    order = np.argsort(depth)[::-1]
+    depth = depth[order]
+    proj_y = proj_y[order]
+    proj_x = proj_x[order]
+
+    # assing to image
+    proj_range = np.full((params['proj_H'], params['proj_W']), -1, dtype=np.float32)
+    proj_range[proj_y, proj_x] = depth
+
+    return proj_range
+
+
+def depth_to_points(depth, params):
+    proj_H, proj_W = depth.shape
+    yaw = np.linspace(np.pi, -np.pi, proj_W)
+    yaw = np.repeat(yaw[None], proj_H, axis=0)
+
+    fov_up = params['proj_fov_up'] / 180.0 * np.pi  # field of view up in rad
+    fov_down = params['proj_fov_down'] / 180.0 * np.pi  # field of view down in rad
+    pitch = np.linspace(fov_up, fov_down, proj_H)
+    pitch = np.repeat(pitch[None].T, proj_W, axis=1)
+
+    x = depth * np.cos(pitch) * np.cos(yaw)
+    y = depth * np.cos(pitch) * np.sin(yaw)
+    z = depth * np.sin(pitch)
+
+    x = x.reshape((-1))
+    y = y.reshape((-1))
+    z = z.reshape((-1))
+    points = np.stack([x, y, z]).T
+
+    mask = depth.reshape((-1)) > 0.
+    points = points[mask]
+
+    return points
+
+
+class DepthDenoising(object):
+    def __init__(self):
+        self.max_age = rospy.get_param('~max_age', 1.0)
+        self.device = torch.device(rospy.get_param('~device', 'cpu'))
+        self.model_path = rospy.get_param('~model_weights')
+        assert os.path.exists(self.model_path)
+        self.model = load_model(model_path=self.model_path, device=self.device)
+
+        self.corrected_pub = rospy.Publisher('output', PointCloud2, queue_size=2)
+        self.cloud_sub = rospy.Subscriber('input', PointCloud2, self.process_cloud, queue_size=2)
+
+    def correct_depth(self, input_msg):
+        assert isinstance(input_msg, PointCloud2)
+        input_cloud = numpify(input_msg)
+        if 'vp_x' not in input_cloud.dtype.names:
+            rospy.logwarn_once('Point cloud does not contain viewpoint fields (vp_x not among %s).',
+                               ', '.join(input_cloud.dtype.names))
+
+        rospy.logdebug("Received point cloud for depth denoising")
+        t = timer()
+        if input_cloud.ndim == 2:
+            input_cloud = input_cloud.reshape((-1,))
+        points = structured_to_unstructured(input_cloud[['x', 'y', 'z']])
+        depth = range_projection(points, lidar_params)
+        with torch.no_grad():
+            h, w = depth.shape
+            depth_tensor = torch.from_numpy(depth).reshape(1, 1, h, w).to(self.device)
+            mask, _ = get_mask(depth_tensor)
+            mask = mask.to(self.device)
+            predicted_depth, _ = self.model(depth_tensor, mask)
+            depth_smooth = depth_tensor.clone()
+            mask = torch.as_tensor(mask, dtype=torch.bool)
+
+        depth_smooth[mask] = predicted_depth[mask]
+        depth_smooth = depth_smooth.squeeze().cpu().numpy()
+        points_smooth = depth_to_points(depth_smooth, lidar_params)
+
+        rospy.logdebug("Processed cloud in %.3f sec" % (timer() - t))
+
+        points_smooth = np.asarray(points_smooth, dtype=np.float32)
+        output_cloud = unstructured_to_structured(points_smooth, names=['x', 'y', 'z'])
+        output_msg = msgify(PointCloud2, output_cloud)
+        output_msg.header = input_msg.header
+        return output_msg
+
+    def process_cloud(self, input_msg):
+        assert isinstance(input_msg, PointCloud2)
+
+        age = (rospy.Time.now() - input_msg.header.stamp).to_sec()
+        if age > self.max_age:
+            rospy.logwarn('Skipping message %.3f s > %.3f s old.', age, self.max_age)
+            return
+
+        output_msg = self.correct_depth(input_msg)
+        self.corrected_pub.publish(output_msg)
+
+
+def main():
+    rospy.init_node('depth_denoising', log_level=rospy.INFO)
+    node = DepthDenoising()
+    rospy.spin()
+
+
+if __name__ == '__main__':
+    main()

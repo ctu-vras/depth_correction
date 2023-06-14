@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<launch>
+    <!-- Evaluation of SLAM pipelines with and without depth correction module. -->
+    <arg name="config" default="''"/>
+    <arg name="dataset" default="fee_corridor/seq1" doc="Dataset and sequence name."/>
+    <arg name="dataset_path" default="" doc="Override for dataset path, optional."/>
+    <arg name="dataset_poses_path" default="" doc="Override for dataset poses path, optional."/>
+    <arg name="odom" default="true" doc="Publish possibly perturbed odometry."/>
+<!--    <arg name="odom_cov" default="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"-->
+<!--         doc="Odometry covariance diagonal, Euler angles and translation variances."/>-->
+    <arg name="odom_cov" default="[0.0001, 0.0001, 0.0001, 0.0025, 0.0025, 0.0025]"
+         doc="Odometry covariance diagonal, Euler angles and translation variances."/>
+    <arg name="step" default="1"/>
+    <arg name="rviz" default="true"/>
+    <arg name="record" default="false"/>
+    <arg name="play" default="false"/>
+    <arg name="rate" default="1.0"/>
+    <arg name="bag" default=""/>
+    <arg name="bag_prefix" default="$(find depth_correction)/slam"/>
+    <!-- Robot data and evaluation -->
+    <arg name="slam" default="norlab_icp_mapper"
+         doc="SLAM algorithm to use, from {ethzasl_icp_mapper, norlab_icp_mapper}."/>
+    <arg name="slam_eval_csv" default="$(find depth_correction)/slam_eval.csv"/>
+    <arg name="slam_poses_csv" default="$(find depth_correction)/slam_poses.csv"/>
+    <!-- Cloud filter -->
+    <arg name="min_depth" default="1.0"/>
+    <arg name="max_depth" default="25.0"/>
+    <arg name="grid_res" default="0."/>
+    <!-- Depth denoising (DDD) -->
+    <arg name="depth_denoising" default="false"/>
+    <arg name="device" default="cuda"/>
+
+    <group if="$(eval play)">
+        <param name="use_sim_time" value="true"/>
+        <node name="rosbag_play" pkg="rosbag" type="play" args="--clock -d 3.0 -r $(arg rate) $(arg bag)" output="screen">
+            <remap from="points" to="cloud"/>
+        </node>
+    </group>
+
+    <group if="$(eval not play)">
+        <!-- Publish data from selected dataset, play bag files etc. -->
+        <include file="$(dirname)/robot_data.launch">
+            <arg name="dataset" value="$(arg dataset)"/>
+            <arg name="dataset_path" value="$(arg dataset_path)"/>
+            <arg name="dataset_poses_path" value="$(arg dataset_poses_path)"/>
+            <arg name="start" value="0"/>
+            <arg name="stop" value="1000000000"/>
+            <arg name="step" value="$(arg step)"/>
+            <arg name="period" value="3.0"/>
+            <arg name="delay_start" value="3.0"/>
+            <arg name="delay_end" value="3.0"/>
+            <arg name="lidar_frame" value="lidar"/>
+            <arg name="odom_frame" value="$(eval 'odom' if odom else '')"/>
+            <arg name="odom_cov" value="$(arg odom_cov)"/>
+            <arg name="rviz" value="false"/>
+            <arg name="slam_eval_csv" value="$(arg slam_eval_csv)"/>
+            <arg name="slam_poses_csv" value="$(arg slam_poses_csv)"/>
+        </include>
+    </group>
+
+    <include if="$(arg depth_denoising)" file="$(dirname)/depth_denoising.launch">
+        <arg name="input" value="filtered_cloud"/>
+        <arg name="output" value="corrected_cloud"/>
+        <arg name="device" value="$(arg device)"/>
+    </include>
+
+    <include file="$(dirname)/cloud_filter.launch">
+        <arg name="config" value="$(arg config)"/>
+        <arg name="input" value="cloud"/>
+        <arg name="output" value="filtered_cloud"/>
+        <arg name="min_depth" value="$(arg min_depth)"/>
+        <arg name="max_depth" value="$(arg max_depth)"/>
+        <arg name="grid_res" value="$(arg grid_res)"/>
+        <arg name="max_age" value="1.0"/>
+    </include>
+    <include file="$(dirname)/slam.launch">
+        <arg name="cloud" value="$(eval 'corrected_cloud' if depth_denoising else 'filtered_cloud')"/>
+        <arg name="odom_frame" value="$(eval 'odom' if odom else 'lidar')"/>
+    </include>
+
+    <!-- Static TF -->
+    <node pkg="tf" type="static_transform_publisher" name="tf_map_map_gt" args="0 0 0 0 0 0 map gt/map 100" />
+
+    <!-- Bag file recording for localization accuracy evaluation -->
+    <group if="$(arg record)">
+        <node name="record" pkg="rosbag" type="record"
+          args="--lz4 --output-prefix $(arg bag_prefix)
+                /tf /tf_static /icp_odom /husky_velocity_controller/odom /total_station_driver/ts_points"/>
+    </group>
+
+    <include if="$(arg rviz)" file="$(dirname)/rviz.launch">
+        <arg name="config" value="$(dirname)/../config/slam.rviz"/>
+    </include>
+</launch>

@@ -12,9 +12,5 @@
                                 /tf
                                 /tf_static"/>
     <node if="$(eval bool(bag or bag_prefix) )" name="record" pkg="rosbag" type="record"
-          args="--lz4 $(arg args)
-                $(arg topics)"/>
-    <!--
-    /point_map
-    -->
+          args="--lz4 $(arg args) $(arg topics)"/>
 </launch>

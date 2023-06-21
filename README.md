@@ -1,6 +1,7 @@
 # Self-Supervised Depth Correction of Lidar Measurements from Map Consistency Loss
 
-[![Paper](http://img.shields.io/badge/paper-arxiv.2303.01123-critical.svg?style=plastic)](https://arxiv.org/pdf/2303.01123)
+[![RA-L](http://img.shields.io/badge/IEEE-RAL2023-blue.svg?style=plastic)](https://ieeexplore.ieee.org/document/10158328)
+[![Arxiv](http://img.shields.io/badge/paper-arxiv.2303.01123-critical.svg?style=plastic)](https://arxiv.org/pdf/2303.01123)
 [![Slides](http://img.shields.io/badge/presentation-slides-blue.svg?style=plastic)](https://docs.google.com/presentation/d/1OfyXPEjGgtOgc0vgpgs3hoFb7VrC5IYAOgu1fmzTbhQ/edit?usp=sharing)
 
 This repository is a [ROS](https://www.ros.org/) node that contains implementation of the following:
@@ -248,5 +249,17 @@ Feel free to cite the work if you find it relevant to your research.
   publisher = {arXiv},
   year = {2023},
   copyright = {arXiv.org perpetual, non-exclusive license}
+}
+```
+```
+@ARTICLE{10158328,
+  author={Agishev, Ruslan and Petříček, Tomáš and Zimmermann, Karel},
+  journal={IEEE Robotics and Automation Letters}, 
+  title={Self-Supervised Depth Correction of Lidar Measurements from Map Consistency Loss}, 
+  year={2023},
+  volume={},
+  number={},
+  pages={1-8},
+  doi={10.1109/LRA.2023.3287791}
 }
 ```

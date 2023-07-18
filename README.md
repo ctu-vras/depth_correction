@@ -255,11 +255,11 @@ Feel free to cite the work if you find it relevant to your research.
 @ARTICLE{10158328,
   author={Agishev, Ruslan and Petříček, Tomáš and Zimmermann, Karel},
   journal={IEEE Robotics and Automation Letters}, 
-  title={Self-Supervised Depth Correction of Lidar Measurements from Map Consistency Loss}, 
+  title={Self-Supervised Depth Correction of Lidar Measurements From Map Consistency Loss}, 
   year={2023},
-  volume={},
-  number={},
-  pages={1-8},
+  volume={8},
+  number={8},
+  pages={4681-4688},
   doi={10.1109/LRA.2023.3287791}
 }
 ```

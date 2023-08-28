@@ -157,8 +157,8 @@ class Dataset(object):
         return prefix + '/' + self.name
 
     def local_cloud(self, id):
-        # return read_points(self.local_cloud_path(id))
-        return read_points_npz(self.local_cloud_fixed_npz_path(id))
+        return read_points(self.local_cloud_path(id))
+        # return read_points_npz(self.local_cloud_fixed_npz_path(id))
 
     def global_cloud(self, id):
         return read_points(self.global_cloud_path(id))
@@ -182,7 +182,8 @@ def demo():
         pose_prev = np.eye(4)
         for id in ds.ids:
             cloud = ds.local_cloud(id)
-            cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
+            if cloud.dtype.names is not None:
+                cloud = structured_to_unstructured(cloud[['x', 'y', 'z']])
             pose = ds.cloud_pose(id)
             cloud = np.matmul(cloud, pose[:3, :3].T) + pose[:3, 3:].T
 

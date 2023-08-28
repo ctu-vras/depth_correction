@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# Challenging data sets for point cloud registration algorithms
+# https://projects.asl.ethz.ch/datasets/doku.php?id=laserregistration:laserregistration
+# See the web for details on license/permisssions, data gathering, visualizations etc.
+
+# The datasets were published in 
+# F. Pomerleau, M. Liu, F. Colas, and R. Siegwart,
+# Challenging data sets for point cloud registration algorithms,
+# International Journal of Robotic Research, vol. 31, no. 14, pp. 1705-1711, Dec. 2012.
+
+# The evaluation protocol was published in
+# F. Pomerleau, F. Colas, R. Siegwart, and S. Magnenat,
+# Comparing ICP variants on real-world data sets,
+# Autonomous Robots, Volume 34, Issue 3, pp 133-148, Feb. 2013.
+
+set -e
+
+prefix=http://robotics.ethz.ch/~asl-datasets
+dirs="
+apartment_03-Dec-2011-18_13_33
+ETH_hauptgebaude_23-Aug-2011-18_43_49
+evaluations
+gazebo_winter_18-Jan-2012-16_10_04
+gazebo_summer_04-Aug-2011-16_13_22
+plain_01-Sep-2011-16_39_18
+stairs_26-Aug-2011-14_26_14
+wood_summer_25-Aug-2011-13_00_30
+wood_autumn_09-Dec-2011-15_44_05
+"
+
+for d in ${dirs}
+do
+    wget -nc -r --cut-dirs=1 -L -nH --no-parent -A avi,bag,csv,JPG,launch,m,mat,png,tiff,txt,yaml,yml -R html --reject-regex='[?=]' "${prefix}/${d}/"
+done
+
+# Create shortcuts as symbolic links.
+ln -s apartment_03-Dec-2011-18_13_33 apartment
+ln -s ETH_hauptgebaude_23-Aug-2011-18_43_49 eth
+ln -s gazebo_winter_18-Jan-2012-16_10_04 gazebo_winter
+ln -s gazebo_summer_04-Aug-2011-16_13_22 gazebo_summer
+ln -s plain_01-Sep-2011-16_39_18 plain
+ln -s stairs_26-Aug-2011-14_26_14 stairs
+ln -s wood_summer_25-Aug-2011-13_00_30 wood_summer
+ln -s wood_autumn_09-Dec-2011-15_44_05 wood_autumn
+
+ln -s gazebo_winter gazebo
+ln -s wood_summer wood

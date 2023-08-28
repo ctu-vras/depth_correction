@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/home/ruslan/workspaces/depthcorr_ws/src/DeepDepthDenoising/')
+sys.path.append('/home/ruslan/workspaces/depth_correction_ws/src/DeepDepthDenoising/')
 import models
 import utils
 from supervision import get_mask

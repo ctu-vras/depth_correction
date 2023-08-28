@@ -25,7 +25,6 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 
 5. Build ROS workspace:
    ```bash
-   cd ~/catkin_ws/src/ && git clone https://github.com/tpet/data.git
    cd ~/catkin_ws/ && wstool init src ~/catkin_ws/src/depth_correction/dependencies.rosinstall
    cd ~/catkin_ws/ && catkin build
    source devel/setup.bash
@@ -38,7 +37,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 2. Building Singularity image.
 
    ```bash
-   cd ../singularity
+   cd ~/catkin_ws/src/depth_correction/singularity
    sudo singularity build depth_correction.simg recepie.def
    ```
 
@@ -46,7 +45,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
 
    - Download [ASL laser](https://projects.asl.ethz.ch/datasets/doku.php?id=laserregistration:laserregistration):
    ```bash
-   cd ~/catkin_ws/src/data/asl_laser/
+   cd ~/catkin_ws/src/depth_correction/data/asl_laser/
    ./get
    ```
 
@@ -57,6 +56,7 @@ Tested with Ubuntu 20.04 and ROS-noetic.
    [ASL laser](https://projects.asl.ethz.ch/datasets/doku.php?id=laserregistration:laserregistration).
 
    ```bash
+   cd ~/catkin_ws/src/depth_correction/singularity
    singularity shell --nv --bind ~/catkin_ws/src/depth_correction/:/opt/ros/depthcorr_ws/src/depth_correction/ \
                depth_correction.simg
 

@@ -132,7 +132,7 @@ fee_corridor
 There the `map` folder containes ground truth scans captured with
 the [Leica BLK360](https://leica-geosystems.com/products/laser-scanners/scanners/blk360) scanner.
 Two "stop-and-go" data sqeuences are provided of a robot with mounter
-Ouster [OS1-128](https://ouster.com/blog/introducing-the-os-1-128-lidar-sensor/)
+Ouster [OS0-128](https://ouster.com/products/scanning-lidar/os0-sensor/)
 lidar moving in the same environment.
 Individual scans from static robot positions are recorded in
 `static_ouster_points` folders as `*.npz` or `*.bin` file formats.

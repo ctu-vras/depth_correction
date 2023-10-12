@@ -551,7 +551,7 @@ def point_to_point_dist(clouds: list, icp_inlier_ratio=0.5, masks=None, differen
 
         # point to point distance
         vectors = points2_inters - points1_inters
-        point2point_dist = torch.linalg.norm(vectors, dim=1).mean()
+        point2point_dist += torch.linalg.norm(vectors, dim=1).mean()
 
         if inl_err > 0.3:
             warnings.warn('ICP inliers error is too big: %.3f (> 0.3) [m] for pairs (%i, %i)' % (inl_err, i, i + 1))
